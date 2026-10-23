@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -25,7 +26,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -196,7 +199,7 @@ final class PlayerDataCacheTest {
     }
 
     @Test
-    void flushAllIsANoOpForStrictlyWriteThroughSnapshots() throws Exception {
+    void flushAllDoesNotIssueDuplicateWritesForCompletedOperations() throws Exception {
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
         delegates.players.put(OTHER_PLAYER, new PlayerProfile(OTHER_PLAYER, 2, List.of()));
         await(cache.load(PLAYER));
@@ -209,6 +212,67 @@ final class PlayerDataCacheTest {
         assertEquals(0, delegates.petWrites.get());
         assertEquals(0, delegates.treeWrites.get());
         assertEquals(2, cache.loadedPlayerCount());
+    }
+
+    @Test
+    void flushAllWaitsForWritesPendingInBothSequencers() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "dog_brown");
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
+        delegates.players.put(OTHER_PLAYER, new PlayerProfile(OTHER_PLAYER, 2, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        await(cache.load(PLAYER));
+        await(cache.load(OTHER_PLAYER));
+        var playerGate = new CompletableFuture<Void>();
+        var petGate = new CompletableFuture<Void>();
+        delegates.playerSave = profile -> playerGate.thenRun(() -> delegates.players.put(profile.playerId(), profile));
+        delegates.petSave = pet -> petGate.thenRun(() -> delegates.pets.put(pet.id(), pet));
+
+        var playerWrite = players.save(new PlayerProfile(OTHER_PLAYER, 8, List.of()));
+        var petWrite = pets.save(ownedPet);
+        var flush = cache.flushAll();
+
+        assertFalse(flush.isDone());
+        playerGate.complete(null);
+        await(playerWrite);
+        assertFalse(flush.isDone());
+
+        petGate.complete(null);
+        await(petWrite);
+        await(flush);
+        assertEquals(2, cache.loadedPlayerCount());
+    }
+
+    @Test
+    void unloadWaitsForQueuedPetOperationsBeforeEvicting() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var changedProgress = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        await(cache.load(PLAYER));
+        var petGate = new CompletableFuture<Void>();
+        var treeGate = new CompletableFuture<Void>();
+        delegates.petSave = pet -> petGate.thenRun(() -> delegates.pets.put(pet.id(), pet));
+        delegates.treeSave = progress -> treeGate.thenRun(() -> delegates.progress.put(progress.petId(), progress));
+
+        var petWrite = pets.save(ownedPet);
+        var queuedTreeWrite = trees.save(changedProgress);
+        var unload = cache.unload(PLAYER);
+
+        assertFalse(unload.isDone());
+        assertTrue(cache.isLoaded(PLAYER));
+        assertEquals(0, delegates.treeWrites.get());
+
+        petGate.complete(null);
+        await(petWrite);
+        assertEquals(1, delegates.treeWrites.get());
+        assertFalse(unload.isDone());
+        assertTrue(cache.isLoaded(PLAYER));
+
+        treeGate.complete(null);
+        await(queuedTreeWrite);
+        await(unload);
+        assertFalse(cache.isLoaded(PLAYER));
+        assertEquals(changedProgress, delegates.progress.get(PET));
     }
 
     @Test
@@ -339,6 +403,50 @@ final class PlayerDataCacheTest {
         assertEquals(8, delegates.players.get(OTHER_PLAYER).skillPointBalance());
     }
 
+    @Test
+    void executorBackedConcurrentCallsRemainSequencedPerPlayer() throws Exception {
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
+        await(cache.load(PLAYER));
+        int writeCount = 12;
+        var firstWriteGate = new CompletableFuture<Void>();
+        var delegateCalls = new AtomicInteger();
+        delegates.playerSave = profile -> {
+            int call = delegateCalls.incrementAndGet();
+            if (call == 1) {
+                return firstWriteGate.thenRun(() -> delegates.players.put(profile.playerId(), profile));
+            }
+            delegates.players.put(profile.playerId(), profile);
+            return CompletableFuture.completedFuture(null);
+        };
+
+        try (var executor = Executors.newFixedThreadPool(writeCount)) {
+            var ready = new CountDownLatch(writeCount);
+            var start = new CountDownLatch(1);
+            var submissions = new ArrayList<CompletableFuture<CompletableFuture<Void>>>();
+            for (int index = 0; index < writeCount; index++) {
+                int balance = index + 10;
+                submissions.add(CompletableFuture.supplyAsync(() -> {
+                    ready.countDown();
+                    awaitLatch(start);
+                    return players.save(new PlayerProfile(PLAYER, balance, List.of()));
+                }, executor));
+            }
+
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            await(CompletableFuture.allOf(submissions.toArray(CompletableFuture<?>[]::new)));
+            assertEquals(1, delegateCalls.get());
+
+            firstWriteGate.complete(null);
+            var writes = submissions.stream().map(CompletableFuture::join).toArray(CompletableFuture<?>[]::new);
+            await(CompletableFuture.allOf(writes));
+            assertEquals(writeCount, delegateCalls.get());
+            assertEquals(
+                    delegates.players.get(PLAYER).skillPointBalance(),
+                    await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
+        }
+    }
+
     private static OwnedPet pet(PetId id, PlayerId owner, String variant) {
         return new OwnedPet(
                 id,
@@ -364,6 +472,15 @@ final class PlayerDataCacheTest {
 
     private static <T> T await(CompletableFuture<T> future) throws Exception {
         return future.get(10, TimeUnit.SECONDS);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while coordinating concurrent test", failure);
+        }
     }
 
     private static final class FakeRepositories
