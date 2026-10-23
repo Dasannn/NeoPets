@@ -2,6 +2,7 @@ package dev.dasannn.neopets.plugin.listener;
 
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PlayerId;
+import dev.dasannn.neopets.core.model.PetStatus;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
@@ -40,6 +41,10 @@ public final class PlayerLifecycleListener implements Listener {
     private final Logger logger;
     private final PendingLoginSessions pendingLogins;
     private final RuntimeWorkTracker work;
+    private java.util.function.Function<PlayerId, CompletableFuture<Void>> beforeUnload =
+            ignored -> CompletableFuture.completedFuture(null);
+    private java.util.function.Function<PlayerId, CompletableFuture<Void>> beforeRestore =
+            ignored -> CompletableFuture.completedFuture(null);
     private final ConcurrentHashMap<AsyncPlayerPreLoginEvent, Long> preLoginTokens = new ConcurrentHashMap<>();
 
     public PlayerLifecycleListener(
@@ -60,6 +65,16 @@ public final class PlayerLifecycleListener implements Listener {
         this.logger = Objects.requireNonNull(logger, "logger");
         this.work = Objects.requireNonNull(work, "work");
         pendingLogins = new PendingLoginSessions(scheduleLoginExpiry, this::cleanupRejectedLogin);
+    }
+
+    /** Installs courier cleanup that must succeed before owner data is evicted. */
+    public void beforeUnload(java.util.function.Function<PlayerId, CompletableFuture<Void>> cleanup) {
+        beforeUnload = Objects.requireNonNull(cleanup, "cleanup");
+    }
+
+    /** Installs recovery run before restoring the owner's active pet entities. */
+    public void beforeRestore(java.util.function.Function<PlayerId, CompletableFuture<Void>> recovery) {
+        beforeRestore = Objects.requireNonNull(recovery, "recovery");
     }
 
     /** Blocks only Paper's asynchronous login thread until the complete profile is cached. */
@@ -104,8 +119,9 @@ public final class PlayerLifecycleListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
         pendingLogins.joined(playerId);
-        work.submit(() -> pets.findByOwner(playerId)
+        work.submit(() -> beforeRestore.apply(playerId).thenCompose(ready -> pets.findByOwner(playerId))
                 .thenCompose(owned -> all(owned.stream().filter(OwnedPet::active)
+                        .filter(pet -> pet.status() == PetStatus.ALIVE)
                         .map(pet -> entities.spawn(pet.id())).toList())))
                 .whenComplete((ignored, failure) -> logFailure("re-summon pets for " + playerId, failure));
     }
@@ -115,15 +131,17 @@ public final class PlayerLifecycleListener implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
         Long sessionToken = pendingLogins.departed(playerId);
-        work.submit(() -> continueAfter(despawn(playerId), () -> sessionToken == null
-                        ? CompletableFuture.completedFuture(null) : cache.unload(playerId, sessionToken)))
+        work.submit(() -> beforeUnload.apply(playerId).thenCompose(ready ->
+                        continueAfter(despawn(playerId), () -> sessionToken == null
+                                ? CompletableFuture.completedFuture(null) : cache.unload(playerId, sessionToken))))
                 .whenComplete((ignored, failure) -> logFailure("unload player " + playerId, failure));
     }
 
     /** Despawns the currently active entities for one player without persisting state changes. */
     public CompletableFuture<Void> despawn(PlayerId playerId) {
         return pets.findByOwner(playerId).thenCompose(owned -> all(owned.stream()
-                .filter(OwnedPet::active).map(pet -> entities.despawn(pet.id())).toList()));
+                .filter(OwnedPet::active).filter(pet -> pet.status() == PetStatus.ALIVE)
+                .map(pet -> entities.despawn(pet.id())).toList()));
     }
 
     private void deny(AsyncPlayerPreLoginEvent event, PlayerId playerId, Throwable failure) {

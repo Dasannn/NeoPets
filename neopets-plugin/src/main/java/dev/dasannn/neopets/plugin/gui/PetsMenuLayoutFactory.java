@@ -119,6 +119,9 @@ public final class PetsMenuLayoutFactory {
         if (renameEnabled) {
             lore.add(text("gui.pets.action-rename"));
         }
+        if (pet.courierSaddlebagsActive()) {
+            lore.add(text("gui.pets.action-courier"));
+        }
         return MenuItem.action(material, name, lore, pet.active(), ACTION_PET_PREFIX + pet.petId());
     }
 

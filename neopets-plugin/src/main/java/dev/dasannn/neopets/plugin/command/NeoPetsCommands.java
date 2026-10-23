@@ -90,6 +90,7 @@ public final class NeoPetsCommands {
                 case "summon" -> summonOrDismiss(rt, source.getSender(), args, true);
                 case "dismiss" -> summonOrDismiss(rt, source.getSender(), args, false);
                 case "sp" -> skillPoints(rt, source.getSender(), args);
+                case "courier" -> courier(rt, source.getSender(), args);
                 case "reload" -> reload(rt, source.getSender(), args);
                 default -> rt.messages().send(source.getSender(), MessageSpec.of("general.usage-neopet"));
             }
@@ -100,7 +101,7 @@ public final class NeoPetsCommands {
             if (args.length == 1) {
                 var choices = new ArrayList<String>();
                 if (source.getSender().hasPermission(USE)) {
-                    choices.addAll(List.of("summon", "dismiss"));
+                    choices.addAll(List.of("summon", "dismiss", "courier"));
                 }
                 if (source.getSender().hasPermission(GIVE)) {
                     choices.add("give");
@@ -141,7 +142,34 @@ public final class NeoPetsCommands {
                     return onlinePlayerNames(args[2]);
                 }
             }
+            if (args.length == 2 && args[0].equalsIgnoreCase("courier")) {
+                return prefix(List.of("accept", "reject"), args[1]);
+            }
             return List.of();
+        }
+    }
+
+    private void courier(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, USE, rt)) return;
+        if (!(sender instanceof Player player)) {
+            rt.messages().send(sender, MessageSpec.of("errors.player-only"));
+            return;
+        }
+        if (args.length != 3) {
+            rt.messages().send(sender, MessageSpec.of("general.usage-courier"));
+            return;
+        }
+        UUID requestId;
+        try {
+            requestId = UUID.fromString(args[2]);
+        } catch (IllegalArgumentException invalid) {
+            rt.messages().send(sender, MessageSpec.of("courier.unavailable"));
+            return;
+        }
+        switch (args[1].toLowerCase(Locale.ROOT)) {
+            case "accept" -> rt.courierSaddlebags().accept(player, requestId);
+            case "reject" -> rt.courierSaddlebags().reject(player, requestId);
+            default -> rt.messages().send(sender, MessageSpec.of("general.usage-courier"));
         }
     }
 

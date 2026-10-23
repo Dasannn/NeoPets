@@ -14,6 +14,7 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
+import dev.dasannn.neopets.core.port.SaddlebagVersionConflictException;
 import dev.dasannn.neopets.core.pet.PendingSoulDelivery;
 import java.time.Instant;
 import java.util.List;
@@ -41,6 +42,7 @@ abstract class AbstractJdbcRepositoryTest {
     private JdbcSoulTokenRepository tokens;
     private JdbcPetStorageRepository petStorage;
     private JdbcPendingSoulDeliveryRepository pendingDeliveries;
+    private JdbcSaddlebagRepository saddlebags;
 
     abstract StorageSettings settings();
 
@@ -56,6 +58,7 @@ abstract class AbstractJdbcRepositoryTest {
         tokens = new JdbcSoulTokenRepository(bootstrap);
         petStorage = new JdbcPetStorageRepository(bootstrap);
         pendingDeliveries = new JdbcPendingSoulDeliveryRepository(bootstrap);
+        saddlebags = new JdbcSaddlebagRepository(bootstrap);
     }
 
     @AfterEach
@@ -164,6 +167,50 @@ abstract class AbstractJdbcRepositoryTest {
         await(petStorage.deleteById(PET_ID));
         await(petStorage.deleteById(PET_ID));
         assertEquals(Optional.empty(), await(petStorage.load(PET_ID)));
+    }
+
+    @Test
+    final void saddlebagRoundTripsAndRejectsAStaleOptimisticVersion() throws Exception {
+        await(pets.save(pet(PET_ID, OWNER, "donkey_brown")));
+        var created = await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {1, 2}));
+        assertArrayEquals(new byte[] {1, 2}, created.contents());
+        assertEquals(0, created.version());
+
+        var updated = await(saddlebags.save(PET_ID, OWNER, new byte[] {3, 4}, created.version()));
+        assertEquals(1, updated.version());
+        assertArrayEquals(new byte[] {3, 4}, updated.contents());
+        var loaded = await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {9}));
+        assertEquals(updated, loaded);
+
+        var conflict = assertThrows(ExecutionException.class,
+                () -> await(saddlebags.save(PET_ID, OWNER, new byte[] {5}, created.version())));
+        assertInstanceOf(SaddlebagVersionConflictException.class, conflict.getCause());
+        assertEquals(updated, await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {9})));
+    }
+
+    @Test
+    final void saddlebagSupportsMetadataLargerThanMysqlBlobLimit() throws Exception {
+        await(pets.save(pet(PET_ID, OWNER, "donkey_brown")));
+        await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[0]));
+        byte[] contents = new byte[128 * 1024];
+        new java.util.Random(26).nextBytes(contents);
+        await(saddlebags.save(PET_ID, OWNER, contents, 0));
+        assertArrayEquals(contents, await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[0])).contents());
+    }
+
+    @Test
+    final void petDeathKeepsSaddlebagContentsForRevival() throws Exception {
+        OwnedPet alive = pet(PET_ID, OWNER, "donkey_brown");
+        await(pets.save(alive));
+        await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {7, 8, 9}));
+
+        await(pets.save(alive.withStatus(PetStatus.DEAD).withActive(false)));
+
+        assertArrayEquals(new byte[] {7, 8, 9},
+                await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {0})).contents());
+        await(pets.save(alive.withStatus(PetStatus.ALIVE).withActive(false)));
+        assertArrayEquals(new byte[] {7, 8, 9},
+                await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {0})).contents());
     }
 
     @Test

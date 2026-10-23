@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.core.port;
 
 import dev.dasannn.neopets.core.model.PetId;
+import dev.dasannn.neopets.core.model.PlayerId;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -12,6 +13,11 @@ import java.util.concurrent.CompletableFuture;
 public interface PetEntityGateway {
     /** Spawns the entity for an owned pet that does not currently have one. */
     CompletableFuture<Void> spawn(PetId petId);
+
+    /** Spawns an invulnerable courier pet next to its addressed online recipient. */
+    default CompletableFuture<Void> spawnForCourier(PetId petId, PlayerId recipient) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("courier spawning is unavailable"));
+    }
 
     /** Removes the pet's entity if one is currently spawned. */
     CompletableFuture<Void> despawn(PetId petId);

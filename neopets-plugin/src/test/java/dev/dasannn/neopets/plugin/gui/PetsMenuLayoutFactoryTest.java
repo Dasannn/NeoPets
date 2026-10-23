@@ -194,7 +194,7 @@ class PetsMenuLayoutFactoryTest {
             int points
     ) {
         UUID id = UUID.nameUUIDFromBytes(("preview-pet-" + number).getBytes(StandardCharsets.UTF_8));
-        return new PetMenuEntry(id.toString(), type, name, material, baby, status, active, nodes, points);
+        return new PetMenuEntry(id.toString(), type, name, material, baby, status, active, nodes, points, false);
     }
 
     private static int contentCount(MenuLayout layout) {

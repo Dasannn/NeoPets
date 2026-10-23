@@ -7,7 +7,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 final class MysqlMigrationTest extends AbstractMigrationTest {
     @Container
     private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
@@ -20,6 +20,7 @@ final class MysqlMigrationTest extends AbstractMigrationTest {
         try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
             execute(connection, "SET FOREIGN_KEY_CHECKS = 0");
             execute(connection, "DROP TABLE IF EXISTS np_pet_attribute");
+            execute(connection, "DROP TABLE IF EXISTS np_pet_saddlebag");
             execute(connection, "DROP TABLE IF EXISTS np_pet_storage");
             execute(connection, "DROP TABLE IF EXISTS np_soul_token");
             execute(connection, "DROP TABLE IF EXISTS np_pending_soul_delivery");

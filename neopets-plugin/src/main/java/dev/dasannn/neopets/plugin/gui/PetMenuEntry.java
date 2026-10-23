@@ -13,7 +13,8 @@ public record PetMenuEntry(
         PetStatus status,
         boolean active,
         int unlockedNodes,
-        int assignedSkillPoints
+        int assignedSkillPoints,
+        boolean courierSaddlebagsActive
 ) {
     public PetMenuEntry {
         Objects.requireNonNull(petId, "petId");

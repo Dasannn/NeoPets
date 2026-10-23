@@ -22,7 +22,8 @@ abstract class AbstractMigrationTest {
             "np_pet_attribute", Set.of("pet_id", "attribute_id", "unlocked_level", "active_level"),
             "np_soul_token", Set.of("token_id", "pet_id", "owner", "issued_at", "consumed_at"),
             "np_pet_storage", Set.of("pet_id", "contents"),
-            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at"));
+            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at"),
+            "np_pet_saddlebag", Set.of("pet_id", "owner", "contents", "version"));
 
     abstract StorageSettings settings();
 
@@ -42,6 +43,7 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of("consumed_at"), nullableColumns(metadata, "np_soul_token"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_storage"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pending_soul_delivery"));
+            assertEquals(Set.of(), nullableColumns(metadata, "np_pet_saddlebag"));
 
             assertEquals(Set.of("uuid"), primaryKey(metadata, "np_player"));
             assertEquals(Set.of("id"), primaryKey(metadata, "np_pet"));
@@ -49,12 +51,15 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of("token_id"), primaryKey(metadata, "np_soul_token"));
             assertEquals(Set.of("pet_id"), primaryKey(metadata, "np_pet_storage"));
             assertEquals(Set.of("token_id"), primaryKey(metadata, "np_pending_soul_delivery"));
+            assertEquals(Set.of("pet_id"), primaryKey(metadata, "np_pet_saddlebag"));
             assertTrue(indexedColumns(metadata, "np_pet").contains(Set.of("owner")));
             assertTrue(indexedColumns(metadata, "np_soul_token").contains(Set.of("owner")));
             assertTrue(indexedColumns(metadata, "np_pending_soul_delivery").contains(Set.of("owner")));
+            assertTrue(indexedColumns(metadata, "np_pet_saddlebag").contains(Set.of("owner")));
             assertTrue(tableExists(metadata, "np_flyway_schema_history"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
         }
     }
 
@@ -80,11 +85,13 @@ abstract class AbstractMigrationTest {
                     VALUES ('pet-one', 'armor', 2, 1)
                     """);
             insertStorage(connection, "pet-one");
+            insertSaddlebag(connection, "pet-one", "owner");
 
             execute(connection, "DELETE FROM np_pet WHERE id = 'pet-one'");
 
             assertEquals(0, count(connection, "np_pet_attribute"));
             assertEquals(0, count(connection, "np_pet_storage"));
+            assertEquals(0, count(connection, "np_pet_saddlebag"));
         }
     }
 
@@ -96,6 +103,7 @@ abstract class AbstractMigrationTest {
                     VALUES ('missing', 'health', 1, 1)
                     """));
             assertThrows(SQLException.class, () -> insertStorage(connection, "missing"));
+            assertThrows(SQLException.class, () -> insertSaddlebag(connection, "missing", "owner"));
         }
     }
 
@@ -129,6 +137,7 @@ abstract class AbstractMigrationTest {
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '0' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
         }
     }
 
@@ -154,7 +163,7 @@ abstract class AbstractMigrationTest {
                 assertEquals(17, result.getInt("sp_balance"));
             }
             assertEquals(1, countWhere(
-                    connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
+                    connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
         }
     }
 
@@ -241,6 +250,18 @@ abstract class AbstractMigrationTest {
                 """)) {
             statement.setString(1, petId);
             statement.setBytes(2, new byte[] {1, 2});
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertSaddlebag(Connection connection, String petId, String owner) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO np_pet_saddlebag (pet_id, owner, contents, version)
+                VALUES (?, ?, ?, 0)
+                """)) {
+            statement.setString(1, petId);
+            statement.setString(2, owner);
+            statement.setBytes(3, new byte[] {1, 2});
             statement.executeUpdate();
         }
     }

@@ -17,6 +17,7 @@ general:
   usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
   usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
   usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
+  usage-courier: '<gray>Usa los botones de la solicitud de mensajería.</gray>'
 
 pets:
   none-owned: "<yellow>Aún no tienes mascotas.</yellow>"
@@ -70,7 +71,10 @@ skills:
 
 courier:
   request-sent: "<green>Solicitud de mensajería enviada a <player>.</green>"
-  request-received: "<yellow><owner> quiere enviarte su burro. Usa <white><accept_command></white> para aceptar.</yellow>"
+  request-received: "<yellow><owner> quiere enviarte su burro.</yellow>"
+  accept-button: "<green><bold>[Aceptar]</bold></green>"
+  reject-button: "<red><bold>[Rechazar]</bold></red>"
+  accepted-recipient: "<green>Entrega aceptada. Las alforjas están abiertas.</green>"
   accepted: "<green><player> aceptó la entrega.</green>"
   rejected: "<yellow>La solicitud de mensajería fue rechazada.</yellow>"
   returned: "<green>El burro ha vuelto con su dueño.</green>"
@@ -81,6 +85,8 @@ courier:
   inventory-in-use: "<yellow>Otra persona está usando las alforjas.</yellow>"
   send: "<green>Enviar burro</green>"
   return: "<yellow>Devolver al dueño</yellow>"
+  picker-help-message: "<gray>Elige un jugador conectado para enviarle el burro.</gray>"
+  storage-help-message: "<gray>Clic en una pila para guardarla o retirarla; clic derecho para la mitad. Mantén el cursor vacío. Arrastrar, teclas numéricas, mano secundaria y doble clic están bloqueados.</gray>"
 
 gui:
   pets-title: "Mis mascotas"
@@ -126,6 +132,7 @@ gui:
     action-dismiss: "<yellow>Clic izq. <dark_gray>» <gray>Guardar</gray></dark_gray></yellow>"
     action-skills: "<yellow>Clic der. <dark_gray>» <gray>Habilidades</gray></dark_gray></yellow>"
     action-rename: "<yellow>Shift+clic <dark_gray>» <gray>Renombrar</gray></dark_gray></yellow>"
+    action-courier: "<yellow>Shift+clic der. <dark_gray>» <gray>Abrir alforjas</gray></dark_gray></yellow>"
     filter-name: "<aqua>Filtrar por tipo</aqua>"
     filter-current: "<gray>Actual: <white><filter></white></gray>"
     filter-action: "<yellow>Clic <dark_gray>» <gray>Cambiar</gray></dark_gray></yellow>"
@@ -149,6 +156,31 @@ gui:
     rename-cancel-word: "cancelar"
     rename-cancelled: "<gray>Renombrado cancelado.</gray>"
     rename-invalid: "<red>El nombre debe tener entre 1 y 32 caracteres visibles y no contener saltos de línea.</red>"
+  courier:
+    blank: "<white> </white>"
+    title: "<gold>Alforjas mensajeras</gold>"
+    header: "<gold><bold>Alforjas de <pet></bold></gold>"
+    owner-subtitle: "<dark_gray>Almacenamiento del dueño · 27 espacios</dark_gray>"
+    recipient-subtitle: "<dark_gray>Entrega recibida · 27 espacios</dark_gray>"
+    send-name: "<green>Enviar burro</green>"
+    return-name: "<yellow>Devolver al dueño</yellow>"
+    send-action: "<yellow>Clic <dark_gray>» <gray>Elegir destinatario</gray></dark_gray></yellow>"
+    return-action: "<yellow>Clic <dark_gray>» <gray>Guardar y devolver</gray></dark_gray></yellow>"
+    back: "<white>Volver</white>"
+    close: "<red>Cerrar</red>"
+    storage-help: "<aqua>Cómo funcionan</aqua>"
+    storage-help-lore: "<gray>Clic: mover pila · clic derecho: mitad</gray>"
+    picker-title: "<gold>Enviar alforjas</gold>"
+    picker-header: "<gold><bold>Destinatario</bold></gold>"
+    picker-count: "<gray>Jugadores disponibles: <white><count></white></gray>"
+    player-name: "<white><player></white>"
+    player-action: "<yellow>Clic <dark_gray>» <gray>Enviar solicitud</gray></dark_gray></yellow>"
+    no-players: "<yellow>No hay otros jugadores conectados</yellow>"
+    previous: "<white>Página anterior</white>"
+    next: "<white>Página siguiente</white>"
+    page: "<gray>Página <white><page></white>/<pages></gray>"
+    picker-help: "<aqua>Envío seguro</aqua>"
+    picker-help-lore: "<gray>El destinatario debe aceptar la solicitud.</gray>"
   skill-tree:
     title: "<dark_aqua>Árbol de <pet></dark_aqua>"
     header-name: "<gold><bold><pet></bold></gold>"

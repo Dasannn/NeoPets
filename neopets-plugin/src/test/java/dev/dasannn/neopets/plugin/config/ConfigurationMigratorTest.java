@@ -84,7 +84,7 @@ class ConfigurationMigratorTest {
 
         assertTrue(new ConfigurationMigrator().migrate(configuration, 8));
 
-        assertEquals(9, configuration.getInt("config-version"));
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, configuration.getInt("config-version"));
         assertEquals("NETHER_STAR", configuration.getString("death.soul-item.material"));
         assertEquals("<light_purple>Alma de <pet></light_purple>", configuration.getString("death.soul-item.name"));
         assertEquals(2, configuration.getStringList("death.soul-item.lore").size());

@@ -117,6 +117,17 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.effect");
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped");
+    private static final Set<String> VERSION_10_MESSAGES = Set.of(
+            "general.usage-courier", "courier.accept-button", "courier.reject-button",
+            "courier.accepted-recipient", "courier.picker-help-message", "courier.storage-help-message",
+            "gui.pets.action-courier", "gui.courier.blank", "gui.courier.title", "gui.courier.header",
+            "gui.courier.owner-subtitle", "gui.courier.recipient-subtitle", "gui.courier.send-name",
+            "gui.courier.return-name", "gui.courier.send-action", "gui.courier.return-action",
+            "gui.courier.back", "gui.courier.close", "gui.courier.storage-help",
+            "gui.courier.storage-help-lore", "gui.courier.picker-title", "gui.courier.picker-header",
+            "gui.courier.picker-count", "gui.courier.player-name", "gui.courier.player-action",
+            "gui.courier.no-players", "gui.courier.previous", "gui.courier.next", "gui.courier.page",
+            "gui.courier.picker-help", "gui.courier.picker-help-lore");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -166,6 +177,7 @@ public final class ConfigurationLoader {
         var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
         required.addAll(VERSION_6_MESSAGES);
         required.addAll(VERSION_9_MESSAGES);
+        required.addAll(VERSION_10_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -342,6 +354,9 @@ public final class ConfigurationLoader {
         }
         if (sourceVersion < 9) {
             changed |= mergeMissing(language, defaults, VERSION_9_MESSAGES);
+        }
+        if (sourceVersion < 10) {
+            changed |= mergeMissing(language, defaults, VERSION_10_MESSAGES);
         }
         return changed;
     }

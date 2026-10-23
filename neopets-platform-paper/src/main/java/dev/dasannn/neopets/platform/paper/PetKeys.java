@@ -13,6 +13,9 @@ public final class PetKeys {
     /** Configured {@code VariantId} used to spawn the pet. */
     public static final NamespacedKey VARIANT_ID = new NamespacedKey("neopets", "variant_id");
 
+    /** UUID of the recipient while this entity represents an accepted courier delivery. */
+    public static final NamespacedKey COURIER_RECIPIENT = new NamespacedKey("neopets", "courier_recipient");
+
     private PetKeys() {
     }
 }

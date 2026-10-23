@@ -52,6 +52,7 @@ public final class PetsMenu {
     private final PetService petService;
     private final PetRenameListener renames;
     private final BiConsumer<Player, PetId> skillTreeOpener;
+    private final BiConsumer<Player, PetId> courierOpener;
     private final Logger logger;
 
     public PetsMenu(
@@ -66,6 +67,7 @@ public final class PetsMenu {
             PetService petService,
             PetRenameListener renames,
             BiConsumer<Player, PetId> skillTreeOpener,
+            BiConsumer<Player, PetId> courierOpener,
             Logger logger
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
@@ -80,6 +82,7 @@ public final class PetsMenu {
         this.petService = Objects.requireNonNull(petService, "petService");
         this.renames = Objects.requireNonNull(renames, "renames");
         this.skillTreeOpener = Objects.requireNonNull(skillTreeOpener, "skillTreeOpener");
+        this.courierOpener = Objects.requireNonNull(courierOpener, "courierOpener");
         this.logger = Objects.requireNonNull(logger, "logger");
     }
 
@@ -96,7 +99,7 @@ public final class PetsMenu {
                 return;
             }
             var built = build(data, state);
-            state.accept(built);
+            state.accept(built, data);
             menu.open(player, built.layout(),
                     (session, viewer, action, click) -> handle(session, viewer, state, action, click));
         }));
@@ -140,6 +143,12 @@ public final class PetsMenu {
                     action.substring(PetsMenuLayoutFactory.ACTION_PET_PREFIX.length())));
         } catch (IllegalArgumentException failure) {
             logger.log(Level.WARNING, "Invalid pet menu action: " + action, failure);
+            return;
+        }
+        PetMenuEntry entry = state.data == null ? null : state.data.pets().stream()
+                .filter(candidate -> candidate.petId().equals(petId.toString())).findFirst().orElse(null);
+        if (click == ClickType.SHIFT_RIGHT && entry != null && entry.courierSaddlebagsActive()) {
+            courierOpener.accept(player, petId);
             return;
         }
         if (click.isShiftClick()) {
@@ -192,7 +201,7 @@ public final class PetsMenu {
                 return;
             }
             var built = build(data, state);
-            state.accept(built);
+            state.accept(built, data);
             session.refresh(built.layout());
         }));
     }
@@ -220,7 +229,9 @@ public final class PetsMenu {
                 pet.id().toString(), variant.type().value(), petName(pet, snapshot),
                 iconMaterial(snapshot, variant),
                 variant.baby(), pet.status(), pet.active(), progress.map(TreeProgress::unlockedNodes).orElse(0),
-                progress.map(value -> value.assignedSkillPoints(definition)).orElse(0)));
+                progress.map(value -> value.assignedSkillPoints(definition)).orElse(0),
+                progress.map(value -> value.attributes().get("courier_saddlebags"))
+                        .map(attribute -> attribute.activeLevel() > 0).orElse(false)));
     }
 
     private PetsMenuLayoutFactory.BuiltLayout build(PetsMenuData data, ViewState state) {
@@ -270,10 +281,12 @@ public final class PetsMenu {
         private int page;
         private int totalPages = 1;
         private boolean loading;
+        private PetsMenuData data;
 
-        private void accept(PetsMenuLayoutFactory.BuiltLayout built) {
+        private void accept(PetsMenuLayoutFactory.BuiltLayout built, PetsMenuData data) {
             page = built.pageIndex();
             totalPages = built.totalPages();
+            this.data = data;
         }
     }
 }

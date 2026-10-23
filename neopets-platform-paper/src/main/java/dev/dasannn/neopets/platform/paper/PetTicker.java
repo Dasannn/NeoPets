@@ -15,6 +15,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.EntitiesUnloadEvent;
+import org.bukkit.persistence.PersistentDataType;
 
 /** Runs all active pet behavior from one configurable repeating task. */
 public final class PetTicker implements AutoCloseable, Listener {
@@ -171,7 +172,9 @@ public final class PetTicker implements AutoCloseable, Listener {
             }
             var owner = server.getPlayer(ownerId.orElseThrow());
             if (owner != null && owner.isOnline()) {
-                brain.tick(pet, owner);
+                if (!pet.getPersistentDataContainer().has(PetKeys.COURIER_RECIPIENT, PersistentDataType.STRING)) {
+                    brain.tick(pet, owner);
+                }
                 abilities.tick(entry.getKey(), pet, owner);
             }
         }

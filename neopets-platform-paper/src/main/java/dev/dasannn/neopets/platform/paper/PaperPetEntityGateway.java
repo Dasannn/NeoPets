@@ -2,17 +2,20 @@ package dev.dasannn.neopets.platform.paper;
 
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetVariant;
+import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataType;
 
 /**
  * Paper entity lifecycle adapter that is safe to call from any thread.
@@ -28,6 +31,7 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
     private final Function<PetId, PetSpawnData> spawnDataLookup;
     private final Function<VariantId, PetVariant> variantLookup;
     private final PetEffectApplier effectApplier;
+    private final ConcurrentHashMap<PetId, PlayerId> courierRecipients = new ConcurrentHashMap<>();
 
     /** Creates a gateway with the no-op effect applier used before skill-tree wiring is available. */
     public PaperPetEntityGateway(
@@ -82,12 +86,30 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
     @Override
     public CompletableFuture<Void> spawn(PetId petId) {
         Objects.requireNonNull(petId, "petId");
-        return scheduler.runOnMain(() -> spawnOnMain(petId));
+        return scheduler.runOnMain(() -> {
+            PlayerId recipient = courierRecipients.get(petId);
+            if (recipient == null) {
+                spawnOnMain(petId, null);
+            } else {
+                spawnOnMain(petId, recipient);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> spawnForCourier(PetId petId, PlayerId recipient) {
+        Objects.requireNonNull(petId, "petId");
+        Objects.requireNonNull(recipient, "recipient");
+        courierRecipients.put(petId, recipient);
+        return scheduler.runOnMain(() -> spawnOnMain(petId, recipient)).whenComplete((ignored, failure) -> {
+            if (failure != null) courierRecipients.remove(petId, recipient);
+        });
     }
 
     @Override
     public CompletableFuture<Void> despawn(PetId petId) {
         Objects.requireNonNull(petId, "petId");
+        courierRecipients.remove(petId);
         return scheduler.runOnMain(() -> despawnOnMain(petId));
     }
 
@@ -102,7 +124,7 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
                 .ifPresent(entity -> effectApplier.apply(petId, entity)));
     }
 
-    private void spawnOnMain(PetId petId) {
+    private void spawnOnMain(PetId petId, PlayerId courierRecipient) {
         var existingId = registry.entityId(petId).orElse(null);
         if (existingId != null) {
             var existing = server.getEntity(existingId);
@@ -122,7 +144,16 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
         }
         clearShoulderedPet(owner, petId);
 
-        var entity = spawner.spawn(owner.getLocation(), spawnData.ownerId(), petId, variant);
+        Location location = owner.getLocation();
+        Player recipient = null;
+        if (courierRecipient != null) {
+            recipient = server.getPlayer(courierRecipient.value());
+            if (recipient == null || !recipient.isOnline()) {
+                throw new IllegalStateException("Courier recipient is not online: " + courierRecipient);
+            }
+            location = recipient.getLocation();
+        }
+        var entity = spawner.spawn(location, spawnData.ownerId(), petId, variant);
         if (entity == null || !entity.isValid()) {
             throw new IllegalStateException(
                     "NeoPets pet spawn was cancelled or rejected by the server, possibly by another plugin: " + petId);
@@ -130,6 +161,11 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
         try {
             if (entity instanceof LivingEntity livingEntity) {
                 effectApplier.apply(petId, livingEntity);
+                if (courierRecipient != null) {
+                    livingEntity.setInvulnerable(true);
+                    livingEntity.getPersistentDataContainer().set(PetKeys.COURIER_RECIPIENT,
+                            PersistentDataType.STRING, courierRecipient.value().toString());
+                }
             }
             registry.register(petId, entity.getUniqueId());
         } catch (Throwable failure) {
@@ -157,7 +193,9 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
                     }
                 });
 
-        var spawnData = spawnDataLookup.apply(petId);
+        PetSpawnData spawnData;
+        try { spawnData = spawnDataLookup.apply(petId); }
+        catch (IllegalStateException unloadedOwner) { return; }
         if (spawnData == null) {
             return;
         }

@@ -29,6 +29,11 @@ final class DeferredPorts {
         }
 
         @Override
+        public CompletableFuture<Void> spawnForCourier(PetId petId, PlayerId recipient) {
+            return require(delegate, "pet entity gateway").spawnForCourier(petId, recipient);
+        }
+
+        @Override
         public CompletableFuture<Void> despawn(PetId petId) {
             return require(delegate, "pet entity gateway").despawn(petId);
         }

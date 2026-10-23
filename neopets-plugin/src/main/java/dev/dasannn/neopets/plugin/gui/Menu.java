@@ -20,6 +20,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.Plugin;
 
 /** Renders and protects all NeoPets inventories through one shared Bukkit listener. */
@@ -36,7 +37,7 @@ public final class Menu implements Listener {
         this.server = plugin.getServer();
         this.logger = Objects.requireNonNull(logger, "logger");
         this.nextTick = task -> server.getScheduler().runTask(plugin, task);
-        this.itemRenderer = Menu::render;
+        this.itemRenderer = item -> render(item, server);
     }
 
     Menu(
@@ -104,7 +105,7 @@ public final class Menu implements Listener {
         layout.items().forEach((slot, item) -> inventory.setItem(slot, itemRenderer.apply(item)));
     }
 
-    private static ItemStack render(MenuItem item) {
+    private static ItemStack render(MenuItem item, Server server) {
         Material material = Material.matchMaterial(item.material());
         if (material == null || material.isAir()) {
             throw new IllegalArgumentException("Unknown menu material: " + item.material());
@@ -114,6 +115,15 @@ public final class Menu implements Listener {
             meta.itemName(component(item.name()));
             meta.lore(item.lore().stream().map(Menu::component).toList());
             meta.setEnchantmentGlintOverride(item.glint());
+            if (meta instanceof SkullMeta skull && item.actionId().orElse("").startsWith("courier:player:")) {
+                try {
+                    String encoded = item.actionId().orElseThrow().substring("courier:player:".length());
+                    Player online = server.getPlayer(java.util.UUID.fromString(encoded));
+                    if (online != null) skull.setPlayerProfile(online.getPlayerProfile());
+                } catch (IllegalArgumentException ignored) {
+                    // Invalid action identifiers are ignored here and cannot affect inventory safety.
+                }
+            }
         });
         return stack;
     }

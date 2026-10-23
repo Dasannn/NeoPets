@@ -2,6 +2,7 @@ package dev.dasannn.neopets.plugin.runtime;
 
 import dev.dasannn.neopets.api.NeoPetsProvider;
 import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
+import dev.dasannn.neopets.core.courier.CourierService;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -28,6 +29,7 @@ import dev.dasannn.neopets.plugin.config.PluginSettings;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
 import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
 import dev.dasannn.neopets.plugin.gui.Menu;
+import dev.dasannn.neopets.plugin.gui.CourierSaddlebags;
 import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
 import dev.dasannn.neopets.plugin.gui.SkillTreeMenu;
@@ -48,6 +50,7 @@ import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import dev.dasannn.neopets.platform.paper.PetTicker;
 import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
+import dev.dasannn.neopets.platform.paper.ability.CourierSaddlebagsAbility;
 import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
 import dev.dasannn.neopets.platform.paper.ability.VigiaAbility;
 import dev.dasannn.neopets.platform.paper.ability.ZarpazoAbility;
@@ -59,6 +62,7 @@ import dev.dasannn.neopets.storage.JdbcPetRepository;
 import dev.dasannn.neopets.storage.JdbcPendingSoulDeliveryRepository;
 import dev.dasannn.neopets.storage.JdbcPlayerRepository;
 import dev.dasannn.neopets.storage.JdbcSoulTokenRepository;
+import dev.dasannn.neopets.storage.JdbcSaddlebagRepository;
 import dev.dasannn.neopets.storage.JdbcTreeProgressRepository;
 import dev.dasannn.neopets.storage.StorageBootstrap;
 import dev.dasannn.neopets.storage.StorageSettings;
@@ -93,6 +97,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final PetsMenu petsMenu;
     private final PlayerDataCache cache;
     private final RuntimeWorkTracker work;
+    private final CourierSaddlebags courierSaddlebags;
 
     private NeoPetsRuntime(
             RuntimeLifecycle lifecycle,
@@ -105,7 +110,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             PlayerLifecycleListener playerLifecycle,
             PetsMenu petsMenu,
             PlayerDataCache cache,
-            RuntimeWorkTracker work
+            RuntimeWorkTracker work,
+            CourierSaddlebags courierSaddlebags
     ) {
         this.lifecycle = lifecycle;
         this.configuration = configuration;
@@ -118,6 +124,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.petsMenu = petsMenu;
         this.cache = cache;
         this.work = work;
+        this.courierSaddlebags = courierSaddlebags;
     }
 
     /** Builds and starts the runtime, rolling back already-started resources on failure. */
@@ -136,6 +143,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var jdbcPets = new JdbcPetRepository(storage);
             var jdbcSoulTokens = new JdbcSoulTokenRepository(storage);
             var pendingSoulDeliveries = new JdbcPendingSoulDeliveryRepository(storage);
+            var saddlebags = new JdbcSaddlebagRepository(storage);
             var jdbcTrees = new JdbcTreeProgressRepository(storage, petId -> jdbcPets.findById(petId).thenApply(pet -> {
                 OwnedPet owned = pet.orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
                 PetVariant variant = configuration.current().variants().findById(owned.variant())
@@ -166,13 +174,17 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     variantId -> variants.findById(variantId).map(PetVariant::type), economyPort,
                     skillPoints, rankPort, events, operations);
             var soulItems = new SoulItemService(jdbcSoulTokens, clock);
+            var courier = new CourierService(pets, entityPort, operations, clock,
+                    () -> configuration.current().settings().courier().requestTimeout(),
+                    () -> configuration.current().settings().courier().cooldown());
 
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var effectCatalog = new VanillaEffectCatalog();
             var abilityRegistry = new DefaultAbilityRegistry(List.of(
                     new ZarpazoAbility(() -> zarpazoSettings(configuration)),
-                    new VigiaAbility(() -> vigiaSettings(configuration))),
+                    new VigiaAbility(() -> vigiaSettings(configuration)),
+                    new CourierSaddlebagsAbility()),
                     new CooldownTracker(), Clock.systemUTC());
             var effectApplier = new SkillTreePetEffectApplier(
                     petId -> effectState(cache, configuration, petId),
@@ -221,15 +233,36 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var menu = new Menu(plugin, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
             var petsMenuReference = new AtomicReference<PetsMenu>();
+            var courierReference = new AtomicReference<CourierSaddlebags>();
             var skillTreeMenu = new SkillTreeMenu(plugin, menu, configuration, messages, pets, trees,
                     skillPoints, rankPort, economyPort, skillTrees,
                     player -> Objects.requireNonNull(petsMenuReference.get(), "pets menu").open(player),
                     plugin.getLogger());
             var petsMenu = new PetsMenu(plugin, menu, configuration, messages, pets, trees, skillPoints,
-                    rankPort, petService, renames, skillTreeMenu::open, plugin.getLogger());
+                    rankPort, petService, renames, skillTreeMenu::open,
+                    (player, petId) -> {
+                        OwnedPet pet = cache.loadedPet(petId).orElse(null);
+                        if (pet != null) Objects.requireNonNull(courierReference.get(), "courier saddlebags")
+                                .openOwner(player, pet);
+                    }, plugin.getLogger());
             petsMenuReference.set(petsMenu);
+            var courierSaddlebags = new CourierSaddlebags(plugin, menu, configuration, messages,
+                    saddlebags, operations, courier, work,
+                    petsMenu::open, cache::loadedPet,
+                    pet -> pet.customName().orElseGet(() -> variants.findById(pet.variant())
+                            .map(PetVariant::displayNameKey).orElse(pet.variant().value())),
+                    petId -> cache.loadedPet(petId).flatMap(pet -> variants.findById(pet.variant()))
+                            .filter(variant -> variant.type().value().equals("donkey")).isPresent()
+                            && cache.loadedTreeProgress(petId)
+                            .map(progress -> progress.attributes().get("courier_saddlebags"))
+                            .map(attribute -> attribute.activeLevel() > 0).orElse(false),
+                    plugin.getLogger());
+            courierReference.set(courierSaddlebags);
+            playerLifecycle.beforeRestore(courier::recover);
+            playerLifecycle.beforeUnload(courierSaddlebags::ownerUnavailable);
             pluginManager.registerEvents(menu, plugin);
             pluginManager.registerEvents(renames, plugin);
+            pluginManager.registerEvents(courierSaddlebags, plugin);
 
             lifecycle.started(new RuntimeShutdown(
                     work,
@@ -239,12 +272,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
                             .map(gateway::despawn).toArray(CompletableFuture[]::new)),
                     cache::flushAll,
                     SHUTDOWN_TIMEOUT));
+            lifecycle.started(courierSaddlebags);
+            lifecycle.started((AutoCloseable) scheduler::quiesce);
 
             NeoPetsProvider.register(new NeoPetsApiImpl(pets, players, trees, cache, livePets, configuration));
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
-                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, cache, work);
+                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, cache, work, courierSaddlebags);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
             throw exception;
@@ -284,6 +319,11 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public PetsMenu petsMenu() {
         return petsMenu;
+    }
+
+    /** Returns the courier interaction coordinator used by clickable request commands. */
+    public CourierSaddlebags courierSaddlebags() {
+        return courierSaddlebags;
     }
 
     /** Starts work only while the runtime is accepting operations and tracks it through completion. */
