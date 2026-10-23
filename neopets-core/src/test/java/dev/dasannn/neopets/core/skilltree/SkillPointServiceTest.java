@@ -2,6 +2,7 @@ package dev.dasannn.neopets.core.skilltree;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.dasannn.neopets.core.event.DomainEventBus;
@@ -97,7 +98,7 @@ class SkillPointServiceTest {
         var service = new SkillPointService(repository, new DomainEventBus());
 
         assertEquals(Integer.MAX_VALUE, service.give(playerId, 1).join());
-        assertThrows(CompletionException.class, () -> service.give(playerId, 1).join());
+        assertFutureFailsWith(IllegalArgumentException.class, service.give(playerId, 1));
     }
 
     @Test
@@ -111,7 +112,7 @@ class SkillPointServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.take(playerId, 0));
         assertThrows(IllegalArgumentException.class, () -> service.take(playerId, -1));
         assertThrows(IllegalArgumentException.class, () -> service.set(playerId, -1));
-        assertThrows(CompletionException.class, () -> service.take(playerId, 3).join());
+        assertFutureFailsWith(IllegalArgumentException.class, service.take(playerId, 3));
         assertEquals(2, service.balance(playerId).join());
     }
 
@@ -138,8 +139,38 @@ class SkillPointServiceTest {
         eventBus.subscribe(SkillPointsChanged.class, events::add);
         var service = new SkillPointService(repository, eventBus);
 
-        assertThrows(CompletionException.class, () -> service.give(playerId, 1).join());
+        assertFutureFailsWith(IllegalStateException.class, service.give(playerId, 1));
         assertEquals(List.of(), events);
+    }
+
+    @Test
+    void listenerFailuresDoNotFailOrRepeatPersistedMutations() {
+        var repository = new InMemoryPlayerRepository();
+        var reportedFailures = new ArrayList<RuntimeException>();
+        var deliveredEvents = new ArrayList<SkillPointsChanged>();
+        var eventBus = new DomainEventBus((event, exception) -> reportedFailures.add(exception));
+        eventBus.subscribe(SkillPointsChanged.class, event -> {
+            throw new IllegalStateException("listener unavailable");
+        });
+        eventBus.subscribe(SkillPointsChanged.class, deliveredEvents::add);
+        var service = new SkillPointService(repository, eventBus);
+
+        assertEquals(5, service.give(playerId, 5).join());
+        assertEquals(3, service.take(playerId, 2).join());
+
+        assertEquals(3, repository.profile.orElseThrow().skillPointBalance());
+        assertEquals(2, repository.saveCount);
+        assertEquals(2, reportedFailures.size());
+        assertEquals(List.of(
+                new SkillPointsChanged(playerId, 0, 5),
+                new SkillPointsChanged(playerId, 5, 3)
+        ), deliveredEvents);
+    }
+
+    private static <T extends Throwable> T assertFutureFailsWith(
+            Class<T> expectedType, CompletableFuture<?> future) {
+        var exception = assertThrows(CompletionException.class, future::join);
+        return assertInstanceOf(expectedType, exception.getCause());
     }
 
     private static final class InMemoryPlayerRepository implements PlayerRepository {

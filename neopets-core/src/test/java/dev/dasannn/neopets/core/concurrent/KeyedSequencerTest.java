@@ -2,6 +2,7 @@ package dev.dasannn.neopets.core.concurrent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,10 +71,31 @@ class KeyedSequencerTest {
 
         failed.completeExceptionally(new IllegalArgumentException("asynchronous failure"));
 
-        assertThrows(CompletionException.class, first::join);
-        assertThrows(CompletionException.class, second::join);
+        assertFutureFailsWith(IllegalArgumentException.class, first);
+        assertFutureFailsWith(IllegalStateException.class, second);
         assertEquals(3, third.join());
         assertEquals(0, sequencer.trackedKeyCount());
+    }
+
+    @Test
+    void drainsLongQueuesOfImmediatelyCompletedActionsWithoutExhaustingTheStack() {
+        var sequencer = new KeyedSequencer<String>();
+        var firstCompletion = new CompletableFuture<Integer>();
+        var futures = new ArrayList<CompletableFuture<Integer>>();
+        futures.add(sequencer.submit("player", () -> firstCompletion));
+        for (int index = 1; index <= 10_000; index++) {
+            int value = index;
+            futures.add(sequencer.submit("player", () -> CompletableFuture.completedFuture(value)));
+        }
+
+        firstCompletion.complete(0);
+
+        assertTrue(futures.stream().allMatch(CompletableFuture::isDone));
+        for (int index = 0; index < futures.size(); index++) {
+            assertEquals(index, futures.get(index).join());
+        }
+        assertEquals(0, sequencer.trackedKeyCount());
+        assertEquals(10_001, sequencer.submit("player", () -> CompletableFuture.completedFuture(10_001)).join());
     }
 
     @Test
@@ -104,8 +126,14 @@ class KeyedSequencerTest {
                 () -> sequencer.submit(null, () -> CompletableFuture.completedFuture(1)));
         assertThrows(NullPointerException.class, () -> sequencer.submit("player", null));
         var nullResult = sequencer.<Integer>submit("player", () -> null);
-        assertThrows(CompletionException.class, nullResult::join);
+        assertFutureFailsWith(NullPointerException.class, nullResult);
         assertTrue(nullResult.isCompletedExceptionally());
         assertEquals(0, sequencer.trackedKeyCount());
+    }
+
+    private static <T extends Throwable> T assertFutureFailsWith(
+            Class<T> expectedType, CompletableFuture<?> future) {
+        var exception = assertThrows(CompletionException.class, future::join);
+        return assertInstanceOf(expectedType, exception.getCause());
     }
 }
