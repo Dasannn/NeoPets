@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.core.concurrent;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -47,16 +48,40 @@ public final class KeyedSequencer<K> {
         return entry.result;
     }
 
+    /**
+     * Returns a future that completes after every action submitted before this call has finished.
+     * Actions submitted after this method takes its snapshot are not awaited. If any action in the
+     * snapshot fails, the returned future also fails after all snapshot actions finish.
+     *
+     * @return completion barrier for all currently tracked key sequences
+     */
+    public CompletableFuture<Void> awaitAll() {
+        CompletableFuture<?>[] actions;
+        synchronized (monitor) {
+            var snapshot = new ArrayList<CompletableFuture<?>>();
+            for (QueueState queue : queues.values()) {
+                if (queue.active != null) {
+                    snapshot.add(queue.active.settled);
+                }
+                queue.entries.stream().map(entry -> entry.settled).forEach(snapshot::add);
+            }
+            actions = snapshot.toArray(CompletableFuture<?>[]::new);
+        }
+        return CompletableFuture.allOf(actions);
+    }
+
     private void drain(K key, QueueState queue) {
         while (true) {
             QueueEntry<?> entry;
             synchronized (monitor) {
                 entry = queue.entries.pollFirst();
                 if (entry == null) {
+                    queue.active = null;
                     queue.draining = false;
                     queues.remove(key, queue);
                     return;
                 }
+                queue.active = entry;
             }
 
             if (!runEntry(key, queue, entry)) {
@@ -87,12 +112,14 @@ public final class KeyedSequencer<K> {
 
     private static final class QueueState {
         private final ArrayDeque<QueueEntry<?>> entries = new ArrayDeque<>();
+        private QueueEntry<?> active;
         private boolean draining;
     }
 
     private static final class QueueEntry<T> {
         private final Supplier<? extends CompletableFuture<T>> action;
         private final CompletableFuture<T> result = new CompletableFuture<>();
+        private final CompletableFuture<Void> settled = new CompletableFuture<>();
 
         private QueueEntry(Supplier<? extends CompletableFuture<T>> action) {
             this.action = action;
@@ -113,8 +140,10 @@ public final class KeyedSequencer<K> {
         private void complete(T value, Throwable failure) {
             if (failure == null) {
                 result.complete(value);
+                settled.complete(null);
             } else {
                 result.completeExceptionally(failure);
+                settled.completeExceptionally(failure);
             }
         }
     }
