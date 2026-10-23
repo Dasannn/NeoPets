@@ -1,6 +1,6 @@
 # NeoPets — Constitución del proyecto
 
-> Estado: **BORRADOR — pendiente de aprobación**
+> Estado: **APROBADA** (2026-10-23)
 > Fuente de verdad #1. Si otro documento contradice este, gana este.
 
 ## 1. Propósito
@@ -71,12 +71,17 @@ revés. El detalle va en `ARCHITECTURE.md`.
    trabaja en su propia rama/worktree (trabajo paralelo ordenado).
 3. Cada tarea pasa: build + tests + revisión independiente (agente revisor
    distinto al builder) antes de proponer merge.
+   - **Builder**: Codex `gpt-5.6-sol`, esfuerzo `high`.
+   - **Revisor**: Codex `gpt-6.1-sol`, esfuerzo `high`.
+   - Claude orquesta: reparte tareas, integra y verifica.
 4. Nada se mergea a `main` sin aprobación explícita del dueño.
 5. Las decisiones relevantes se registran en `docs/decisions/` (ADR).
 
 ## 6. Entorno
 
-- Servidor de pruebas (Instabox + Crafty) es compartido pero de libre uso
+- Servidor de pruebas: máquina Instabox "minecraft 26.3", gestionada con
+  Crafty (`https://8080-agqvsroda4lyjadje5zkb7qhie.instabox.tech/`).
+- El servidor de pruebas es compartido pero de libre uso
   para pruebas. Credenciales nunca se commitean; viven en los secrets del
   entorno.
 - Producción no existe aún; toda prueba en vivo se hace en el servidor de
