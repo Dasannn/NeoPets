@@ -294,6 +294,43 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void cancellingOwnerlessDeleteDoesNotLetFlushPassItsPendingWrite() throws Exception {
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var deleteWrite = new CompletableFuture<Void>();
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.petDelete = ignored -> deleteWrite;
+
+        var delete = pets.deleteById(PET);
+        ownerLookup.complete(Optional.empty());
+        assertEquals(1, delegates.petDeletes.get());
+        assertTrue(delete.cancel(true));
+
+        var flush = cache.flushAll();
+        assertFalse(flush.isDone());
+
+        deleteWrite.complete(null);
+        await(flush);
+        assertTrue(delete.isCancelled());
+    }
+
+    @Test
+    void flushAllReportsFailureFromPendingOwnerlessDelete() throws Exception {
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var deleteWrite = new CompletableFuture<Void>();
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.petDelete = ignored -> deleteWrite;
+
+        pets.deleteById(PET);
+        var flush = cache.flushAll();
+        ownerLookup.complete(Optional.empty());
+        var databaseFailure = new IllegalStateException("delete failed");
+        deleteWrite.completeExceptionally(databaseFailure);
+
+        var failure = assertThrows(ExecutionException.class, () -> await(flush));
+        assertEquals(databaseFailure, failure.getCause());
+    }
+
+    @Test
     void unloadWaitsForQueuedPetOperationsBeforeEvicting() throws Exception {
         var ownedPet = pet(PET, PLAYER, "cat_black");
         var changedProgress = progress(PET, 2, 1);
@@ -324,6 +361,42 @@ final class PlayerDataCacheTest {
         await(unload);
         assertFalse(cache.isLoaded(PLAYER));
         assertEquals(changedProgress, delegates.progress.get(PET));
+    }
+
+    @Test
+    void unloadWaitsForTreeWriteWhoseOwnerResolvesDuringLoad() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var originalProgress = progress(PET, 1, 0);
+        var changedProgress = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        delegates.progress.put(PET, originalProgress);
+        var treeLoad = new CompletableFuture<Optional<TreeProgress>>();
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var treeWrite = new CompletableFuture<Void>();
+        delegates.treeLoad = ignored -> treeLoad;
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.treeSave = ignored -> treeWrite;
+
+        var load = cache.load(PLAYER);
+        var save = trees.save(changedProgress);
+        var unload = cache.unload(PLAYER);
+
+        treeLoad.complete(Optional.of(originalProgress));
+        await(load);
+        assertTrue(cache.isLoaded(PLAYER));
+        assertFalse(unload.isDone());
+        assertEquals(0, delegates.treeWrites.get());
+
+        ownerLookup.complete(Optional.of(ownedPet));
+        assertEquals(1, delegates.treeWrites.get());
+        assertFalse(unload.isDone());
+        assertTrue(cache.isLoaded(PLAYER));
+
+        treeWrite.complete(null);
+        await(save);
+        await(unload);
+        assertFalse(cache.isLoaded(PLAYER));
     }
 
     @Test
