@@ -56,7 +56,7 @@ class VigiaAbilityTest {
             CooldownTracker cooldowns,
             Instant now
     ) {
-        return new AbilityContext(petId, pet, owner, 1, now, cooldowns, ability.id());
+        return new AbilityContext(petId, pet, owner, 1, now, cooldowns, 0, ability.id());
     }
 
     private static Player owner(

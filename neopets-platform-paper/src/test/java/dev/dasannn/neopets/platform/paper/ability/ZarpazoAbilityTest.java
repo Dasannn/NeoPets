@@ -34,7 +34,7 @@ class ZarpazoAbilityTest {
                 (ignoredPet, ignoredLocation) -> { });
 
         ability.tick(new AbilityContext(
-                petId, pet, owner, 1, Instant.EPOCH, new CooldownTracker(), ability.id()));
+                petId, pet, owner, 1, Instant.EPOCH, new CooldownTracker(), 0, ability.id()));
 
         assertEquals(1, damageCounts[0]);
         assertEquals(0, damageCounts[1]);
