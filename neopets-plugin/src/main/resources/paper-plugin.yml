@@ -1,0 +1,17 @@
+name: NeoPets
+version: '${version}'
+main: dev.dasannn.neopets.plugin.NeoPetsPlugin
+bootstrapper: dev.dasannn.neopets.plugin.bootstrap.NeoPetsBootstrap
+loader: dev.dasannn.neopets.plugin.bootstrap.NeoPetsLoader
+api-version: '26.3'
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+    LuckPerms:
+      load: BEFORE
+      required: false
+    PlaceholderAPI:
+      load: BEFORE
+      required: false

@@ -1,9 +1,54 @@
+import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.language.jvm.tasks.ProcessResources
+
 plugins {
     id("neopets.java-conventions")
+}
+
+val bundledModules = configurations.create("bundledModules") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
 }
 
 dependencies {
     api(project(":neopets-platform-paper"))
     api(project(":neopets-storage"))
     compileOnly(libs.paper.api)
+
+    add(bundledModules.name, project(":neopets-api"))
+    add(bundledModules.name, project(":neopets-core"))
+    add(bundledModules.name, project(":neopets-storage"))
+    add(bundledModules.name, project(":neopets-platform-paper"))
+}
+
+val versionCatalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
+
+tasks.named<ProcessResources>("processResources") {
+    fun libraryCoordinate(alias: String): String {
+        val library = versionCatalog.findLibrary(alias).get().get()
+        return "${library.module}:${library.versionConstraint.requiredVersion}"
+    }
+
+    val expansionProperties = mapOf(
+        "version" to project.version,
+        "hikaricp" to libraryCoordinate("hikaricp"),
+        "mysqlConnectorJ" to libraryCoordinate("mysql-connector-j"),
+        "sqliteJdbc" to libraryCoordinate("sqlite-jdbc"),
+        "flywayCore" to libraryCoordinate("flyway"),
+        "flywayMysql" to libraryCoordinate("flyway-mysql"),
+    )
+
+    inputs.properties(expansionProperties)
+    filesMatching(listOf("paper-plugin.yml", "runtime-libraries.properties")) {
+        expand(expansionProperties)
+    }
+}
+
+tasks.jar {
+    dependsOn(bundledModules)
+    archiveBaseName = "NeoPets"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from({ bundledModules.map(::zipTree) })
 }
