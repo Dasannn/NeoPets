@@ -45,7 +45,7 @@ public final class SkillTreePetEffectApplier implements PetEffectApplier {
     }
 
     @Override
-    public void remove(PetId petId, LivingEntity entity) {
+    public void remove(PetId petId) {
         abilities.deactivate(Objects.requireNonNull(petId, "petId"));
     }
 

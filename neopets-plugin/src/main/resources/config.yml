@@ -53,7 +53,7 @@ abilities:
   vigia:
     cooldown-seconds: 5
     radius: 16.0
-    # Paper 26.3 sends this glow only to the pet owner.
+    # Paper 26.3 has no supported per-player glow API; this vanilla glow is visible to everyone nearby.
     duration-seconds: 5
 
 ranks:

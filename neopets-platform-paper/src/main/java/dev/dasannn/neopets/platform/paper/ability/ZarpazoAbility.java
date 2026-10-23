@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper.ability;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import org.bukkit.Location;
 import org.bukkit.Particle;
@@ -16,10 +17,16 @@ public final class ZarpazoAbility implements Ability {
     public static final String ID = "claw_swipe";
 
     private final Supplier<Settings> settings;
+    private final BiConsumer<LivingEntity, Location> feedback;
 
     /** Creates a dynamically configured Zarpazo ability. */
     public ZarpazoAbility(Supplier<Settings> settings) {
+        this(settings, ZarpazoAbility::playFeedback);
+    }
+
+    ZarpazoAbility(Supplier<Settings> settings, BiConsumer<LivingEntity, Location> feedback) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
     }
 
     @Override
@@ -55,9 +62,13 @@ public final class ZarpazoAbility implements Ability {
             return;
         }
         targets.forEach(target -> target.damage(configured.damage(), context.pet()));
-        context.pet().getWorld().spawnParticle(
+        feedback.accept(context.pet(), origin);
+    }
+
+    private static void playFeedback(LivingEntity pet, Location origin) {
+        pet.getWorld().spawnParticle(
                 Particle.SWEEP_ATTACK, origin.clone().add(0, 1, 0), 8, 0.8, 0.25, 0.8, 0.0);
-        context.pet().getWorld().playSound(
+        pet.getWorld().playSound(
                 origin, Sound.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.NEUTRAL, 1.0F, 0.8F);
     }
 

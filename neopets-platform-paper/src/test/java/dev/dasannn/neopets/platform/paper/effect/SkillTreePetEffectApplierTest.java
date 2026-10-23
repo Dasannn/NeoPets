@@ -80,7 +80,7 @@ class SkillTreePetEffectApplierTest {
                 registry,
                 ignored -> { });
 
-        applier.remove(petId, unusedEntity());
+        applier.remove(petId);
 
         assertEquals(List.of(petId), deactivated);
     }

@@ -61,6 +61,26 @@ class DefaultAbilityRegistryTest {
         assertEquals(Set.of("claw_swipe", "lookout"), registry.registeredIds());
     }
 
+    @Test
+    void cooldownSurvivesEntityReplacementAndDismissal() {
+        var ability = new CooldownClaimingAbility();
+        var owner = player(UUID.randomUUID());
+        var petId = new PetId(UUID.randomUUID());
+        var registry = registry(List.of(ability), owner);
+        var firstEntity = livingEntity(UUID.randomUUID());
+        var replacement = livingEntity(UUID.randomUUID());
+
+        registry.update(ability.id(), petId, firstEntity, 1, Map.of());
+        registry.tick(petId, firstEntity, owner);
+        registry.update(ability.id(), petId, replacement, 1, Map.of());
+        registry.tick(petId, replacement, owner);
+        registry.deactivate(petId);
+        registry.update(ability.id(), petId, firstEntity, 1, Map.of());
+        registry.tick(petId, firstEntity, owner);
+
+        assertEquals(1, ability.claimedUses);
+    }
+
     private static DefaultAbilityRegistry registry(List<? extends Ability> abilities, Player owner) {
         return new DefaultAbilityRegistry(
                 abilities,
@@ -118,6 +138,30 @@ class DefaultAbilityRegistryTest {
         @Override
         public void tick(AbilityContext context) {
             ticks++;
+        }
+    }
+
+    private static final class CooldownClaimingAbility implements Ability {
+        private int claimedUses;
+
+        @Override
+        public String id() {
+            return "cooldown_test";
+        }
+
+        @Override
+        public void onActivate(LivingEntity pet, Player owner, int level) {
+        }
+
+        @Override
+        public void onDeactivate(LivingEntity pet, Player owner, int level) {
+        }
+
+        @Override
+        public void tick(AbilityContext context) {
+            if (context.claimCooldown(Duration.ofMinutes(1))) {
+                claimedUses++;
+            }
         }
     }
 }

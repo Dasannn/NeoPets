@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper.ability;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -14,17 +15,29 @@ import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
-/** Parrot alert ability registered as the {@code lookout} custom effect. */
+/**
+ * Parrot alert ability registered as the {@code lookout} custom effect.
+ *
+ * <p>Paper 26.3 has no supported per-player glowing API, so the vanilla glowing effect is visible to every nearby
+ * player. Each effect expires on its own; deactivation deliberately does not remove it because the target may have
+ * already been glowing from another source.</p>
+ */
 public final class VigiaAbility implements Ability {
     /** Skill-tree custom effect identifier shipped for the parrot. */
     public static final String ID = "lookout";
 
     private final Supplier<Settings> settings;
+    private final AlertEffect alertEffect;
     private final Map<UUID, Set<UUID>> previouslyVisible = new HashMap<>();
 
     /** Creates a dynamically configured Vigía ability. */
     public VigiaAbility(Supplier<Settings> settings) {
+        this(settings, VigiaAbility::alertAndGlow);
+    }
+
+    VigiaAbility(Supplier<Settings> settings, AlertEffect alertEffect) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.alertEffect = Objects.requireNonNull(alertEffect, "alertEffect");
     }
 
     @Override
@@ -69,15 +82,23 @@ public final class VigiaAbility implements Ability {
         if (newlyVisible.isEmpty()) {
             return;
         }
-        context.owner().playSound(
-                context.owner(), Sound.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
+        alertEffect.apply(context.owner(), newlyVisible, configured.duration());
+    }
+
+    private static void alertAndGlow(Player owner, List<LivingEntity> targets, Duration duration) {
+        owner.playSound(owner, Sound.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
         PotionEffect glowing = new PotionEffect(
-                PotionEffectType.GLOWING, durationTicks(configured.duration()), 0, true, false, false);
-        newlyVisible.forEach(target -> context.owner().sendPotionEffectChange(target, glowing));
+                PotionEffectType.GLOWING, durationTicks(duration), 0, true, false, false);
+        targets.forEach(target -> target.addPotionEffect(glowing));
     }
 
     private static int durationTicks(Duration duration) {
         return Math.toIntExact(Math.max(1L, duration.toMillis() / 50L));
+    }
+
+    @FunctionalInterface
+    interface AlertEffect {
+        void apply(Player owner, List<LivingEntity> targets, Duration duration);
     }
 
     /** Validated runtime settings for Vigía. */
