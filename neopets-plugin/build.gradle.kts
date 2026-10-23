@@ -1,4 +1,5 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.language.jvm.tasks.ProcessResources
 
@@ -9,7 +10,6 @@ plugins {
 val bundledModules = configurations.create("bundledModules") {
     isCanBeConsumed = false
     isCanBeResolved = true
-    isTransitive = false
 }
 
 dependencies {
@@ -17,8 +17,7 @@ dependencies {
     api(project(":neopets-storage"))
     compileOnly(libs.paper.api)
 
-    add(bundledModules.name, project(":neopets-api"))
-    add(bundledModules.name, project(":neopets-core"))
+    // Internal modules (and, transitively, core and api) are merged into the plugin jar.
     add(bundledModules.name, project(":neopets-storage"))
     add(bundledModules.name, project(":neopets-platform-paper"))
 }
@@ -50,5 +49,9 @@ tasks.jar {
     dependsOn(bundledModules)
     archiveBaseName = "NeoPets"
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from({ bundledModules.map(::zipTree) })
+    // Only project modules are bundled; external runtime libraries come from NeoPetsLoader.
+    val moduleJars = bundledModules.incoming.artifactView {
+        componentFilter { it is ProjectComponentIdentifier }
+    }.files
+    from({ moduleJars.map(::zipTree) })
 }
