@@ -78,7 +78,7 @@ class FeatureRegistryTest {
                 FeatureRegistry.find("abilities.vigia.radius").orElseThrow().type());
         assertEquals(16.5, radius.apply(16.0, new FeatureRegistry.Interaction(true, false)));
         assertEquals(11.0, radius.apply(16.0, new FeatureRegistry.Interaction(false, true)));
-        assertEquals(Double.MIN_VALUE, radius.apply(0.1, new FeatureRegistry.Interaction(false, true)));
+        assertEquals(0.5, radius.apply(0.5, new FeatureRegistry.Interaction(false, true)));
         assertEquals(128.0, radius.apply(127.9, new FeatureRegistry.Interaction(true, true)));
 
         var timeout = assertInstanceOf(FeatureRegistry.BoundedNumber.class,
@@ -88,6 +88,8 @@ class FeatureRegistryTest {
         assertEquals("30", timeout.format(BigDecimal.valueOf(30)));
         assertEquals("100000000000000000000", timeout.format(new BigDecimal("1E20")));
         assertEquals("0.000000001", timeout.format(new BigDecimal("1E-9")));
+        assertEquals("4.9E-324", radius.format(Double.MIN_VALUE));
+        assertEquals("1.7976931348623157E+308", radius.format(Double.MAX_VALUE));
     }
 
     @Test
@@ -109,6 +111,23 @@ class FeatureRegistryTest {
                 loader.validateConfig(reloaded);
             }
         }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "abilities.zarpazo.radius", "abilities.zarpazo.damage",
+            "abilities.vigia.radius", "abilities.buscatesoros.base-radius"})
+    void abilityDecimalsRejectValuesBelowTheEditableMinimum(String path) throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        var yaml = YamlConfiguration.loadConfiguration(temporaryDirectory.resolve("config.yml").toFile());
+        var number = assertInstanceOf(FeatureRegistry.BoundedNumber.class,
+                FeatureRegistry.find(path).orElseThrow().type());
+        assertEquals(0, BigDecimal.valueOf(0.5).compareTo(number.minimum()));
+        yaml.set(path, 0.49);
+        assertIssue(assertThrows(ConfigurationLoadException.class, () -> loader.validateConfig(yaml)), path);
+        yaml.set(path, number.apply(0.5, new FeatureRegistry.Interaction(false, true)));
+        loader.validateConfig(yaml);
     }
 
     @Test

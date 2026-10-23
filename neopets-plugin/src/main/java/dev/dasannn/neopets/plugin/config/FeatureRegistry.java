@@ -18,6 +18,9 @@ public final class FeatureRegistry {
     /** Largest duration in seconds representable by {@link java.time.Duration#ofSeconds(long)}. */
     public static final BigDecimal MAX_DURATION_SECONDS = BigDecimal.valueOf(Long.MAX_VALUE);
 
+    /** Smallest editable ability radius or damage, also enforced by the loader. */
+    public static final BigDecimal MIN_ABILITY_DECIMAL = BigDecimal.valueOf(0.5);
+
     private static final List<Feature> FEATURES = List.of(
             toggle("death.enabled", "TOTEM_OF_UNDYING", "death-enabled",
                     settings -> settings.features().death().enabled()),
@@ -115,8 +118,8 @@ public final class FeatureRegistry {
             String path, String icon, String languageId, double maximum, double step,
             Function<PluginSettings, ?> value
     ) {
-        return feature(path, icon, languageId, new BoundedNumber(BigDecimal.ZERO,
-                BigDecimal.valueOf(maximum), BigDecimal.valueOf(step), false, false), value);
+        return feature(path, icon, languageId, new BoundedNumber(MIN_ABILITY_DECIMAL,
+                BigDecimal.valueOf(maximum), BigDecimal.valueOf(step), false), value);
     }
 
     private static Feature number(
@@ -260,14 +263,9 @@ public final class FeatureRegistry {
 
     /** Numeric feature constrained to the same range used by the loader. */
     public record BoundedNumber(
-            BigDecimal minimum, BigDecimal maximum, BigDecimal step, boolean integral, boolean minimumInclusive
+            BigDecimal minimum, BigDecimal maximum, BigDecimal step, boolean integral
     )
             implements ValueType {
-        /** Creates a number with inclusive bounds. */
-        public BoundedNumber(BigDecimal minimum, BigDecimal maximum, BigDecimal step, boolean integral) {
-            this(minimum, maximum, step, integral, true);
-        }
-
         public BoundedNumber {
             Objects.requireNonNull(minimum, "minimum");
             Objects.requireNonNull(maximum, "maximum");
@@ -275,8 +273,7 @@ public final class FeatureRegistry {
             minimum = minimum.stripTrailingZeros();
             maximum = maximum.stripTrailingZeros();
             step = step.stripTrailingZeros();
-            if (minimum.compareTo(maximum) > 0 || step.signum() <= 0
-                    || !minimumInclusive && (integral || minimum.signum() != 0 || maximum.signum() <= 0)) {
+            if (minimum.compareTo(maximum) > 0 || step.signum() <= 0) {
                 throw new IllegalArgumentException("number bounds and step are invalid");
             }
             if (integral && (minimum.scale() > 0 || maximum.scale() > 0 || step.scale() > 0)) {
@@ -302,15 +299,15 @@ public final class FeatureRegistry {
             if (integral) {
                 return clamped.longValueExact();
             }
-            // The loader accepts every finite positive double for ability radii/damage.
-            return !minimumInclusive && clamped.signum() == 0 ? Double.MIN_VALUE : clamped.doubleValue();
+            return clamped.doubleValue();
         }
 
-        /** Formats a value without insignificant decimal zeroes. */
+        /** Formats a value without insignificant decimal zeroes, keeping extreme values compact. */
         public String format(Number value) {
             Objects.requireNonNull(value, "value");
             BigDecimal normalized = new BigDecimal(value.toString()).stripTrailingZeros();
-            return normalized.toPlainString();
+            return normalized.scale() < -20 || normalized.scale() > 12
+                    ? normalized.toString() : normalized.toPlainString();
         }
     }
 

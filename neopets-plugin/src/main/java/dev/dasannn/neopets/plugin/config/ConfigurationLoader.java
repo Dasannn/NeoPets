@@ -911,7 +911,7 @@ public final class ConfigurationLoader {
             BigDecimal maximum,
             List<ConfigurationIssue> issues
     ) {
-        return boundedDecimal(root, file, path, BigDecimal.ZERO, maximum, issues, false);
+        return boundedDecimal(root, file, path, FeatureRegistry.MIN_ABILITY_DECIMAL, maximum, issues);
     }
 
     private static BigDecimal boundedDecimal(
@@ -922,21 +922,8 @@ public final class ConfigurationLoader {
             BigDecimal maximum,
             List<ConfigurationIssue> issues
     ) {
-        return boundedDecimal(root, file, path, minimum, maximum, issues, true);
-    }
-
-    private static BigDecimal boundedDecimal(
-            ConfigurationSection root,
-            Path file,
-            String path,
-            BigDecimal minimum,
-            BigDecimal maximum,
-            List<ConfigurationIssue> issues,
-            boolean inclusiveMinimum
-    ) {
-        BigDecimal value = decimal(root, file, path, inclusiveMinimum && minimum.signum() == 0, issues);
-        boolean below = value != null && (inclusiveMinimum
-                ? value.compareTo(minimum) < 0 : value.compareTo(minimum) <= 0);
+        BigDecimal value = decimal(root, file, path, minimum.signum() == 0, issues);
+        boolean below = value != null && value.compareTo(minimum) < 0;
         if (below || value != null && value.compareTo(maximum) > 0) {
             issue(issues, file, path, "must be between " + minimum.toPlainString()
                     + " and " + maximum.toPlainString());

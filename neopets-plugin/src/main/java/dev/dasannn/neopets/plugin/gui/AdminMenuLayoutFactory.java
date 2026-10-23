@@ -88,7 +88,7 @@ public final class AdminMenuLayoutFactory {
         } else if (feature.type() instanceof FeatureRegistry.BoundedNumber number && value instanceof Number current) {
             lore.add(text("gui.admin.current-number", "value", formatValue(feature, number, current)));
             lore.add(text("gui.admin.range", Map.of(
-                    "minimum", (number.minimumInclusive() ? "" : "> ") + formatValue(feature, number, number.minimum()),
+                    "minimum", formatValue(feature, number, number.minimum()),
                     "maximum", formatMaximum(feature, number))));
             lore.add("");
             lore.add(text("gui.admin.number-action", "step", number.format(number.step())));
