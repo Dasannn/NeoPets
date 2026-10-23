@@ -28,8 +28,6 @@ public final class FeatureRegistry {
                     settings -> settings.features().death().pvp()),
             toggle("death.keep-skills", "EXPERIENCE_BOTTLE", "death-keep-skills",
                     settings -> settings.features().death().keepSkills()),
-            toggle("shop.enabled", "EMERALD", "shop-enabled",
-                    settings -> settings.features().shopEnabled()),
             toggle("rename.enabled", "NAME_TAG", "rename-enabled",
                     settings -> settings.features().renameEnabled()),
             toggle("reset.player-enabled", "WATER_BUCKET", "reset-player-enabled",

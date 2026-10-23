@@ -29,6 +29,7 @@ death:
       - "<gray>Úsala con una poción de revivir</gray>"
 
 shop:
+  # Reserved for a future pet shop; there is no purchase flow yet, so this flag has no effect.
   enabled: false
 
 rename:

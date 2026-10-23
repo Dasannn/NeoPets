@@ -22,7 +22,7 @@ class FeatureRegistryTest {
         var loader = new ConfigurationLoader(temporaryDirectory);
         var snapshot = loader.load();
         List<String> expectedPaths = List.of(
-                "death.enabled", "death.pvp", "death.keep-skills", "shop.enabled", "rename.enabled",
+                "death.enabled", "death.pvp", "death.keep-skills", "rename.enabled",
                 "reset.player-enabled", "reset.cost", "courier.request-timeout-seconds",
                 "courier.cooldown-seconds", "abilities.zarpazo.enabled", "abilities.zarpazo.cooldown-seconds",
                 "abilities.zarpazo.radius", "abilities.zarpazo.damage",

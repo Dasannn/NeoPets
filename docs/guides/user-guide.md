@@ -146,7 +146,7 @@ proveedores de integración o el intervalo del refresco Bukkit requiere reinicio
 | `death.soul-item.material` | Texto | `ECHO_SHARD` | Material de inventario válido en MAYÚSCULAS, distinto de aire. |
 | `death.soul-item.name` | Texto MiniMessage | `<light_purple>Alma de <pet></light_purple>` | No vacío; nombre del alma. |
 | `death.soul-item.lore` | Lista de textos MiniMessage | `['<gray>Tipo: <type></gray>', '<gray>Úsala con una poción de revivir</gray>']` | Lista de cadenas no vacías; lore del alma. Nombre/lore sustituyen `<pet>` y `<type>`. |
-| `shop.enabled` | Booleano | `false` | Flag expuesto en admin; no existe flujo de compra implementado. Activarlo no crea una tienda. |
+| `shop.enabled` | Booleano | `false` | Reservado para una futura tienda de mascotas; todavía no hay flujo de compra y no tiene efecto. No aparece en la GUI de administración. |
 | `rename.enabled` | Booleano | `true` | Habilita renombrado por chat desde la GUI. |
 | `reset.player-enabled` | Booleano | `false` | Habilita botón de reset del árbol para jugadores. |
 | `give.all-owned-command` | Texto | `""` | Comando de consola si ya posee todos los candidatos, además del mensaje `pets.all-owned` (o `pets.already-owned` para ID específico). Vacío desactiva; sustituye `<player>` y `<uuid>`. Sin `/` inicial; no aparece en GUI admin. |
@@ -396,7 +396,7 @@ cooldowns se mantienen en memoria y no sobreviven al reinicio.
 ## GUI administrativa, recarga e idioma
 
 `/neopet admin` expone solo el catálogo `FeatureRegistry`: `death.enabled`,
-`death.pvp`, `death.keep-skills`, `shop.enabled`, `rename.enabled`,
+`death.pvp`, `death.keep-skills`, `rename.enabled`,
 `reset.player-enabled`, `reset.cost`, los dos tiempos de `courier`, los flags de
 las cuatro habilidades configurables y todos sus números de la tabla anterior.
 No edita almacenamiento, rangos, variantes, árboles, idioma, material del alma,

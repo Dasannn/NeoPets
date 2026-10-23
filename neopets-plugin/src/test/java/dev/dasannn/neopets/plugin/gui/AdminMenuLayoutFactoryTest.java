@@ -41,15 +41,15 @@ class AdminMenuLayoutFactoryTest {
         assertEquals("TOTEM_OF_UNDYING", layout.items().get(10).material());
         assertEquals("Valor: ● Activado", plain(layout.items().get(10).lore().get(2)));
         assertEquals("Clic » Alternar", plain(layout.items().get(10).lore().getLast()));
-        assertEquals("GOLD_INGOT", layout.items().get(16).material());
-        assertEquals("Valor: 5000", plain(layout.items().get(16).lore().get(2)));
-        assertTrue(plain(layout.items().get(16).lore().getLast()).contains("Shift » ×10"));
+        assertEquals("GOLD_INGOT", layout.items().get(15).material());
+        assertEquals("Valor: 5000", plain(layout.items().get(15).lore().get(2)));
+        assertTrue(plain(layout.items().get(15).lore().getLast()).contains("Shift » ×10"));
         assertEquals("BARRIER", layout.items().get(49).material());
         assertEquals("BOOK", layout.items().get(51).material());
         assertEquals("GRAY_STAINED_GLASS_PANE", layout.items().get(48).material());
         assertEquals("GRAY_STAINED_GLASS_PANE", layout.items().get(50).material());
         assertEquals(1, built.totalPages());
-        assertEquals(24, Paging.CONTENT_SLOTS.stream().filter(layout.items()::containsKey).count());
+        assertEquals(FeatureRegistry.features().size(), Paging.CONTENT_SLOTS.stream().filter(layout.items()::containsKey).count());
     }
 
     @Test
@@ -61,7 +61,7 @@ class AdminMenuLayoutFactoryTest {
         assertFalse(layout.items().get(11).glint());
         assertEquals(net.kyori.adventure.text.format.NamedTextColor.RED,
                 MiniMessage.miniMessage().deserialize(layout.items().get(11).name()).color());
-        assertEquals("Rango: 0 – sin límite", plain(layout.items().get(16).lore().get(3)));
+        assertEquals("Rango: 0 – sin límite", plain(layout.items().get(15).lore().get(3)));
         var cooldown = factory.build(settings,
                 List.of(FeatureRegistry.find("abilities.zarpazo.cooldown-seconds").orElseThrow()), 0).layout();
         assertEquals("Rango: 1 s – 1 d", plain(cooldown.items().get(10).lore().get(3)));
@@ -106,7 +106,7 @@ class AdminMenuLayoutFactoryTest {
     void writesTheRequiredAdminPreviewAsJson() throws Exception {
         Path output = Path.of(System.getProperty("neopets.preview.dir"));
         MenuLayoutJson.write(output.resolve("admin-page-1.json"),
-                factory.build(settings, FeatureRegistry.features(), 0).layout(), List.of(4, 10, 16, 22, 38, 51));
+                factory.build(settings, FeatureRegistry.features(), 0).layout(), List.of(4, 10, 15, 22, 38, 51));
     }
 
     private static String plain(String miniMessage) {
