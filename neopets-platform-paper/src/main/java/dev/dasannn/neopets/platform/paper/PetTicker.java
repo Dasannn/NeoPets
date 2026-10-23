@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.platform.paper;
 
+import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.util.Collection;
@@ -96,6 +97,14 @@ public final class PetTicker implements AutoCloseable, Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntitiesUnload(EntitiesUnloadEvent event) {
         recoverUnloaded(event.getEntities());
+    }
+
+    /** Reapplies custom movement control after Paper recreates a pet during a world or portal transfer. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntityAddedToWorld(EntityAddToWorldEvent event) {
+        if (event.getEntity() instanceof Mob pet && PetEntityMetadata.petId(pet).isPresent()) {
+            PetBrain.suppressConflictingVanillaGoals(pet);
+        }
     }
 
     void recoverUnloaded(Collection<? extends Entity> entities) {
