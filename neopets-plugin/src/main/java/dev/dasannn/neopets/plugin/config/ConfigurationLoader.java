@@ -117,6 +117,22 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.effect");
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
+    private static final Set<String> VERSION_10_MESSAGES = adminMessages();
+
+    private static Set<String> adminMessages() {
+        var keys = new java.util.HashSet<>(Set.of(
+                "gui.admin.header-name", "gui.admin.header-count", "gui.admin.page-number",
+                "gui.admin.current-enabled", "gui.admin.current-disabled", "gui.admin.current-number",
+                "gui.admin.range", "gui.admin.toggle-action", "gui.admin.number-action",
+                "gui.admin.previous-page", "gui.admin.next-page", "gui.admin.close",
+                "gui.admin.help-name", "gui.admin.help-lore", "gui.admin.help-message", "admin.edit-invalid"));
+        for (var feature : FeatureRegistry.features()) {
+            keys.add(feature.nameKey());
+            keys.add(feature.descriptionKey());
+        }
+        return Set.copyOf(keys);
+    }
+
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -166,6 +182,7 @@ public final class ConfigurationLoader {
         var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
         required.addAll(VERSION_6_MESSAGES);
         required.addAll(VERSION_9_MESSAGES);
+        required.addAll(VERSION_10_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -343,6 +360,9 @@ public final class ConfigurationLoader {
         if (sourceVersion < 9) {
             changed |= mergeMissing(language, defaults, VERSION_9_MESSAGES);
         }
+        if (sourceVersion < 10) {
+            changed |= mergeMissing(language, defaults, VERSION_10_MESSAGES);
+        }
         return changed;
     }
 
@@ -360,6 +380,18 @@ public final class ConfigurationLoader {
     }
 
     private record MigrationOutcome(int sourceVersion, boolean changed) {
+    }
+
+    /** Validates an in-memory copy of {@code config.yml} with the production root settings parser. */
+    public PluginSettings validateConfig(YamlConfiguration root) throws ConfigurationLoadException {
+        Objects.requireNonNull(root, "root");
+        var issues = new ArrayList<ConfigurationIssue>();
+        migrateRoot(root, issues);
+        PluginSettings settings = parseSettings(root, issues);
+        if (!issues.isEmpty()) {
+            throw new ConfigurationLoadException(issues);
+        }
+        return settings;
     }
 
     private PluginSettings parseSettings(YamlConfiguration root, List<ConfigurationIssue> issues) {
@@ -402,7 +434,8 @@ public final class ConfigurationLoader {
         boolean shopEnabled = valueOr(bool(root, file, "shop.enabled", issues), false);
         boolean renameEnabled = valueOr(bool(root, file, "rename.enabled", issues), true);
         boolean resetEnabled = valueOr(bool(root, file, "reset.player-enabled", issues), false);
-        BigDecimal resetCost = valueOr(decimal(root, file, "reset.cost", true, issues), BigDecimal.ZERO);
+        BigDecimal resetCost = valueOr(boundedDecimal(root, file, "reset.cost", BigDecimal.ZERO,
+                FeatureRegistry.MAX_FINITE_DECIMAL, issues), BigDecimal.ZERO);
         double teleportDistance = valueOr(decimal(root, file, "follow.teleport-distance", false, issues),
                 BigDecimal.valueOf(20)).doubleValue();
 
@@ -425,8 +458,10 @@ public final class ConfigurationLoader {
         var ranks = parseRanks(root, file, issues);
         int rankRefreshSeconds = valueOr(integer(
                 root, file, "rank-resolution.bukkit-refresh-interval-seconds", 1, 86_400, issues), 30);
-        long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
-        long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
+        long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1,
+                Long.MAX_VALUE, issues), 300L);
+        long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0,
+                Long.MAX_VALUE, issues), 900L);
         long loadTimeoutSeconds = valueOr(longInteger(
                 root, file, "player-data.load-timeout-seconds", 1, issues), 10L);
 
@@ -773,14 +808,19 @@ public final class ConfigurationLoader {
 
     private static Long longInteger(ConfigurationSection root, Path file, String path, long minimum,
                                     List<ConfigurationIssue> issues) {
+        return longInteger(root, file, path, minimum, Long.MAX_VALUE, issues);
+    }
+
+    private static Long longInteger(ConfigurationSection root, Path file, String path, long minimum, long maximum,
+                                    List<ConfigurationIssue> issues) {
         Object raw = root.get(path);
         if (!(raw instanceof Number number) || number.doubleValue() != number.longValue()) {
             issue(issues, file, path, raw == null ? "required integer is missing" : "must be an integer");
             return null;
         }
         long value = number.longValue();
-        if (value < minimum) {
-            issue(issues, file, path, "must be at least " + minimum);
+        if (value < minimum || value > maximum) {
+            issue(issues, file, path, "must be between " + minimum + " and " + maximum);
             return null;
         }
         return value;
@@ -818,9 +858,35 @@ public final class ConfigurationLoader {
             BigDecimal maximum,
             List<ConfigurationIssue> issues
     ) {
-        BigDecimal value = decimal(root, file, path, false, issues);
-        if (value != null && value.compareTo(maximum) > 0) {
-            issue(issues, file, path, "must be at most " + maximum.toPlainString());
+        return boundedDecimal(root, file, path, BigDecimal.ZERO, maximum, issues, false);
+    }
+
+    private static BigDecimal boundedDecimal(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            BigDecimal minimum,
+            BigDecimal maximum,
+            List<ConfigurationIssue> issues
+    ) {
+        return boundedDecimal(root, file, path, minimum, maximum, issues, true);
+    }
+
+    private static BigDecimal boundedDecimal(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            BigDecimal minimum,
+            BigDecimal maximum,
+            List<ConfigurationIssue> issues,
+            boolean inclusiveMinimum
+    ) {
+        BigDecimal value = decimal(root, file, path, inclusiveMinimum && minimum.signum() == 0, issues);
+        boolean below = value != null && (inclusiveMinimum
+                ? value.compareTo(minimum) < 0 : value.compareTo(minimum) <= 0);
+        if (below || value != null && value.compareTo(maximum) > 0) {
+            issue(issues, file, path, "must be between " + minimum.toPlainString()
+                    + " and " + maximum.toPlainString());
             return null;
         }
         return value;
