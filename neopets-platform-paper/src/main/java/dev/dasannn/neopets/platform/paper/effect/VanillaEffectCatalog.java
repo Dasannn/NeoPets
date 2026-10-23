@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.AttributeModifier;
 
 /** Maps configured vanilla effect identifiers to their Paper 26.3 representation. */
 public final class VanillaEffectCatalog {
@@ -40,23 +41,23 @@ public final class VanillaEffectCatalog {
 
     private static Map<String, Effect> effects() {
         var effects = new LinkedHashMap<String, Effect>();
-        effects.put("max_health", attribute("max_health", ValueTransform.IDENTITY, true));
-        effects.put("armor", attribute("armor", ValueTransform.IDENTITY));
-        effects.put("attack_damage", attribute("attack_damage", ValueTransform.IDENTITY));
-        effects.put("movement_speed", attribute("movement_speed", ValueTransform.IDENTITY));
-        effects.put("flying_speed", attribute("flying_speed", ValueTransform.IDENTITY));
-        effects.put("scale", attribute("scale", ValueTransform.CLAMP_SCALE));
+        effects.put("max_health", additive("max_health", ValueTransform.IDENTITY, true));
+        effects.put("armor", additive("armor", ValueTransform.IDENTITY));
+        effects.put("attack_damage", additive("attack_damage", ValueTransform.IDENTITY));
+        effects.put("movement_speed", scalar("movement_speed", ValueTransform.IDENTITY));
+        effects.put("flying_speed", scalar("flying_speed", ValueTransform.IDENTITY));
+        effects.put("scale", scalar("scale", ValueTransform.CLAMP_SCALE_BONUS));
         effects.put("knockback_resistance",
-                attribute("knockback_resistance", ValueTransform.CLAMP_UNIT));
+                additive("knockback_resistance", ValueTransform.CLAMP_UNIT));
         effects.put("explosion_knockback_resistance",
-                attribute("explosion_knockback_resistance", ValueTransform.CLAMP_UNIT));
-        effects.put("detection_radius", attribute("follow_range", ValueTransform.IDENTITY));
+                additive("explosion_knockback_resistance", ValueTransform.CLAMP_UNIT));
+        effects.put("detection_radius", additive("follow_range", ValueTransform.IDENTITY));
         effects.put("safe_fall_distance",
-                attribute("safe_fall_distance", ValueTransform.NON_NEGATIVE));
+                additive("safe_fall_distance", ValueTransform.NON_NEGATIVE));
         effects.put("fall_damage_multiplier",
-                attribute("fall_damage_multiplier", ValueTransform.CLAMP_UNIT));
+                scalar("fall_damage_multiplier", ValueTransform.NEGATE_CLAMPED_UNIT));
         effects.put("fall_damage_reduction",
-                attribute("fall_damage_multiplier", ValueTransform.REDUCTION_TO_MULTIPLIER));
+                scalar("fall_damage_multiplier", ValueTransform.NEGATE_CLAMPED_UNIT));
         effects.put("damage_resistance", potion("resistance", true));
         effects.put("fire_resistance", potion("fire_resistance", false));
         effects.put("regeneration", potion("regeneration", true));
@@ -64,12 +65,18 @@ public final class VanillaEffectCatalog {
         return Map.copyOf(effects);
     }
 
-    private static AttributeEffect attribute(String key, ValueTransform transform) {
-        return attribute(key, transform, false);
+    private static AttributeEffect additive(String key, ValueTransform transform) {
+        return additive(key, transform, false);
     }
 
-    private static AttributeEffect attribute(String key, ValueTransform transform, boolean maximumHealth) {
-        return new AttributeEffect(NamespacedKey.minecraft(key), transform, maximumHealth);
+    private static AttributeEffect additive(String key, ValueTransform transform, boolean maximumHealth) {
+        return new AttributeEffect(
+                NamespacedKey.minecraft(key), transform, AttributeModifier.Operation.ADD_NUMBER, maximumHealth);
+    }
+
+    private static AttributeEffect scalar(String key, ValueTransform transform) {
+        return new AttributeEffect(
+                NamespacedKey.minecraft(key), transform, AttributeModifier.Operation.ADD_SCALAR, false);
     }
 
     private static PotionEffect potion(String key, boolean amplifierByLevel) {
@@ -80,15 +87,43 @@ public final class VanillaEffectCatalog {
     public sealed interface Effect permits AttributeEffect, PotionEffect {
     }
 
-    /** An effect implemented as an additive modifier that reaches an absolute configured value. */
+    /**
+     * A bonus relative to the entity's own base attribute value.
+     *
+     * <p>Numeric stats use {@link AttributeModifier.Operation#ADD_NUMBER}; movement, flight, scale and fall-damage
+     * reductions use {@link AttributeModifier.Operation#ADD_SCALAR}. This keeps upgrades valid for every mob base
+     * value and across vanilla balance changes.</p>
+     */
     public record AttributeEffect(
             NamespacedKey attributeKey,
             ValueTransform transform,
+            AttributeModifier.Operation operation,
             boolean maximumHealth
     ) implements Effect {
         public AttributeEffect {
             Objects.requireNonNull(attributeKey, "attributeKey");
             Objects.requireNonNull(transform, "transform");
+            Objects.requireNonNull(operation, "operation");
+        }
+
+        /** Converts a configured cumulative bonus into the amount stored in the modifier. */
+        public double modifierAmount(BigDecimal configured) {
+            Objects.requireNonNull(configured, "configured");
+            double rawValue = configured.doubleValue();
+            if (!Double.isFinite(rawValue)) {
+                throw new IllegalArgumentException("configured effect value must be finite");
+            }
+            return transform.apply(rawValue);
+        }
+
+        /** Calculates the unclamped value produced from a base value, for validation and pure tests. */
+        public double valueFromBase(double baseValue, BigDecimal configured) {
+            double amount = modifierAmount(configured);
+            return switch (operation) {
+                case ADD_NUMBER -> baseValue + amount;
+                case ADD_SCALAR -> baseValue + baseValue * amount;
+                case MULTIPLY_SCALAR_1 -> baseValue * (1.0 + amount);
+            };
         }
     }
 
@@ -99,7 +134,7 @@ public final class VanillaEffectCatalog {
         }
     }
 
-    /** Converts a configured decimal into the absolute value expected by a Paper attribute. */
+    /** Converts a configured cumulative bonus into a Paper modifier amount. */
     public enum ValueTransform {
         /** Uses the configured value without changing it. */
         IDENTITY {
@@ -108,7 +143,7 @@ public final class VanillaEffectCatalog {
                 return value;
             }
         },
-        /** Prevents negative absolute attribute values. */
+        /** Prevents negative additive bonuses. */
         NON_NEGATIVE {
             @Override
             public double apply(double value) {
@@ -122,18 +157,18 @@ public final class VanillaEffectCatalog {
                 return Math.clamp(value, 0.0, 1.0);
             }
         },
-        /** Restricts entity scale to the supported NeoPets range. */
-        CLAMP_SCALE {
+        /** Restricts the scale bonus so the resulting base multiplier stays within x0.5–x2.0. */
+        CLAMP_SCALE_BONUS {
             @Override
             public double apply(double value) {
-                return Math.clamp(value, 0.5, 2.0);
+                return Math.clamp(value, -0.5, 1.0);
             }
         },
-        /** Converts a reduction fraction into the remaining fall-damage multiplier. */
-        REDUCTION_TO_MULTIPLIER {
+        /** Converts a positive reduction fraction into a negative scalar bonus. */
+        NEGATE_CLAMPED_UNIT {
             @Override
             public double apply(double value) {
-                return 1.0 - Math.clamp(value, 0.0, 1.0);
+                return -Math.clamp(value, 0.0, 1.0);
             }
         };
 

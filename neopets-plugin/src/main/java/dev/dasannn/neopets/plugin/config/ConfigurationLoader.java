@@ -176,9 +176,15 @@ public final class ConfigurationLoader {
         var variants = new LinkedHashMap<VariantId, PetVariant>();
         var icons = new LinkedHashMap<VariantId, String>();
         var trees = new LinkedHashMap<PetTypeId, SkillTreeDefinition>();
+        var migratedTrees = new LinkedHashMap<Path, YamlConfiguration>();
         for (String type : PET_TYPES) {
             parseVariants(type, loadYaml(Path.of("pets", type + ".yml"), issues), variants, icons, issues);
-            parseSkillTree(type, loadYaml(Path.of("skilltrees", type + ".yml"), issues), trees, issues);
+            Path treePath = Path.of("skilltrees", type + ".yml");
+            YamlConfiguration treeYaml = loadYaml(treePath, issues);
+            if (migrator.migrateSkillTree(treeYaml, type, migration.sourceVersion())) {
+                migratedTrees.put(treePath, treeYaml);
+            }
+            parseSkillTree(type, treeYaml, trees, issues);
         }
         LanguageCatalog language = parseLanguage(languageYaml, issues);
 
@@ -187,6 +193,9 @@ public final class ConfigurationLoader {
         }
         if (languageChanged) {
             languageYaml.save(dataDirectory.resolve(Path.of("lang", "es.yml")).toFile());
+        }
+        for (var migratedTree : migratedTrees.entrySet()) {
+            migratedTree.getValue().save(dataDirectory.resolve(migratedTree.getKey()).toFile());
         }
         if (migration.changed()) {
             root.save(dataDirectory.resolve("config.yml").toFile());

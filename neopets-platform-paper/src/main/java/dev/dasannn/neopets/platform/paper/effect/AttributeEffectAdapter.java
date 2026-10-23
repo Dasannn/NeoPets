@@ -4,8 +4,8 @@ import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
 import io.papermc.paper.registry.RegistryAccess;
 import io.papermc.paper.registry.RegistryKey;
-import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
@@ -21,7 +21,7 @@ public final class AttributeEffectAdapter {
 
     private final VanillaEffectCatalog catalog;
     private final Function<NamespacedKey, Attribute> attributeLookup;
-    private final Function<NamespacedKey, org.bukkit.potion.PotionEffectType> potionEffectLookup;
+    private final PotionEffectApplication potionEffects;
 
     /** Creates an adapter backed by the supplied catalog. */
     public AttributeEffectAdapter(VanillaEffectCatalog catalog) {
@@ -36,9 +36,17 @@ public final class AttributeEffectAdapter {
             Function<NamespacedKey, Attribute> attributeLookup,
             Function<NamespacedKey, org.bukkit.potion.PotionEffectType> potionEffectLookup
     ) {
+        this(catalog, attributeLookup, paperPotionEffects(potionEffectLookup));
+    }
+
+    AttributeEffectAdapter(
+            VanillaEffectCatalog catalog,
+            Function<NamespacedKey, Attribute> attributeLookup,
+            PotionEffectApplication potionEffects
+    ) {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
         this.attributeLookup = Objects.requireNonNull(attributeLookup, "attributeLookup");
-        this.potionEffectLookup = Objects.requireNonNull(potionEffectLookup, "potionEffectLookup");
+        this.potionEffects = Objects.requireNonNull(potionEffects, "potionEffects");
     }
 
     /**
@@ -90,28 +98,13 @@ public final class AttributeEffectAdapter {
 
         NamespacedKey key = modifierKey(attributeId);
         instance.removeModifier(key);
-        catalog.valueAtLevel(reference, activeLevel).ifPresent(configured ->
-                addModifier(instance, key, configured, effect));
+        catalog.valueAtLevel(reference, activeLevel).ifPresent(configured -> instance.addModifier(
+                new AttributeModifier(key, effect.modifierAmount(configured), effect.operation())));
 
         if (health) {
             double changedMaximum = instance.getValue();
             entity.setHealth(Math.min(changedMaximum, previousHealthRatio * changedMaximum));
         }
-    }
-
-    private static void addModifier(
-            AttributeInstance instance,
-            NamespacedKey key,
-            BigDecimal configured,
-            VanillaEffectCatalog.AttributeEffect effect
-    ) {
-        double rawValue = configured.doubleValue();
-        if (!Double.isFinite(rawValue)) {
-            throw new IllegalArgumentException("configured effect value must be finite");
-        }
-        double targetValue = effect.transform().apply(rawValue);
-        double amount = targetValue - instance.getBaseValue();
-        instance.addModifier(new AttributeModifier(key, amount, AttributeModifier.Operation.ADD_NUMBER));
     }
 
     private void applyPotion(
@@ -120,14 +113,49 @@ public final class AttributeEffectAdapter {
             VanillaEffectCatalog.PotionEffect effect,
             LivingEntity entity
     ) {
-        var type = Objects.requireNonNull(
-                potionEffectLookup.apply(effect.typeKey()), "potionEffectLookup result");
-        entity.removePotionEffect(type);
-        if (catalog.valueAtLevel(reference, activeLevel).isEmpty()) {
-            return;
-        }
-        int amplifier = effect.amplifierByLevel() ? activeLevel - 1 : 0;
-        entity.addPotionEffect(new PotionEffect(
-                type, PotionEffect.INFINITE_DURATION, amplifier, true, false, false));
+        Optional<PotionEffectSettings> settings = catalog.valueAtLevel(reference, activeLevel).map(ignored ->
+                new PotionEffectSettings(
+                        PotionEffect.INFINITE_DURATION,
+                        effect.amplifierByLevel() ? activeLevel - 1 : 0,
+                        true,
+                        false,
+                        false));
+        potionEffects.update(entity, effect.typeKey(), settings);
+    }
+
+    private static PotionEffectApplication paperPotionEffects(
+            Function<NamespacedKey, org.bukkit.potion.PotionEffectType> potionEffectLookup
+    ) {
+        Objects.requireNonNull(potionEffectLookup, "potionEffectLookup");
+        return (entity, typeKey, settings) -> {
+            var type = Objects.requireNonNull(
+                    potionEffectLookup.apply(typeKey), "potionEffectLookup result");
+            entity.removePotionEffect(type);
+            settings.ifPresent(specification -> entity.addPotionEffect(new PotionEffect(
+                    type,
+                    specification.duration(),
+                    specification.amplifier(),
+                    specification.ambient(),
+                    specification.particles(),
+                    specification.icon())));
+        };
+    }
+
+    record PotionEffectSettings(
+            int duration,
+            int amplifier,
+            boolean ambient,
+            boolean particles,
+            boolean icon
+    ) {
+    }
+
+    @FunctionalInterface
+    interface PotionEffectApplication {
+        void update(
+                LivingEntity entity,
+                NamespacedKey typeKey,
+                Optional<PotionEffectSettings> settings
+        );
     }
 }

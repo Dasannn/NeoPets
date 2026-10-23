@@ -14,38 +14,88 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.potion.PotionEffect;
 import org.junit.jupiter.api.Test;
 
 class AttributeEffectAdapterTest {
     @Test
-    void maxHealthModifierIsIdempotentAndPreservesHealthRatio() {
-        var attribute = new FakeAttributeInstance(10.0);
-        var entity = new FakeLivingEntity(attribute, 5.0);
+    void shippedDogHealthBonusNeverReducesItsFortyHealthBaseAndPreservesHealthRatio() {
+        var attribute = new FakeAttributeInstance(40.0);
+        var entity = new FakeLivingEntity(attribute, 20.0);
         Attribute paperAttribute = paperAttribute();
         var adapter = new AttributeEffectAdapter(
                 new VanillaEffectCatalog(), ignored -> paperAttribute,
                 ignored -> {
                     throw new AssertionError("potion lookup was not expected");
                 });
-        var health = vanilla("health", "max_health", "20");
+        var health = vanilla("health", "max_health", "10");
 
         adapter.apply(health, 1, entity.proxy());
 
-        assertEquals(20.0, attribute.value());
-        assertEquals(10.0, entity.health());
+        assertEquals(50.0, attribute.value());
+        assertEquals(25.0, entity.health());
         assertEquals(1, attribute.modifiers().size());
+        assertEquals(AttributeModifier.Operation.ADD_NUMBER,
+                attribute.modifiers().iterator().next().getOperation());
 
         adapter.apply(health, 1, entity.proxy());
 
-        assertEquals(20.0, attribute.value());
-        assertEquals(10.0, entity.health());
+        assertEquals(50.0, attribute.value());
+        assertEquals(25.0, entity.health());
         assertEquals(1, attribute.modifiers().size());
 
         adapter.apply(health, 0, entity.proxy());
 
-        assertEquals(10.0, attribute.value());
-        assertEquals(5.0, entity.health());
+        assertEquals(40.0, attribute.value());
+        assertEquals(20.0, entity.health());
         assertEquals(0, attribute.modifiers().size());
+    }
+
+    @Test
+    void movementUsesAPercentageBonusOverTheEntityBase() {
+        var attribute = new FakeAttributeInstance(0.3);
+        var entity = new FakeLivingEntity(attribute, 1.0);
+        Attribute paperAttribute = paperAttribute();
+        var adapter = new AttributeEffectAdapter(
+                new VanillaEffectCatalog(), ignored -> paperAttribute,
+                ignored -> {
+                    throw new AssertionError("potion lookup was not expected");
+                });
+
+        adapter.apply(vanilla("speed", "movement_speed", "0.25"), 1, entity.proxy());
+
+        assertEquals(0.375, attribute.value(), 0.000_001);
+        assertEquals(AttributeModifier.Operation.ADD_SCALAR,
+                attribute.modifiers().iterator().next().getOperation());
+    }
+
+    @Test
+    void regenerationIsInfiniteAmbientHiddenAndRemovedAtLevelZero() {
+        var applications = new ArrayList<java.util.Optional<AttributeEffectAdapter.PotionEffectSettings>>();
+        var adapter = new AttributeEffectAdapter(
+                new VanillaEffectCatalog(), ignored -> {
+                    throw new AssertionError("attribute lookup was not expected");
+                }, (entity, typeKey, settings) -> applications.add(settings));
+        var regeneration = new AttributeDefinition(
+                "regeneration",
+                AttributeCategory.VANILLA,
+                3,
+                new VanillaEffectReference("regeneration", List.of(
+                        BigDecimal.ONE, BigDecimal.TWO, BigDecimal.valueOf(3))),
+                List.of(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+
+        adapter.apply(regeneration, 3, unusedEntity());
+
+        var applied = applications.getFirst().orElseThrow();
+        assertEquals(PotionEffect.INFINITE_DURATION, applied.duration());
+        assertEquals(2, applied.amplifier());
+        assertEquals(true, applied.ambient());
+        assertEquals(false, applied.particles());
+        assertEquals(false, applied.icon());
+
+        adapter.apply(regeneration, 0, unusedEntity());
+
+        assertEquals(java.util.Optional.empty(), applications.get(1));
     }
 
     private static AttributeDefinition vanilla(String id, String effectId, String value) {
@@ -89,12 +139,34 @@ class AttributeEffectAdapterTest {
         }
 
         private double value() {
-            return baseValue + modifiers.stream().mapToDouble(AttributeModifier::getAmount).sum();
+            double additive = modifiers.stream()
+                    .filter(modifier -> modifier.getOperation() == AttributeModifier.Operation.ADD_NUMBER)
+                    .mapToDouble(AttributeModifier::getAmount)
+                    .sum();
+            double scalar = modifiers.stream()
+                    .filter(modifier -> modifier.getOperation() == AttributeModifier.Operation.ADD_SCALAR)
+                    .mapToDouble(AttributeModifier::getAmount)
+                    .sum();
+            double multiplied = modifiers.stream()
+                    .filter(modifier -> modifier.getOperation() == AttributeModifier.Operation.MULTIPLY_SCALAR_1)
+                    .mapToDouble(modifier -> 1.0 + modifier.getAmount())
+                    .reduce(1.0, (left, right) -> left * right);
+            return (baseValue + additive) * (1.0 + scalar) * multiplied;
         }
 
         private Collection<AttributeModifier> modifiers() {
             return List.copyOf(modifiers);
         }
+    }
+
+    private static LivingEntity unusedEntity() {
+        return (LivingEntity) Proxy.newProxyInstance(
+                AttributeEffectAdapterTest.class.getClassLoader(),
+                new Class<?>[] {LivingEntity.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "toString" -> "unused living entity";
+                    default -> throw new AssertionError("Unexpected entity call: " + method);
+                });
     }
 
     private static final class FakeLivingEntity {

@@ -105,6 +105,40 @@ class PaperPetEntityGatewayTest {
     }
 
     @Test
+    void effectRefreshRunsOnTheMainThreadAndSkipsDismissedPets() {
+        var fixture = new GatewayFixture();
+        var scheduler = new DeferredScheduler();
+        var entityId = UUID.randomUUID();
+        var entity = livingEntity(entityId, new boolean[1]);
+        var effectsApplied = new int[1];
+        fixture.registry.register(fixture.petId, entityId);
+        var gateway = new PaperPetEntityGateway(
+                server(onlinePlayer(fixture.ownerId), entityId, entity),
+                scheduler,
+                (location, ownerId, petId, variant) -> {
+                    throw new AssertionError("effect refresh must not spawn");
+                },
+                fixture.registry,
+                ignored -> new PetSpawnData(fixture.ownerId, fixture.variantId),
+                ignored -> fixture.variant,
+                (petId, actualEntity) -> effectsApplied[0]++);
+
+        var liveRefresh = gateway.applyEffects(fixture.petId);
+
+        assertFalse(liveRefresh.isDone());
+        assertEquals(0, effectsApplied[0]);
+        scheduler.runDeferredTask();
+        assertEquals(1, effectsApplied[0]);
+
+        fixture.registry.unregister(fixture.petId);
+        var dismissedRefresh = gateway.applyEffects(fixture.petId);
+        scheduler.runDeferredTask();
+
+        assertTrue(dismissedRefresh.isDone());
+        assertEquals(1, effectsApplied[0]);
+    }
+
+    @Test
     void despawnClearsMatchingShoulderPetWhenEntityIsAbsentFromWorld() {
         var petId = new PetId(UUID.randomUUID());
         var ownerId = UUID.randomUUID();
@@ -234,12 +268,16 @@ class PaperPetEntityGatewayTest {
     }
 
     private static Server server(Player owner) {
+        return server(owner, null, null);
+    }
+
+    private static Server server(Player owner, UUID entityId, LivingEntity entity) {
         return (Server) Proxy.newProxyInstance(
                 PaperPetEntityGatewayTest.class.getClassLoader(),
                 new Class<?>[] {Server.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getPlayer" -> owner;
-                    case "getEntity" -> null;
+                    case "getEntity" -> entityId != null && entityId.equals(arguments[0]) ? entity : null;
                     case "toString" -> "test server";
                     default -> throw new AssertionError("Unexpected server call: " + method);
                 });

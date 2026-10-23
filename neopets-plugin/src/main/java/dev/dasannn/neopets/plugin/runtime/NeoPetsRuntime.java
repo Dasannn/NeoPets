@@ -3,8 +3,6 @@ package dev.dasannn.neopets.plugin.runtime;
 import dev.dasannn.neopets.api.NeoPetsProvider;
 import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
-import dev.dasannn.neopets.core.event.NodeActivated;
-import dev.dasannn.neopets.core.event.TreeReset;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetTypeId;
@@ -165,10 +163,9 @@ public final class NeoPetsRuntime implements AutoCloseable {
                             () -> new IllegalStateException("Unknown variant: " + variantId)),
                     effectApplier);
             entityPort.bind(gateway);
-            lifecycle.started(events.subscribe(NodeActivated.class,
-                    event -> reapplyLiveEffects(event.petId(), livePets, gateway, plugin)));
-            lifecycle.started(events.subscribe(TreeReset.class,
-                    event -> reapplyLiveEffects(event.petId(), livePets, gateway, plugin)));
+            lifecycle.started(SkillTreeEffectRefresh.subscribe(events, livePets, gateway,
+                    (petId, failure) -> plugin.getLogger().log(Level.SEVERE,
+                            "Could not reapply skill-tree effects for pet " + petId, failure)));
             var brain = new PetBrain(4.0, configuration.current().settings().followTeleportDistance(), 1.2);
             var ticker = lifecycle.started(new PetTicker(plugin.getServer(), scheduler, livePets, brain, gateway));
             ticker.start();
@@ -308,23 +305,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
                         definition,
                         cache.loadedTreeProgress(petId)
                                 .orElseGet(() -> TreeProgress.empty(petId, definition)))));
-    }
-
-    private static void reapplyLiveEffects(
-            PetId petId,
-            LivePetRegistry livePets,
-            PaperPetEntityGateway gateway,
-            NeoPetsPlugin plugin
-    ) {
-        if (livePets.entityId(petId).isEmpty()) {
-            return;
-        }
-        gateway.applyEffects(petId).whenComplete((ignored, failure) -> {
-            if (failure != null) {
-                plugin.getLogger().log(Level.SEVERE,
-                        "Could not reapply skill-tree effects for pet " + petId, failure);
-            }
-        });
     }
 
     private static StorageSettings storageSettings(

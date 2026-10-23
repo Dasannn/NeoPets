@@ -33,7 +33,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(3, snapshot.settings().configVersion());
+        assertEquals(4, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -84,6 +84,37 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void everyShippedVanillaProgressionIsCumulativeAndNeverBelowItsEntityBase() throws Exception {
+        ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
+        var catalog = new VanillaEffectCatalog();
+
+        for (var tree : snapshot.skillTrees().values()) {
+            for (var attribute : tree.attributes()) {
+                if (!(attribute.effect() instanceof VanillaEffectReference reference)) {
+                    continue;
+                }
+                double previous = representativeBase(reference.catalogEffectId());
+                var effect = catalog.find(reference.catalogEffectId()).orElseThrow();
+                for (var configured : reference.valuesPerLevel()) {
+                    double current = effect instanceof VanillaEffectCatalog.AttributeEffect attributeEffect
+                            ? attributeEffect.valueFromBase(representativeBase(reference.catalogEffectId()), configured)
+                            : configured.doubleValue();
+                    assertTrue(current >= previous,
+                            () -> tree.petTypeId() + ":" + attribute.id() + " is not cumulative");
+                    previous = current;
+                }
+            }
+        }
+
+        var dogHealth = (VanillaEffectReference) snapshot.skillTree(new PetTypeId("dog"))
+                .orElseThrow().attributes().stream()
+                .filter(attribute -> attribute.id().equals("health"))
+                .findFirst().orElseThrow().effect();
+        assertEquals(List.of(2, 4, 6, 8, 10), dogHealth.valuesPerLevel().stream()
+                .map(java.math.BigDecimal::intValueExact).toList());
+    }
+
+    @Test
     void unknownVanillaEffectIdIsReportedAtItsConfigurationPath() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
@@ -131,7 +162,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 3", "config-version: 99");
+        replace("config.yml", "config-version: 4", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -234,7 +265,7 @@ class ConfigurationLoaderTest {
     void oldInstallBackfillsConfigAndLanguageWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 1");
+        replace("config.yml", "config-version: 4", "config-version: 1");
         replace("config.yml", "  load-timeout-seconds: 10\n", "");
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
@@ -245,14 +276,14 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertEquals(37.0, upgraded.settings().followTeleportDistance());
         assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
         assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
         assertEquals("cierre personalizado", upgraded.language().find("gui.pets.close").orElseThrow());
         assertTrue(upgraded.language().find("errors.profile-load").isPresent());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
-        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 3"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 4"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("header-name:"));
     }
@@ -261,7 +292,7 @@ class ConfigurationLoaderTest {
     void versionTwoInstallReceivesEveryPetsMenuMessageAndStillLoads() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 2");
+        replace("config.yml", "config-version: 4", "config-version: 2");
         String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
         int petsSection = language.indexOf("  pets:\n", language.indexOf("gui:\n"));
         int adminSection = language.indexOf("\nadmin:\n", petsSection);
@@ -270,9 +301,29 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
         assertTrue(upgraded.language().find("gui.pets.rename-invalid").isPresent());
+    }
+
+    @Test
+    void versionThreeInstallMigratesBundledSkillValuesButPreservesCustomProgressions() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 4", "config-version: 3");
+        replace("skilltrees/dog.yml", "values: [2, 4, 6, 8, 10]", "values: [22, 24, 26, 28, 30]");
+        replace("skilltrees/dog.yml", "values: [0.05, 0.1, 0.15, 0.2, 0.25]",
+                "values: [0.32, 0.34, 0.36, 0.38, 0.4]");
+        replace("skilltrees/dog.yml", "values: [4, 8, 12, 16, 20]", "values: [3, 6, 9, 12, 15]");
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        var dog = upgraded.skillTree(new PetTypeId("dog")).orElseThrow();
+        assertEquals(List.of(2, 4, 6, 8, 10), values(dog, "health"));
+        assertEquals(List.of(0.05, 0.1, 0.15, 0.2, 0.25), values(dog, "speed"));
+        assertEquals(List.of(3, 6, 9, 12, 15), values(dog, "scent"));
+        assertEquals(List.of(3, 6, 9, 12, 15),
+                values(loader.load().skillTree(new PetTypeId("dog")).orElseThrow(), "scent"));
     }
 
     private void replace(String relativePath, String target, String replacement) throws IOException {
@@ -280,6 +331,33 @@ class ConfigurationLoaderTest {
         String original = Files.readString(file);
         assertTrue(original.contains(target), "test fixture target not found: " + target);
         Files.writeString(file, original.replaceFirst(Pattern.quote(target), Matcher.quoteReplacement(replacement)));
+    }
+
+    private static double representativeBase(String effectId) {
+        return switch (effectId) {
+            case "max_health" -> 40.0;
+            case "movement_speed", "flying_speed" -> 0.3;
+            default -> 0.0;
+        };
+    }
+
+    private static List<Number> values(
+            dev.dasannn.neopets.core.skilltree.SkillTreeDefinition tree,
+            String attributeId
+    ) {
+        return tree.attributes().stream()
+                .filter(attribute -> attribute.id().equals(attributeId))
+                .findFirst()
+                .map(attribute -> (VanillaEffectReference) attribute.effect())
+                .orElseThrow()
+                .valuesPerLevel().stream()
+                .<Number>map(value -> {
+                    if (value.scale() <= 0) {
+                        return Integer.valueOf(value.intValueExact());
+                    }
+                    return Double.valueOf(value.doubleValue());
+                })
+                .toList();
     }
 
     private static void assertIssue(ConfigurationLoadException failure, String file, String path) {

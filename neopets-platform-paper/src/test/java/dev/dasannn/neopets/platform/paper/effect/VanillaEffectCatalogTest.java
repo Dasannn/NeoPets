@@ -8,6 +8,7 @@ import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
+import org.bukkit.attribute.AttributeModifier;
 import org.junit.jupiter.api.Test;
 
 class VanillaEffectCatalogTest {
@@ -46,9 +47,22 @@ class VanillaEffectCatalogTest {
 
     @Test
     void constrainsScaleAndReductionValues() {
-        assertEquals(0.5, VanillaEffectCatalog.ValueTransform.CLAMP_SCALE.apply(0.1));
-        assertEquals(2.0, VanillaEffectCatalog.ValueTransform.CLAMP_SCALE.apply(3.0));
-        assertEquals(0.75, VanillaEffectCatalog.ValueTransform.REDUCTION_TO_MULTIPLIER.apply(0.25));
+        assertEquals(-0.5, VanillaEffectCatalog.ValueTransform.CLAMP_SCALE_BONUS.apply(-1.0));
+        assertEquals(1.0, VanillaEffectCatalog.ValueTransform.CLAMP_SCALE_BONUS.apply(3.0));
+        assertEquals(-0.25, VanillaEffectCatalog.ValueTransform.NEGATE_CLAMPED_UNIT.apply(0.25));
+    }
+
+    @Test
+    void declaresAdditiveAndPercentageBonusOperations() {
+        var health = (VanillaEffectCatalog.AttributeEffect) catalog.find("max_health").orElseThrow();
+        var movement = (VanillaEffectCatalog.AttributeEffect) catalog.find("movement_speed").orElseThrow();
+        var scale = (VanillaEffectCatalog.AttributeEffect) catalog.find("scale").orElseThrow();
+
+        assertEquals(AttributeModifier.Operation.ADD_NUMBER, health.operation());
+        assertEquals(44.0, health.valueFromBase(40.0, decimal("4")));
+        assertEquals(AttributeModifier.Operation.ADD_SCALAR, movement.operation());
+        assertEquals(0.33, movement.valueFromBase(0.3, decimal("0.1")), 0.000_001);
+        assertEquals(1.5, scale.valueFromBase(1.0, decimal("0.5")));
     }
 
     @Test
