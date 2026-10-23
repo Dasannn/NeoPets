@@ -116,6 +116,23 @@ class TreeProgressTest {
         assertThrows(NullPointerException.class, () -> TreeProgress.empty(petId, null));
     }
 
+    @Test
+    void activeAbilityUsesConfiguredEffectRatherThanAttributeName() {
+        var definition = new SkillTreeDefinition(new PetTypeId("donkey"), List.of(
+                new AttributeDefinition("delivery", AttributeCategory.CUSTOM, 1,
+                        new CustomEffectReference("courier_saddlebags"), List.of(BigDecimal.ZERO)),
+                new AttributeDefinition("courier_saddlebags", AttributeCategory.CUSTOM, 1,
+                        new CustomEffectReference("other_ability"), List.of(BigDecimal.ZERO))));
+        var progress = TreeProgress.empty(petId, definition);
+        assertEquals(false, progress.hasActiveAbility(definition, "courier_saddlebags"));
+        assertEquals(false, progress.withLevels("courier_saddlebags", 1, 1)
+                .hasActiveAbility(definition, "courier_saddlebags"));
+        assertEquals(true, progress.withLevels("delivery", 1, 1)
+                .hasActiveAbility(definition, "courier_saddlebags"));
+        assertEquals(false, new TreeProgress(petId, Map.of())
+                .hasActiveAbility(definition, "courier_saddlebags"));
+    }
+
     private static SkillTreeDefinition definition() {
         return new SkillTreeDefinition(new PetTypeId("polar_bear"), List.of(
                 new AttributeDefinition("life", AttributeCategory.VANILLA, 3,

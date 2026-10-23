@@ -3,6 +3,7 @@ package dev.dasannn.neopets.core.courier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.model.OwnedPet;
@@ -181,6 +182,45 @@ class CourierServiceTest {
         assertTrue(service.requestFor(PET).orElseThrow().accepted());
     }
 
+    @Test
+    void ownerEntityRemainsUntilTransitStateIsDurable() {
+        repository.pendingSave = new CompletableFuture<>();
+        var requested = service.request(PET, OWNER, RECIPIENT);
+        assertTrue(!requested.isDone());
+        assertTrue(gateway.actions.isEmpty());
+        assertEquals(PetStatus.ALIVE, repository.pet.status());
+        repository.pendingSave.complete(null);
+        assertInstanceOf(CourierResult.Requested.class, requested.join());
+        assertEquals(PetStatus.IN_TRANSIT, repository.pet.status());
+        assertEquals(List.of("despawn"), gateway.actions);
+    }
+
+    @Test
+    void failedTransitSaveLeavesTheOwnerEntityAndCooldownUntouched() {
+        var original = repository.pet;
+        repository.failSave = true;
+        assertThrows(java.util.concurrent.CompletionException.class,
+                () -> service.request(PET, OWNER, RECIPIENT).join());
+        assertEquals(original, repository.pet);
+        assertTrue(gateway.actions.isEmpty());
+        assertTrue(service.activeRequests().isEmpty());
+        repository.failSave = false;
+        request();
+    }
+
+    @Test
+    void failedDespawnRestoresTheOwnerStateAndAllowsRetry() {
+        var original = repository.pet;
+        gateway.failDespawn = true;
+        assertThrows(java.util.concurrent.CompletionException.class,
+                () -> service.request(PET, OWNER, RECIPIENT).join());
+        assertEquals(original, repository.pet);
+        assertEquals(List.of("despawn", "spawn"), gateway.actions);
+        assertTrue(service.activeRequests().isEmpty());
+        gateway.failDespawn = false;
+        request();
+    }
+
     private CourierRequest request() {
         return assertInstanceOf(CourierResult.Requested.class,
                 service.request(PET, OWNER, RECIPIENT).join()).request();
@@ -196,6 +236,8 @@ class CourierServiceTest {
 
     private static final class Repository implements PetRepository {
         private OwnedPet pet;
+        private boolean failSave;
+        private CompletableFuture<Void> pendingSave;
         @Override public CompletableFuture<Optional<OwnedPet>> findById(PetId id) {
             return CompletableFuture.completedFuture(pet.id().equals(id) ? Optional.of(pet) : Optional.empty());
         }
@@ -203,8 +245,9 @@ class CourierServiceTest {
             return CompletableFuture.completedFuture(pet.owner().equals(owner) ? List.of(pet) : List.of());
         }
         @Override public CompletableFuture<Void> save(OwnedPet changed) {
-            pet = changed;
-            return CompletableFuture.completedFuture(null);
+            if (failSave) return CompletableFuture.failedFuture(new IllegalStateException("save failed"));
+            CompletableFuture<Void> saved = pendingSave == null ? CompletableFuture.completedFuture(null) : pendingSave;
+            return saved.thenRun(() -> pet = changed);
         }
         @Override public CompletableFuture<Void> deleteById(PetId id) {
             return CompletableFuture.completedFuture(null);
@@ -213,6 +256,7 @@ class CourierServiceTest {
 
     private static final class Gateway implements PetEntityGateway {
         private final List<String> actions = new ArrayList<>();
+        private boolean failDespawn;
         @Override public CompletableFuture<Void> spawn(PetId petId) {
             actions.add("spawn"); return CompletableFuture.completedFuture(null);
         }
@@ -220,7 +264,9 @@ class CourierServiceTest {
             actions.add("courier:" + recipient); return CompletableFuture.completedFuture(null);
         }
         @Override public CompletableFuture<Void> despawn(PetId petId) {
-            actions.add("despawn"); return CompletableFuture.completedFuture(null);
+            actions.add("despawn");
+            return failDespawn ? CompletableFuture.failedFuture(new IllegalStateException("despawn failed"))
+                    : CompletableFuture.completedFuture(null);
         }
         @Override public CompletableFuture<Void> applyEffects(PetId petId) {
             return CompletableFuture.completedFuture(null);

@@ -70,6 +70,29 @@ def font_bold(size):
 
 def item_texture(textures, material):
     name = material.lower()
+    entity_crops = {
+        "player_head": ("entity/player/wide/steve.png", (8, 8, 16, 16)),
+    }
+    if name in entity_crops:
+        rel, crop = entity_crops[name]
+        path = textures / rel
+        if path.exists():
+            img = Image.open(path).convert("RGBA")
+            scale = img.width / 64
+            return img.crop(tuple(round(value * scale) for value in crop))
+    if name == "chest":
+        path = textures / "entity/chest/normal.png"
+        if path.exists():
+            img = Image.open(path).convert("RGBA")
+            scale = img.width / 64
+            def crop(box):
+                return img.crop(tuple(round(value * scale) for value in box))
+            # Assemble the lid, body and latch from the chest's entity UV texture.
+            front = Image.new("RGBA", (round(16 * scale), round(16 * scale)))
+            front.paste(crop((14, 14, 28, 19)), (round(scale), round(scale)))
+            front.paste(crop((14, 33, 28, 43)), (round(scale), round(6 * scale)))
+            front.alpha_composite(crop((1, 1, 3, 5)), (round(7 * scale), round(4 * scale)))
+            return front
     aliases = {
         "command_block": "block/command_block_front.png",
         "clock": "item/clock_00.png",

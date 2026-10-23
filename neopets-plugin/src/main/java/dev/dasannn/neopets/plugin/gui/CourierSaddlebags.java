@@ -89,6 +89,7 @@ public final class CourierSaddlebags implements Listener, AutoCloseable {
     private final java.util.Set<PlayerId> departing = new java.util.HashSet<>();
     private final java.util.concurrent.ConcurrentLinkedQueue<Runnable> completions = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final Map<UUID, Long> openings = new HashMap<>();
+    private final Map<UUID, Long> availabilityChanges = new HashMap<>();
 
     public CourierSaddlebags(
             Plugin plugin,
@@ -272,9 +273,21 @@ public final class CourierSaddlebags implements Listener, AutoCloseable {
             messages.send(owner, MessageSpec.of("courier.recipient-offline"));
             return;
         }
+        long availability = availabilityChanges.getOrDefault(recipientId, 0L);
         owner.closeInventory();
         complete(owner, courier.request(pet.id(), pet.owner(), new PlayerId(recipientId)), result -> {
             if (result instanceof CourierResult.Requested requested) {
+                Player current = server.getPlayer(recipientId);
+                if (current == null || !current.isOnline()
+                        || availabilityChanges.getOrDefault(recipientId, 0L) != availability) {
+                    returning.add(pet.id());
+                    // This request has no viewer yet. Cancel it without waiting for unrelated views.
+                    complete(owner, courier.reject(requested.request().id(), requested.request().recipient()),
+                            cancelled -> {
+                                if (cancelled instanceof CourierResult.Returned returned) notifyOwner(returned);
+                            });
+                    return;
+                }
                 messages.send(owner, new MessageSpec("courier.request-sent", Map.of("player", recipient.getName())));
                 sendClickableRequest(owner, recipient, requested.request());
             } else {
@@ -393,6 +406,9 @@ public final class CourierSaddlebags implements Listener, AutoCloseable {
                         pending.completeExceptionally(creditFailure);
                         beginSave(session);
                         fail(session.viewer, "confirm saddlebag transfer", creditFailure);
+                    } finally {
+                        // A failed save keeps the pet lease, but must not freeze the player's inventory.
+                        if (pending.isDone() && session.pending == pending) session.pending = null;
                     }
                 }));
     }
@@ -475,6 +491,7 @@ public final class CourierSaddlebags implements Listener, AutoCloseable {
     }
 
     private void recipientUnavailable(Player player, CourierResult.Reason reason) {
+        availabilityChanges.merge(player.getUniqueId(), 1L, Long::sum);
         openings.merge(player.getUniqueId(), 1L, Long::sum);
         courier.activeRequests().stream().filter(request -> request.recipient().value().equals(player.getUniqueId()))
                 .forEach(request -> returning.add(request.petId()));
