@@ -21,7 +21,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -37,6 +39,7 @@ public final class PlayerDataCache {
     private final Map<PlayerId, CachedPlayerData> players = new HashMap<>();
     private final Map<PetId, PlayerId> petOwners = new HashMap<>();
     private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
+    private final Set<CompletableFuture<Void>> pendingOwnerLookups = ConcurrentHashMap.newKeySet();
     private final PlayerRepository playerDelegate;
     private final PetRepository petDelegate;
     private final TreeProgressRepository treeDelegate;
@@ -94,7 +97,11 @@ public final class PlayerDataCache {
      * method does not issue duplicate repository operations or evict online-player snapshots.
      */
     public CompletableFuture<Void> flushAll() {
-        return operations.awaitAll();
+        // Owner lookups may still enqueue player operations, so wait for them before the queues.
+        var lookups = pendingOwnerLookups.toArray(CompletableFuture<?>[]::new);
+        return CompletableFuture.allOf(lookups)
+                .handle((ignored, failure) -> null)
+                .thenCompose(ignored -> operations.awaitAll());
     }
 
     /** Returns whether the player's complete snapshot is currently cached. */
@@ -180,20 +187,45 @@ public final class PlayerDataCache {
 
     CompletableFuture<Void> deletePet(PetId petId, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(petId, "petId");
-        return resolveOwner(petId).thenCompose(owner -> owner
-                .map(playerId -> operations.submit(
-                        playerId, () -> writeThrough(() -> deletePet(playerId, petId), durableWrite)))
-                .orElseGet(() -> invoke(durableWrite)));
+        return submitForPetOwner(petId, owner -> () -> writeThrough(() -> deletePet(owner, petId), durableWrite),
+                durableWrite);
     }
 
     CompletableFuture<Void> saveTreeProgress(
             TreeProgress progress, Supplier<CompletableFuture<Void>> durableWrite
     ) {
         Objects.requireNonNull(progress, "progress");
-        return resolveOwner(progress.petId()).thenCompose(owner -> owner
-                .map(playerId -> operations.submit(
-                        playerId, () -> writeThrough(() -> saveTreeProgress(playerId, progress), durableWrite)))
+        return submitForPetOwner(progress.petId(),
+                owner -> () -> writeThrough(() -> saveTreeProgress(owner, progress), durableWrite),
+                durableWrite);
+    }
+
+    /**
+     * Runs a pet-scoped write in its owner's operation sequence.
+     *
+     * <p>When the owner is cached, the write is enqueued immediately, so it is always ordered before
+     * any later {@link #unload(PlayerId)} of that owner. Otherwise the owner is resolved
+     * asynchronously (the player is offline); such lookups are tracked so {@link #flushAll()} waits
+     * for them.</p>
+     */
+    private CompletableFuture<Void> submitForPetOwner(
+            PetId petId,
+            Function<PlayerId, Supplier<CompletableFuture<Void>>> cachedWrite,
+            Supplier<CompletableFuture<Void>> durableWrite
+    ) {
+        PlayerId cachedOwner;
+        synchronized (monitor) {
+            cachedOwner = petOwners.get(petId);
+        }
+        if (cachedOwner != null) {
+            return operations.submit(cachedOwner, cachedWrite.apply(cachedOwner));
+        }
+        CompletableFuture<Void> routed = resolveOwner(petId).thenCompose(owner -> owner
+                .map(playerId -> operations.submit(playerId, cachedWrite.apply(playerId)))
                 .orElseGet(() -> invoke(durableWrite)));
+        pendingOwnerLookups.add(routed);
+        routed.whenComplete((ignored, failure) -> pendingOwnerLookups.remove(routed));
+        return routed;
     }
 
     private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {

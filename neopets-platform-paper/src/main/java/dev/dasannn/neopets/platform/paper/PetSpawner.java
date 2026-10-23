@@ -11,6 +11,7 @@ import org.bukkit.entity.Ageable;
 import org.bukkit.entity.Animals;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Tameable;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 import org.bukkit.persistence.PersistentDataType;
@@ -67,20 +68,20 @@ public final class PetSpawner {
             PetVariant variant,
             VariantApplier<E> applier
     ) {
-        return world.spawn(location, applier.entityClass(), SpawnReason.CUSTOM, entity -> {
-            applier.apply(entity, variant.appearance());
-            tag(entity, ownerUuid, petId, variant);
+        return world.spawn(location, applier.entityClass(), SpawnReason.CUSTOM, spawned -> {
+            applier.apply(spawned, variant.appearance());
+            tag(spawned, ownerUuid, petId, variant);
 
-            entity.setPersistent(false);
-            entity.setRemoveWhenFarAway(false);
-            entity.setInvulnerable(false);
-            entity.setSilent(false);
-            entity.setCustomNameVisible(entity.customName() != null);
+            spawned.setPersistent(false);
+            spawned.setRemoveWhenFarAway(false);
+            spawned.setInvulnerable(false);
+            spawned.setSilent(false);
+            spawned.setCustomNameVisible(spawned.customName() != null);
 
-            if (entity instanceof Animals animals) {
+            if (spawned instanceof Animals animals) {
                 animals.setLoveModeTicks(0);
             }
-            if (entity instanceof Ageable ageable) {
+            if (spawned instanceof Ageable ageable) {
                 if (variant.baby()) {
                     ageable.setBaby();
                 } else {
@@ -89,9 +90,12 @@ public final class PetSpawner {
                 }
                 ageable.setAgeLock(true);
             }
-            if (entity instanceof Tameable tameable) {
+            if (spawned instanceof Tameable tameable) {
                 tameable.setTamed(true);
-                tameable.setOwner(entity.getServer().getOfflinePlayer(ownerUuid));
+                tameable.setOwner(spawned.getServer().getOfflinePlayer(ownerUuid));
+            }
+            if (spawned instanceof Mob mob) {
+                PetBrain.suppressConflictingVanillaGoals(mob);
             }
         });
     }

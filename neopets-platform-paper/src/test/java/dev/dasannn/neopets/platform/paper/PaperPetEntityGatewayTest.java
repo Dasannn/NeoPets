@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,6 +20,8 @@ import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.Test;
 
 class PaperPetEntityGatewayTest {
@@ -101,6 +104,33 @@ class PaperPetEntityGatewayTest {
         assertTrue(registry.entityId(petId).isEmpty());
     }
 
+    @Test
+    void despawnClearsMatchingShoulderPetWhenEntityIsAbsentFromWorld() {
+        var petId = new PetId(UUID.randomUUID());
+        var ownerId = UUID.randomUUID();
+        var variantId = new VariantId("parrot_test");
+        var registry = new LivePetRegistry();
+        registry.register(petId, UUID.randomUUID());
+        var shouldersCleared = new boolean[2];
+        var owner = playerWithShoulderCopies(ownerId, taggedEntity(petId), shouldersCleared);
+        var gateway = new PaperPetEntityGateway(
+                server(owner),
+                new DirectScheduler(),
+                (location, ignoredOwnerId, ignoredPetId, ignoredVariant) -> {
+                    throw new AssertionError("despawn must not spawn");
+                },
+                registry,
+                ignored -> new PetSpawnData(ownerId, variantId),
+                ignored -> null,
+                PetEffectApplier.noOp());
+
+        gateway.despawn(petId).join();
+
+        assertTrue(shouldersCleared[0]);
+        assertTrue(shouldersCleared[1]);
+        assertTrue(registry.entityId(petId).isEmpty());
+    }
+
     private static final class GatewayFixture {
         private final PetId petId = new PetId(UUID.randomUUID());
         private final UUID ownerId = UUID.randomUUID();
@@ -155,8 +185,51 @@ class PaperPetEntityGatewayTest {
                     case "getUniqueId" -> ownerId;
                     case "getLocation" -> new Location(null, 1.0, 2.0, 3.0);
                     case "isOnline" -> true;
+                    case "getShoulderEntityLeft", "getShoulderEntityRight" -> null;
                     case "toString" -> "test owner";
                     default -> throw new AssertionError("Unexpected player call: " + method);
+                });
+    }
+
+    private static Player playerWithShoulderCopies(UUID ownerId, LivingEntity shoulderPet, boolean[] cleared) {
+        return (Player) Proxy.newProxyInstance(
+                PaperPetEntityGatewayTest.class.getClassLoader(),
+                new Class<?>[] {Player.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getUniqueId" -> ownerId;
+                    case "getShoulderEntityLeft" -> cleared[0] ? null : shoulderPet;
+                    case "getShoulderEntityRight" -> cleared[1] ? null : shoulderPet;
+                    case "setShoulderEntityLeft" -> {
+                        assertNull(arguments[0]);
+                        cleared[0] = true;
+                        yield null;
+                    }
+                    case "setShoulderEntityRight" -> {
+                        assertNull(arguments[0]);
+                        cleared[1] = true;
+                        yield null;
+                    }
+                    case "toString" -> "test owner with shoulder pets";
+                    default -> throw new AssertionError("Unexpected player call: " + method);
+                });
+    }
+
+    private static LivingEntity taggedEntity(PetId petId) {
+        var data = (PersistentDataContainer) Proxy.newProxyInstance(
+                PaperPetEntityGatewayTest.class.getClassLoader(),
+                new Class<?>[] {PersistentDataContainer.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "get" -> arguments[1] == PersistentDataType.STRING ? petId.toString() : null;
+                    case "toString" -> "test persistent data";
+                    default -> throw new AssertionError("Unexpected PDC call: " + method);
+                });
+        return (LivingEntity) Proxy.newProxyInstance(
+                PaperPetEntityGatewayTest.class.getClassLoader(),
+                new Class<?>[] {LivingEntity.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getPersistentDataContainer" -> data;
+                    case "toString" -> "test shoulder pet";
+                    default -> throw new AssertionError("Unexpected shoulder pet call: " + method);
                 });
     }
 
