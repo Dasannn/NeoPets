@@ -1,0 +1,68 @@
+type: dog
+variants:
+  dog_pale:
+    appearance: { variant: pale }
+    baby: false
+    weight: 10
+    display-name: "Perro pálido"
+    icon: BONE
+  dog_spotted:
+    appearance: { variant: spotted }
+    baby: false
+    weight: 8
+    display-name: "Perro moteado"
+    icon: BONE
+  dog_snowy:
+    appearance: { variant: snowy }
+    baby: false
+    weight: 7
+    display-name: "Perro nevado"
+    icon: BONE
+  dog_black:
+    appearance: { variant: black }
+    baby: false
+    weight: 8
+    display-name: "Perro negro"
+    icon: BONE
+  dog_ashen:
+    appearance: { variant: ashen }
+    baby: false
+    weight: 8
+    display-name: "Perro ceniciento"
+    icon: BONE
+  dog_rusty:
+    appearance: { variant: rusty }
+    baby: false
+    weight: 8
+    display-name: "Perro rojizo"
+    icon: BONE
+  dog_woods:
+    appearance: { variant: woods }
+    baby: false
+    weight: 8
+    display-name: "Perro del bosque"
+    icon: BONE
+  dog_chestnut:
+    appearance: { variant: chestnut }
+    baby: false
+    weight: 8
+    display-name: "Perro castaño"
+    icon: BONE
+  dog_striped:
+    appearance: { variant: striped }
+    baby: false
+    weight: 7
+    display-name: "Perro rayado"
+    icon: BONE
+  dog_pale_baby:
+    appearance: { variant: pale }
+    baby: true
+    weight: 3
+    display-name: "Cachorro pálido"
+    icon: BONE
+  dog_black_baby:
+    appearance: { variant: black }
+    baby: true
+    weight: 2
+    display-name: "Cachorro negro"
+    icon: BONE

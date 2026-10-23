@@ -1,0 +1,626 @@
+package dev.dasannn.neopets.plugin.config;
+
+import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.model.PetVariant;
+import dev.dasannn.neopets.core.model.RankLimits;
+import dev.dasannn.neopets.core.model.VariantAppearance;
+import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.core.pet.InMemoryVariantCatalog;
+import dev.dasannn.neopets.core.skilltree.AttributeCategory;
+import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
+import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
+import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
+import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Pattern;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+/** Copies, parses and validates the complete NeoPets YAML configuration set. */
+public final class ConfigurationLoader {
+    private static final List<String> PET_TYPES = List.of("dog", "cat", "parrot", "polar_bear", "donkey");
+    private static final List<String> DEFAULT_RESOURCES = defaultResources();
+    private static final Pattern LOWERCASE_KEY = Pattern.compile("[a-z0-9]+(?:_[a-z0-9]+)*");
+    private static final Set<String> REQUIRED_MESSAGES = Set.of(
+            "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
+            "errors.invalid-amount", "errors.config-invalid", "general.reloaded", "pets.none-owned",
+            "pets.given", "pets.already-owned", "pets.all-owned", "pets.summoned", "pets.dismissed",
+            "pets.active-limit", "pets.renamed", "pets.rename-disabled", "pets.dead", "pets.revived",
+            "pets.soul-required", "skills.points", "skills.points-changed", "skills.node-unlocked",
+            "skills.node-activated", "skills.not-enough-money", "skills.not-enough-points",
+            "skills.node-limit", "skills.point-limit", "skills.reset", "skills.reset-disabled",
+            "courier.request-sent", "courier.request-received", "courier.accepted", "courier.rejected",
+            "courier.returned", "courier.timed-out", "courier.cooldown", "gui.previous-page",
+            "gui.next-page", "gui.close", "gui.back");
+
+    private final Path dataDirectory;
+    private final ClassLoader resources;
+    private final AppearanceValidator appearanceValidator;
+    private final ConfigurationMigrator migrator;
+
+    /** Creates a loader backed by this class's bundled resources and permissive appearance validation. */
+    public ConfigurationLoader(Path dataDirectory) {
+        this(dataDirectory, ConfigurationLoader.class.getClassLoader(),
+                AppearanceValidator.acceptingAll(), new ConfigurationMigrator());
+    }
+
+    /** Creates a loader with the platform's appearance validator. */
+    public ConfigurationLoader(Path dataDirectory, AppearanceValidator appearanceValidator) {
+        this(dataDirectory, ConfigurationLoader.class.getClassLoader(),
+                appearanceValidator, new ConfigurationMigrator());
+    }
+
+    /** Creates a fully injectable loader for tests and future migration registrations. */
+    public ConfigurationLoader(
+            Path dataDirectory,
+            ClassLoader resources,
+            AppearanceValidator appearanceValidator,
+            ConfigurationMigrator migrator
+    ) {
+        this.dataDirectory = Objects.requireNonNull(dataDirectory, "dataDirectory");
+        this.resources = Objects.requireNonNull(resources, "resources");
+        this.appearanceValidator = Objects.requireNonNull(appearanceValidator, "appearanceValidator");
+        this.migrator = Objects.requireNonNull(migrator, "migrator");
+    }
+
+    /** Copies missing defaults and returns a new immutable snapshot if the whole set is valid. */
+    public ConfigurationSnapshot load() throws IOException, ConfigurationLoadException {
+        copyMissingDefaults();
+        var issues = new ArrayList<ConfigurationIssue>();
+
+        YamlConfiguration root = loadYaml(Path.of("config.yml"), issues);
+        migrateRoot(root, issues);
+        PluginSettings settings = parseSettings(root, issues);
+
+        var variants = new LinkedHashMap<VariantId, PetVariant>();
+        var icons = new LinkedHashMap<VariantId, String>();
+        var trees = new LinkedHashMap<PetTypeId, SkillTreeDefinition>();
+        for (String type : PET_TYPES) {
+            parseVariants(type, loadYaml(Path.of("pets", type + ".yml"), issues), variants, icons, issues);
+            parseSkillTree(type, loadYaml(Path.of("skilltrees", type + ".yml"), issues), trees, issues);
+        }
+        LanguageCatalog language = parseLanguage(loadYaml(Path.of("lang", "es.yml"), issues), issues);
+
+        if (!issues.isEmpty()) {
+            throw new ConfigurationLoadException(issues);
+        }
+        return new ConfigurationSnapshot(settings, new InMemoryVariantCatalog(variants.values()), icons, trees, language);
+    }
+
+    private void copyMissingDefaults() throws IOException {
+        for (String resource : DEFAULT_RESOURCES) {
+            Path target = dataDirectory.resolve(resource);
+            if (Files.exists(target)) {
+                continue;
+            }
+            Files.createDirectories(target.getParent());
+            try (InputStream input = resources.getResourceAsStream(resource)) {
+                if (input == null) {
+                    throw new IOException("bundled configuration resource is missing: " + resource);
+                }
+                Files.copy(input, target);
+            }
+        }
+    }
+
+    private YamlConfiguration loadYaml(Path relativePath, List<ConfigurationIssue> issues) {
+        var yaml = new YamlConfiguration();
+        try (var reader = new InputStreamReader(
+                Files.newInputStream(dataDirectory.resolve(relativePath)), StandardCharsets.UTF_8)) {
+            yaml.load(reader);
+        } catch (IOException | InvalidConfigurationException exception) {
+            issue(issues, relativePath, "<root>", "cannot parse YAML: " + conciseMessage(exception));
+        }
+        return yaml;
+    }
+
+    private void migrateRoot(YamlConfiguration root, List<ConfigurationIssue> issues) throws IOException {
+        Path file = Path.of("config.yml");
+        Integer version = integer(root, file, "config-version", 1, Integer.MAX_VALUE, issues);
+        if (version == null) {
+            return;
+        }
+        try {
+            if (migrator.migrate(root, version)) {
+                root.save(dataDirectory.resolve(file).toFile());
+            }
+        } catch (IllegalArgumentException exception) {
+            issue(issues, file, "config-version", exception.getMessage());
+        }
+    }
+
+    private PluginSettings parseSettings(YamlConfiguration root, List<ConfigurationIssue> issues) {
+        Path file = Path.of("config.yml");
+        int version = valueOr(integer(root, file, "config-version", 1, Integer.MAX_VALUE, issues), 1);
+        String storageTypeText = valueOr(string(root, file, "storage.type", issues), "sqlite");
+        PluginSettings.StorageType storageType = switch (storageTypeText.toLowerCase(Locale.ROOT)) {
+            case "sqlite" -> PluginSettings.StorageType.SQLITE;
+            case "mysql" -> PluginSettings.StorageType.MYSQL;
+            default -> {
+                issue(issues, file, "storage.type", "must be sqlite or mysql");
+                yield PluginSettings.StorageType.SQLITE;
+            }
+        };
+        String sqliteFile = valueOr(string(root, file, "storage.sqlite.file", issues), "neopets.db");
+        String mysqlHost = valueOr(string(root, file, "storage.mysql.host", issues), "localhost");
+        int mysqlPort = valueOr(integer(root, file, "storage.mysql.port", 1, 65_535, issues), 3306);
+        String mysqlDatabase = valueOr(string(root, file, "storage.mysql.database", issues), "neopets");
+        String mysqlUsername = valueOr(string(root, file, "storage.mysql.username", issues), "neopets");
+        String mysqlPassword = valueOr(string(root, file, "storage.mysql.password", true, issues), "");
+
+        boolean deathEnabled = valueOr(bool(root, file, "death.enabled", issues), true);
+        boolean deathPvp = valueOr(bool(root, file, "death.pvp", issues), false);
+        boolean deathKeepSkills = valueOr(bool(root, file, "death.keep-skills", issues), true);
+        boolean shopEnabled = valueOr(bool(root, file, "shop.enabled", issues), false);
+        boolean renameEnabled = valueOr(bool(root, file, "rename.enabled", issues), true);
+        boolean resetEnabled = valueOr(bool(root, file, "reset.player-enabled", issues), false);
+        BigDecimal resetCost = valueOr(decimal(root, file, "reset.cost", true, issues), BigDecimal.ZERO);
+        double teleportDistance = valueOr(decimal(root, file, "follow.teleport-distance", false, issues),
+                BigDecimal.valueOf(20)).doubleValue();
+
+        var ranks = parseRanks(root, file, issues);
+        long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
+        long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
+
+        var mysql = new PluginSettings.Mysql(mysqlHost, mysqlPort, mysqlDatabase, mysqlUsername, mysqlPassword);
+        var storage = new PluginSettings.Storage(storageType, sqliteFile, mysql);
+        var death = new PluginSettings.Death(deathEnabled, deathPvp, deathKeepSkills);
+        var reset = new PluginSettings.Reset(resetEnabled, resetCost);
+        var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
+        return new PluginSettings(version, storage, features, teleportDistance, ranks,
+                new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)));
+    }
+
+    private Map<String, RankLimits> parseRanks(
+            YamlConfiguration root,
+            Path file,
+            List<ConfigurationIssue> issues
+    ) {
+        ConfigurationSection section = section(root, file, "ranks", issues);
+        var ranks = new LinkedHashMap<String, RankLimits>();
+        if (section != null) {
+            for (String rank : section.getKeys(false)) {
+                String base = "ranks." + rank;
+                if (!LOWERCASE_KEY.matcher(rank).matches()) {
+                    issue(issues, file, base, "rank id must be a lowercase key");
+                }
+                int active = valueOr(integer(root, file, base + ".max-active-pets", 0, Integer.MAX_VALUE, issues), 0);
+                int points = valueOr(integer(root, file, base + ".max-skill-points", 0, Integer.MAX_VALUE, issues), 0);
+                int nodes = valueOr(integer(root, file, base + ".max-nodes-per-pet", 0, Integer.MAX_VALUE, issues), 0);
+                ranks.put(rank, new RankLimits(active, points, nodes));
+            }
+        }
+        if (!ranks.containsKey("default")) {
+            issue(issues, file, "ranks.default", "required rank is missing");
+            ranks.put("default", new RankLimits(0, 0, 0));
+        }
+        return ranks;
+    }
+
+    private void parseVariants(
+            String expectedType,
+            YamlConfiguration yaml,
+            Map<VariantId, PetVariant> variants,
+            Map<VariantId, String> icons,
+            List<ConfigurationIssue> issues
+    ) {
+        Path file = Path.of("pets", expectedType + ".yml");
+        String typeText = valueOr(string(yaml, file, "type", issues), expectedType);
+        if (!expectedType.equals(typeText)) {
+            issue(issues, file, "type", "must match file name: " + expectedType);
+        }
+        PetTypeId type = petType(typeText, expectedType, file, "type", issues);
+        ConfigurationSection entries = section(yaml, file, "variants", issues);
+        if (entries == null) {
+            return;
+        }
+        if (entries.getKeys(false).isEmpty()) {
+            issue(issues, file, "variants", "must contain at least one variant");
+        }
+        for (String idText : entries.getKeys(false)) {
+            String base = "variants." + idText;
+            VariantId id = variantId(idText, file, base, issues);
+            boolean baby = valueOr(bool(yaml, file, base + ".baby", issues), false);
+            double weight = valueOr(decimal(yaml, file, base + ".weight", false, issues), BigDecimal.ONE).doubleValue();
+            String displayName = valueOr(string(yaml, file, base + ".display-name", issues), idText);
+            String icon = valueOr(string(yaml, file, base + ".icon", issues), "BARRIER");
+            if (!icon.equals(icon.toUpperCase(Locale.ROOT)) || Material.matchMaterial(icon) == null) {
+                issue(issues, file, base + ".icon", "must name a valid uppercase Minecraft material");
+            }
+            VariantAppearance appearance = appearance(yaml, file, base + ".appearance", issues);
+            List<String> appearanceFailures;
+            try {
+                appearanceFailures = List.copyOf(Objects.requireNonNull(
+                        appearanceValidator.validate(type, appearance), "validator result"));
+            } catch (RuntimeException exception) {
+                appearanceFailures = List.of("appearance validator failed: " + conciseMessage(exception));
+            }
+            for (String reason : appearanceFailures) {
+                issue(issues, file, base + ".appearance", reason);
+            }
+            try {
+                PetVariant variant = new PetVariant(id, type, appearance, baby, weight, displayName);
+                if (variants.putIfAbsent(id, variant) != null) {
+                    issue(issues, file, base, "variant id is duplicated in another pet file");
+                } else {
+                    icons.put(id, icon);
+                }
+            } catch (IllegalArgumentException exception) {
+                issue(issues, file, base, exception.getMessage());
+            }
+        }
+    }
+
+    private VariantAppearance appearance(
+            YamlConfiguration yaml,
+            Path file,
+            String path,
+            List<ConfigurationIssue> issues
+    ) {
+        ConfigurationSection section = section(yaml, file, path, issues);
+        if (section == null) {
+            return VariantAppearance.empty();
+        }
+        var properties = new LinkedHashMap<String, String>();
+        for (String key : section.getKeys(false)) {
+            Object raw = section.get(key);
+            if (raw instanceof String || raw instanceof Number || raw instanceof Boolean) {
+                properties.put(key, String.valueOf(raw));
+            } else {
+                issue(issues, file, path + "." + key, "must be a scalar value");
+            }
+        }
+        return new VariantAppearance(properties);
+    }
+
+    private void parseSkillTree(
+            String expectedType,
+            YamlConfiguration yaml,
+            Map<PetTypeId, SkillTreeDefinition> trees,
+            List<ConfigurationIssue> issues
+    ) {
+        Path file = Path.of("skilltrees", expectedType + ".yml");
+        String typeText = valueOr(string(yaml, file, "type", issues), expectedType);
+        if (!expectedType.equals(typeText)) {
+            issue(issues, file, "type", "must match file name: " + expectedType);
+        }
+        PetTypeId type = petType(typeText, expectedType, file, "type", issues);
+        ConfigurationSection entries = section(yaml, file, "attributes", issues);
+        var attributes = new ArrayList<AttributeDefinition>();
+        if (entries != null) {
+            if (entries.getKeys(false).isEmpty()) {
+                issue(issues, file, "attributes", "must contain at least one attribute");
+            }
+            for (String id : entries.getKeys(false)) {
+                AttributeDefinition definition = parseAttribute(yaml, file, "attributes." + id, id, issues);
+                if (definition != null) {
+                    attributes.add(definition);
+                }
+            }
+        }
+        try {
+            SkillTreeDefinition tree = new SkillTreeDefinition(type, attributes);
+            if (trees.putIfAbsent(type, tree) != null) {
+                issue(issues, file, "type", "pet type is duplicated in another skill-tree file");
+            }
+        } catch (IllegalArgumentException exception) {
+            issue(issues, file, "attributes", exception.getMessage());
+        }
+    }
+
+    private AttributeDefinition parseAttribute(
+            YamlConfiguration yaml,
+            Path file,
+            String base,
+            String id,
+            List<ConfigurationIssue> issues
+    ) {
+        String categoryText = valueOr(string(yaml, file, base + ".category", issues), "vanilla");
+        AttributeCategory category = switch (categoryText.toLowerCase(Locale.ROOT)) {
+            case "vanilla" -> AttributeCategory.VANILLA;
+            case "custom" -> AttributeCategory.CUSTOM;
+            default -> {
+                issue(issues, file, base + ".category", "must be vanilla or custom");
+                yield AttributeCategory.VANILLA;
+            }
+        };
+        int levels = valueOr(integer(yaml, file, base + ".max-level", 1, Integer.MAX_VALUE, issues), 1);
+        String effect = valueOr(string(yaml, file, base + ".effect", issues), "invalid");
+        List<BigDecimal> costs = decimalList(yaml, file, base + ".money-costs", levels, false, issues);
+        List<Integer> skillPointCosts = skillPointCosts(yaml, file, base, levels, issues);
+        try {
+            return switch (category) {
+                case VANILLA -> new AttributeDefinition(id, category, levels,
+                        new VanillaEffectReference(effect,
+                                decimalList(yaml, file, base + ".values", levels, true, issues)),
+                        costs, skillPointCosts);
+                case CUSTOM -> new AttributeDefinition(id, category, levels,
+                        new CustomEffectReference(effect), costs, skillPointCosts);
+            };
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            issue(issues, file, base, conciseMessage(exception));
+            return null;
+        }
+    }
+
+    private List<Integer> skillPointCosts(
+            YamlConfiguration yaml,
+            Path file,
+            String base,
+            int levels,
+            List<ConfigurationIssue> issues
+    ) {
+        Object list = yaml.get(base + ".skill-point-costs");
+        if (list != null) {
+            return integerList(yaml, file, base + ".skill-point-costs", levels, 0, issues);
+        }
+        int cost = valueOr(integer(yaml, file, base + ".skill-point-cost", 0, Integer.MAX_VALUE, issues), 1);
+        return Collections.nCopies(levels, cost);
+    }
+
+    private LanguageCatalog parseLanguage(YamlConfiguration yaml, List<ConfigurationIssue> issues) {
+        Path file = Path.of("lang", "es.yml");
+        var messages = new LinkedHashMap<String, String>();
+        MiniMessage strictMiniMessage = MiniMessage.builder().strict(true).build();
+        for (Map.Entry<String, Object> entry : yaml.getValues(true).entrySet()) {
+            if (entry.getValue() instanceof ConfigurationSection) {
+                continue;
+            }
+            if (!(entry.getValue() instanceof String message)) {
+                issue(issues, file, entry.getKey(), "message must be a MiniMessage string");
+                continue;
+            }
+            if (message.isBlank()) {
+                issue(issues, file, entry.getKey(), "message must not be blank");
+                continue;
+            }
+            try {
+                strictMiniMessage.deserialize(message);
+                messages.put(entry.getKey(), message);
+            } catch (RuntimeException exception) {
+                issue(issues, file, entry.getKey(), "invalid MiniMessage: " + conciseMessage(exception));
+            }
+        }
+        for (String key : REQUIRED_MESSAGES) {
+            if (!messages.containsKey(key)) {
+                issue(issues, file, key, "required message is missing");
+            }
+        }
+        return new LanguageCatalog(messages);
+    }
+
+    private static ConfigurationSection section(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof ConfigurationSection section)) {
+            issue(issues, file, path, raw == null ? "required section is missing" : "must be a section");
+            return null;
+        }
+        return section;
+    }
+
+    private static String string(ConfigurationSection root, Path file, String path,
+                                 List<ConfigurationIssue> issues) {
+        return string(root, file, path, false, issues);
+    }
+
+    private static String string(ConfigurationSection root, Path file, String path, boolean allowEmpty,
+                                 List<ConfigurationIssue> issues) {
+        Object raw = root.get(path);
+        if (!(raw instanceof String value)) {
+            issue(issues, file, path, raw == null ? "required string is missing" : "must be a string");
+            return null;
+        }
+        if (!allowEmpty && value.isBlank()) {
+            issue(issues, file, path, "must not be blank");
+            return null;
+        }
+        return value;
+    }
+
+    private static Boolean bool(ConfigurationSection root, Path file, String path,
+                                List<ConfigurationIssue> issues) {
+        Object raw = root.get(path);
+        if (!(raw instanceof Boolean value)) {
+            issue(issues, file, path, raw == null ? "required boolean is missing" : "must be true or false");
+            return null;
+        }
+        return value;
+    }
+
+    private static Integer integer(ConfigurationSection root, Path file, String path, int minimum, int maximum,
+                                   List<ConfigurationIssue> issues) {
+        Object raw = root.get(path);
+        if (!(raw instanceof Number number) || number.doubleValue() != number.intValue()) {
+            issue(issues, file, path, raw == null ? "required integer is missing" : "must be an integer");
+            return null;
+        }
+        int value = number.intValue();
+        if (value < minimum || value > maximum) {
+            issue(issues, file, path, "must be between " + minimum + " and " + maximum);
+            return null;
+        }
+        return value;
+    }
+
+    private static Long longInteger(ConfigurationSection root, Path file, String path, long minimum,
+                                    List<ConfigurationIssue> issues) {
+        Object raw = root.get(path);
+        if (!(raw instanceof Number number) || number.doubleValue() != number.longValue()) {
+            issue(issues, file, path, raw == null ? "required integer is missing" : "must be an integer");
+            return null;
+        }
+        long value = number.longValue();
+        if (value < minimum) {
+            issue(issues, file, path, "must be at least " + minimum);
+            return null;
+        }
+        return value;
+    }
+
+    private static BigDecimal decimal(ConfigurationSection root, Path file, String path, boolean allowZero,
+                                      List<ConfigurationIssue> issues) {
+        Object raw = root.get(path);
+        if (!(raw instanceof Number number)) {
+            issue(issues, file, path, raw == null ? "required number is missing" : "must be a number");
+            return null;
+        }
+        BigDecimal value;
+        try {
+            value = new BigDecimal(number.toString());
+        } catch (NumberFormatException exception) {
+            issue(issues, file, path, "must be a finite number");
+            return null;
+        }
+        if (!Double.isFinite(value.doubleValue())) {
+            issue(issues, file, path, "must be a finite number");
+            return null;
+        }
+        if (value.signum() < 0 || (!allowZero && value.signum() == 0)) {
+            issue(issues, file, path, allowZero ? "must not be negative" : "must be greater than zero");
+            return null;
+        }
+        return value;
+    }
+
+    private static List<BigDecimal> decimalList(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            int expectedSize,
+            boolean allowNegative,
+            List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof List<?> values)) {
+            issue(issues, file, path, raw == null ? "required number list is missing" : "must be a number list");
+            return Collections.nCopies(expectedSize, BigDecimal.ZERO);
+        }
+        if (values.size() != expectedSize) {
+            issue(issues, file, path, "must contain exactly " + expectedSize + " values");
+        }
+        var parsed = new ArrayList<BigDecimal>();
+        for (int index = 0; index < expectedSize; index++) {
+            Object value = index < values.size() ? values.get(index) : 0;
+            if (!(value instanceof Number number)) {
+                issue(issues, file, path + "[" + index + "]", "must be a number");
+                parsed.add(BigDecimal.ZERO);
+                continue;
+            }
+            try {
+                BigDecimal decimal = new BigDecimal(number.toString());
+                if (!allowNegative && decimal.signum() < 0) {
+                    issue(issues, file, path + "[" + index + "]", "must not be negative");
+                    decimal = BigDecimal.ZERO;
+                }
+                parsed.add(decimal);
+            } catch (NumberFormatException exception) {
+                issue(issues, file, path + "[" + index + "]", "must be a finite number");
+                parsed.add(BigDecimal.ZERO);
+            }
+        }
+        return parsed;
+    }
+
+    private static List<Integer> integerList(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            int expectedSize,
+            int minimum,
+            List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof List<?> values)) {
+            issue(issues, file, path, raw == null ? "required integer list is missing" : "must be an integer list");
+            return Collections.nCopies(expectedSize, minimum);
+        }
+        if (values.size() != expectedSize) {
+            issue(issues, file, path, "must contain exactly " + expectedSize + " values");
+        }
+        var parsed = new ArrayList<Integer>();
+        for (int index = 0; index < expectedSize; index++) {
+            Object value = index < values.size() ? values.get(index) : minimum;
+            if (!(value instanceof Number number)
+                    || number.doubleValue() != number.intValue()
+                    || number.intValue() < minimum) {
+                issue(issues, file, path + "[" + index + "]", "must be an integer of at least " + minimum);
+                parsed.add(minimum);
+            } else {
+                parsed.add(number.intValue());
+            }
+        }
+        return parsed;
+    }
+
+    private static PetTypeId petType(
+            String value,
+            String fallback,
+            Path file,
+            String path,
+            List<ConfigurationIssue> issues
+    ) {
+        try {
+            return new PetTypeId(value);
+        } catch (IllegalArgumentException exception) {
+            issue(issues, file, path, exception.getMessage());
+            return new PetTypeId(fallback);
+        }
+    }
+
+    private static VariantId variantId(String value, Path file, String path, List<ConfigurationIssue> issues) {
+        try {
+            return new VariantId(value);
+        } catch (IllegalArgumentException exception) {
+            issue(issues, file, path, exception.getMessage());
+            return new VariantId("invalid_" + Integer.toUnsignedString(value.hashCode()));
+        }
+    }
+
+    private static void issue(List<ConfigurationIssue> issues, Path file, String path, String reason) {
+        issues.add(new ConfigurationIssue(file, path,
+                reason == null || reason.isBlank() ? "invalid value" : reason));
+    }
+
+    private static String conciseMessage(Exception exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message.lines().findFirst().orElse(message);
+    }
+
+    private static <T> T valueOr(T value, T fallback) {
+        return value == null ? fallback : value;
+    }
+
+    private static List<String> defaultResources() {
+        var resources = new ArrayList<String>();
+        resources.add("config.yml");
+        for (String type : PET_TYPES) {
+            resources.add("pets/" + type + ".yml");
+            resources.add("skilltrees/" + type + ".yml");
+        }
+        resources.add("lang/es.yml");
+        return List.copyOf(resources);
+    }
+}

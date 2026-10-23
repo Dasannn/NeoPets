@@ -1,0 +1,44 @@
+type: parrot
+variants:
+  parrot_red_blue:
+    appearance: { variant: red_blue }
+    baby: false
+    weight: 10
+    display-name: "Loro rojo y azul"
+    icon: FEATHER
+  parrot_blue:
+    appearance: { variant: blue }
+    baby: false
+    weight: 9
+    display-name: "Loro azul"
+    icon: FEATHER
+  parrot_green:
+    appearance: { variant: green }
+    baby: false
+    weight: 9
+    display-name: "Loro verde"
+    icon: FEATHER
+  parrot_yellow_blue:
+    appearance: { variant: yellow_blue }
+    baby: false
+    weight: 8
+    display-name: "Loro amarillo y azul"
+    icon: FEATHER
+  parrot_gray:
+    appearance: { variant: gray }
+    baby: false
+    weight: 8
+    display-name: "Loro gris"
+    icon: FEATHER
+  parrot_red_blue_baby:
+    appearance: { variant: red_blue }
+    baby: true
+    weight: 3
+    display-name: "Cría de loro rojo y azul"
+    icon: FEATHER
+  parrot_green_baby:
+    appearance: { variant: green }
+    baby: true
+    weight: 2
+    display-name: "Cría de loro verde"
+    icon: FEATHER

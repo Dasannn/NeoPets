@@ -1,0 +1,101 @@
+package dev.dasannn.neopets.plugin.config;
+
+import dev.dasannn.neopets.core.model.RankLimits;
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.util.Map;
+import java.util.Objects;
+
+/** Immutable typed settings loaded from {@code config.yml}. */
+public record PluginSettings(
+        int configVersion,
+        Storage storage,
+        Features features,
+        double followTeleportDistance,
+        Map<String, RankLimits> ranks,
+        Courier courier
+) {
+    public PluginSettings {
+        if (configVersion < 1) {
+            throw new IllegalArgumentException("configVersion must be positive");
+        }
+        Objects.requireNonNull(storage, "storage");
+        Objects.requireNonNull(features, "features");
+        if (!Double.isFinite(followTeleportDistance) || followTeleportDistance <= 0) {
+            throw new IllegalArgumentException("followTeleportDistance must be finite and positive");
+        }
+        Objects.requireNonNull(ranks, "ranks");
+        ranks = Map.copyOf(ranks);
+        if (!ranks.containsKey("default")) {
+            throw new IllegalArgumentException("ranks must contain default");
+        }
+        Objects.requireNonNull(courier, "courier");
+    }
+
+    /** Supported persistence backends. */
+    public enum StorageType {
+        SQLITE,
+        MYSQL
+    }
+
+    /** Persistence selection and settings for both supported backends. */
+    public record Storage(StorageType type, String sqliteFile, Mysql mysql) {
+        public Storage {
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(sqliteFile, "sqliteFile");
+            Objects.requireNonNull(mysql, "mysql");
+            if (sqliteFile.isBlank()) {
+                throw new IllegalArgumentException("sqliteFile must not be blank");
+            }
+        }
+    }
+
+    /** MySQL/MariaDB connection settings. */
+    public record Mysql(String host, int port, String database, String username, String password) {
+        public Mysql {
+            Objects.requireNonNull(host, "host");
+            Objects.requireNonNull(database, "database");
+            Objects.requireNonNull(username, "username");
+            Objects.requireNonNull(password, "password");
+            if (host.isBlank() || database.isBlank() || username.isBlank()) {
+                throw new IllegalArgumentException("host, database and username must not be blank");
+            }
+            if (port < 1 || port > 65_535) {
+                throw new IllegalArgumentException("port must be between 1 and 65535");
+            }
+        }
+    }
+
+    /** Feature flags and feature-specific settings. */
+    public record Features(Death death, boolean shopEnabled, boolean renameEnabled, Reset reset) {
+        public Features {
+            Objects.requireNonNull(death, "death");
+            Objects.requireNonNull(reset, "reset");
+        }
+    }
+
+    /** Pet-death feature flags. */
+    public record Death(boolean enabled, boolean pvp, boolean keepSkills) {
+    }
+
+    /** Player skill-tree reset settings. */
+    public record Reset(boolean playerEnabled, BigDecimal cost) {
+        public Reset {
+            Objects.requireNonNull(cost, "cost");
+            if (cost.signum() < 0) {
+                throw new IllegalArgumentException("cost must not be negative");
+            }
+        }
+    }
+
+    /** Donkey courier timing settings. */
+    public record Courier(Duration requestTimeout, Duration cooldown) {
+        public Courier {
+            Objects.requireNonNull(requestTimeout, "requestTimeout");
+            Objects.requireNonNull(cooldown, "cooldown");
+            if (requestTimeout.isZero() || requestTimeout.isNegative() || cooldown.isNegative()) {
+                throw new IllegalArgumentException("requestTimeout must be positive and cooldown non-negative");
+            }
+        }
+    }
+}
