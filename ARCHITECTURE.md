@@ -134,6 +134,7 @@ La GUI de admin lee/escribe solo claves declaradas en un `FeatureRegistry` (clav
 ## 9. Concurrencia y rendimiento
 
 - Paper (no Folia) en el MVP, pero todo pasa por una interfaz `TaskScheduler` para poder soportar Folia más tarde.
+- `core` no asume ningún hilo: los puertos hacia el mundo (`PetEntityGateway`, etc.) son asíncronos (`CompletableFuture`) y su implementación en `platform-paper` ejecuta el trabajo en el hilo del servidor. Se pueden llamar desde cualquier hilo (p. ej. continuaciones del executor de base de datos).
 - Un solo ticker de mascotas; las habilidades con área usan `getNearbyEntities` con radio acotado y cooldown.
 - Modificadores de atributo aplicados al invocar o al cambiar el árbol, no por tick.
 
