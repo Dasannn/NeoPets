@@ -11,7 +11,11 @@ import org.bukkit.persistence.PersistentDataType;
 
 /** Removes loaded, PDC-tagged pet entities whose IDs are not active in the domain. */
 public final class OrphanCleaner {
-    /** Removes orphans from all currently loaded worlds and returns the number removed. */
+    /**
+     * Removes orphans from all currently loaded worlds and returns the number removed.
+     *
+     * <p>This method must be called from the server's main thread.
+     */
     public int cleanLoadedEntities(Server server, Set<PetId> activePetIds) {
         Objects.requireNonNull(server, "server");
         var activeIds = toStrings(activePetIds);
@@ -22,13 +26,21 @@ public final class OrphanCleaner {
         return removed;
     }
 
-    /** Removes orphans from one loaded chunk and returns the number removed. */
+    /**
+     * Removes orphans from one loaded chunk and returns the number removed.
+     *
+     * <p>This method must be called from the server's main thread.
+     */
     public int cleanChunk(Chunk chunk, Set<PetId> activePetIds) {
         Objects.requireNonNull(chunk, "chunk");
         return clean(java.util.List.of(chunk.getEntities()), toStrings(activePetIds));
     }
 
-    /** Removes orphans from the supplied loaded entities and returns the number removed. */
+    /**
+     * Removes orphans from the supplied loaded entities and returns the number removed.
+     *
+     * <p>This method must be called from the server's main thread.
+     */
     public int cleanEntities(Iterable<? extends Entity> entities, Set<PetId> activePetIds) {
         return clean(Objects.requireNonNull(entities, "entities"), toStrings(activePetIds));
     }
@@ -38,6 +50,11 @@ public final class OrphanCleaner {
         for (var entity : entities) {
             var data = entity.getPersistentDataContainer();
             if (!data.has(PetKeys.PET_ID)) {
+                continue;
+            }
+            if (!data.has(PetKeys.PET_ID, PersistentDataType.STRING)) {
+                entity.remove();
+                removed++;
                 continue;
             }
             var petId = data.get(PetKeys.PET_ID, PersistentDataType.STRING);

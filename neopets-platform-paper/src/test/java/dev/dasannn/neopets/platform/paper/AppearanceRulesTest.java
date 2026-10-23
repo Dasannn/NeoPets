@@ -43,6 +43,11 @@ class AppearanceRulesTest {
         assertTrue(AppearanceRules.cat(appearance("type", "jellie", "collar-color", "red")).isEmpty());
         assertTrue(AppearanceRules.cat(appearance("type", "tuxedo")).getFirst()
                 .startsWith("invalid value 'tuxedo'"));
+        assertEquals(
+                java.util.List.of("missing required appearance key 'type'"),
+                AppearanceRules.cat(VariantAppearance.empty()));
+        assertTrue(AppearanceRules.cat(appearance("type", "tabby", "collar-color", "teal")).getFirst()
+                .startsWith("invalid value 'teal'"));
     }
 
     @Test
@@ -52,6 +57,9 @@ class AppearanceRulesTest {
         }
         assertTrue(AppearanceRules.parrot(appearance("variant", "yellow")).getFirst()
                 .startsWith("invalid value 'yellow'"));
+        assertEquals(
+                java.util.List.of("missing required appearance key 'variant'"),
+                AppearanceRules.parrot(VariantAppearance.empty()));
     }
 
     @Test
@@ -61,6 +69,10 @@ class AppearanceRulesTest {
                 AppearanceRules.noProperties(appearance("sound", "soft")));
         assertTrue(AppearanceRules.parrot(appearance("variant", "red", "collar-color", "red"))
                 .contains("unsupported appearance key 'collar-color'"));
+        assertTrue(AppearanceRules.wolf(appearance("variant", "pale", "type", "tabby"))
+                .contains("unsupported appearance key 'type'"));
+        assertTrue(AppearanceRules.cat(appearance("type", "tabby", "variant", "pale"))
+                .contains("unsupported appearance key 'variant'"));
     }
 
     @Test

@@ -38,6 +38,8 @@ public final class PetSpawner {
     /**
      * Spawns one pet and applies its appearance, permanent baby state, ownership, and PDC tags.
      *
+     * <p>This method must be called from the server's main thread.
+     *
      * @throws IllegalArgumentException when the type is unsupported or its appearance is invalid
      */
     public Entity spawn(Location location, UUID ownerUuid, PetId petId, PetVariant variant) {
