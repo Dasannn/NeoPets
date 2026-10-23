@@ -3,6 +3,7 @@ package dev.dasannn.neopets.core.pet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -231,6 +232,70 @@ class PetServiceTest {
     }
 
     @Test
+    void drainsFiveThousandQueuedServiceOperationsWithoutExhaustingTheStack() {
+        var player = player(80);
+        var delayedPets = new CompletableFuture<List<OwnedPet>>();
+        pets.nextFindByOwner = delayedPets;
+        var futures = new ArrayList<CompletableFuture<GiveResult>>();
+
+        for (int index = 0; index < 5_000; index++) {
+            futures.add(service.giveSpecific(player, LIGHT.id()));
+        }
+
+        assertEquals(1, pets.findByOwnerCalls);
+        delayedPets.complete(List.of());
+
+        assertTrue(futures.stream().allMatch(CompletableFuture::isDone));
+        assertInstanceOf(GiveResult.Granted.class, futures.getFirst().join());
+        for (var future : futures.subList(1, futures.size())) {
+            assertEquals(new GiveResult.AlreadyOwned(LIGHT.id()), future.join());
+        }
+        assertEquals(1, pets.saveCalls);
+    }
+
+    @Test
+    void repositoryFailureDoesNotPreventTheNextQueuedOperation() {
+        var player = player(801);
+        var delayedPets = new CompletableFuture<List<OwnedPet>>();
+        pets.nextFindByOwner = delayedPets;
+        pets.nextSaveFailure = new IllegalStateException("storage unavailable");
+
+        var failed = service.giveSpecific(player, LIGHT.id());
+        var following = service.giveSpecific(player, HEAVY.id());
+        delayedPets.complete(List.of());
+
+        assertThrows(CompletionException.class, failed::join);
+        var granted = assertInstanceOf(GiveResult.Granted.class, following.join());
+        assertEquals(HEAVY.id(), granted.pet().variant());
+    }
+
+    @Test
+    void concurrentGrantsFromSeparateServiceInstancesUseDifferentPetIds() {
+        var player = player(802);
+        var firstRepository = new FakePetRepository();
+        var secondRepository = new FakePetRepository();
+        var firstLookup = new CompletableFuture<List<OwnedPet>>();
+        var secondLookup = new CompletableFuture<List<OwnedPet>>();
+        firstRepository.nextFindByOwner = firstLookup;
+        secondRepository.nextFindByOwner = secondLookup;
+        var firstService = service(
+                new InMemoryVariantCatalog(List.of(LIGHT)), () -> 0.0,
+                firstRepository, new RecordingEntityGateway());
+        var secondService = service(
+                new InMemoryVariantCatalog(List.of(LIGHT)), () -> 0.0,
+                secondRepository, new RecordingEntityGateway());
+
+        var first = firstService.giveSpecific(player, LIGHT.id());
+        var second = secondService.giveSpecific(player, LIGHT.id());
+        firstLookup.complete(List.of());
+        secondLookup.complete(List.of());
+
+        var firstGrant = assertInstanceOf(GiveResult.Granted.class, first.join());
+        var secondGrant = assertInstanceOf(GiveResult.Granted.class, second.join());
+        assertNotEquals(firstGrant.pet().id(), secondGrant.pet().id());
+    }
+
+    @Test
     void synchronousEventListenerCanQueueAnotherOperationForTheSamePlayer() {
         var player = player(81);
         var reentrantResult = new AtomicReference<CompletableFuture<GiveResult>>();
@@ -359,6 +424,10 @@ class PetServiceTest {
         var player = player(13);
         var missingId = petId(130);
         assertEquals(new DismissResult.NotOwned(missingId), service.dismiss(player, missingId).join());
+
+        var foreign = pet(1301, player(1301), LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(foreign);
+        assertEquals(new DismissResult.NotOwned(foreign.id()), service.dismiss(player, foreign.id()).join());
 
         var dead = pet(131, player, LIGHT.id(), PetStatus.DEAD, true);
         pets.clearAndStore(dead);

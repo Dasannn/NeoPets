@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.core.pet;
 
+import dev.dasannn.neopets.core.concurrent.KeyedSequencer;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.PetDismissed;
 import dev.dasannn.neopets.core.event.PetGiven;
@@ -13,10 +14,10 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
+import dev.dasannn.neopets.core.port.PetIdGenerator;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.core.port.RandomSource;
 import dev.dasannn.neopets.core.port.RankLimitsResolver;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,13 +25,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -48,10 +45,13 @@ public final class PetService {
     private final DomainEventBus eventBus;
     private final RandomSource randomSource;
     private final Clock clock;
-    private final AtomicLong petIdSequence = new AtomicLong();
-    private final ConcurrentHashMap<PlayerId, CompletableFuture<Void>> operationTails = new ConcurrentHashMap<>();
+    private final PetIdGenerator petIdGenerator;
+    private final KeyedSequencer<PlayerId> operationSequencer = new KeyedSequencer<>();
 
-    /** Creates a pet service with all persistence and external effects supplied as ports. */
+    /**
+     * Creates a pet service with all persistence and external effects supplied as ports.
+     * New pet identifiers use random UUIDs.
+     */
     public PetService(
             VariantCatalog variantCatalog,
             PetRepository petRepository,
@@ -61,6 +61,29 @@ public final class PetService {
             RandomSource randomSource,
             Clock clock
     ) {
+        this(
+                variantCatalog,
+                petRepository,
+                entityGateway,
+                rankLimitsResolver,
+                eventBus,
+                randomSource,
+                clock,
+                PetIdGenerator.randomUuid()
+        );
+    }
+
+    /** Creates a pet service with an injectable identifier generator for new pet instances. */
+    public PetService(
+            VariantCatalog variantCatalog,
+            PetRepository petRepository,
+            PetEntityGateway entityGateway,
+            RankLimitsResolver rankLimitsResolver,
+            DomainEventBus eventBus,
+            RandomSource randomSource,
+            Clock clock,
+            PetIdGenerator petIdGenerator
+    ) {
         this.variantCatalog = Objects.requireNonNull(variantCatalog, "variantCatalog");
         this.petRepository = Objects.requireNonNull(petRepository, "petRepository");
         this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
@@ -68,6 +91,7 @@ public final class PetService {
         this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
         this.randomSource = Objects.requireNonNull(randomSource, "randomSource");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.petIdGenerator = Objects.requireNonNull(petIdGenerator, "petIdGenerator");
     }
 
     /**
@@ -240,7 +264,7 @@ public final class PetService {
     private OwnedPet newPet(PlayerId playerId, PetVariant variant) {
         Instant createdAt = clock.instant();
         return new OwnedPet(
-                nextPetId(playerId, variant.id(), createdAt),
+                Objects.requireNonNull(petIdGenerator.nextId(), "generated pet id"),
                 playerId,
                 variant.id(),
                 Optional.empty(),
@@ -307,50 +331,8 @@ public final class PetService {
         return pets.stream().anyMatch(pet -> pet.variant().equals(variantId));
     }
 
-    private PetId nextPetId(PlayerId playerId, VariantId variantId, Instant createdAt) {
-        String seed = playerId + "\u0000" + variantId + "\u0000" + createdAt + "\u0000" + petIdSequence.getAndIncrement();
-        return new PetId(UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)));
-    }
-
     private <T> CompletableFuture<T> serialized(PlayerId playerId, Supplier<CompletableFuture<T>> action) {
-        var result = new CompletableFuture<T>();
-        var currentTail = new CompletableFuture<Void>();
-        var previousTail = new AtomicReference<CompletableFuture<Void>>();
-
-        operationTails.compute(playerId, (ignored, previous) -> {
-            previousTail.set(previous);
-            return currentTail;
-        });
-
-        CompletableFuture<Void> ready = previousTail.get() == null
-                ? CompletableFuture.completedFuture(null)
-                : previousTail.get();
-        ready.handle((value, failure) -> null).thenRun(() -> runSerializedAction(action, result, currentTail));
-        currentTail.whenComplete((value, failure) -> operationTails.remove(playerId, currentTail));
-        return result;
-    }
-
-    private static <T> void runSerializedAction(
-            Supplier<CompletableFuture<T>> action,
-            CompletableFuture<T> result,
-            CompletableFuture<Void> currentTail
-    ) {
-        CompletableFuture<T> operation;
-        try {
-            operation = Objects.requireNonNull(action.get(), "operation future");
-        } catch (Throwable failure) {
-            currentTail.complete(null);
-            result.completeExceptionally(failure);
-            return;
-        }
-        operation.whenComplete((operationResult, failure) -> {
-            currentTail.complete(null);
-            if (failure == null) {
-                result.complete(operationResult);
-            } else {
-                result.completeExceptionally(unwrap(failure));
-            }
-        });
+        return operationSequencer.submit(playerId, action);
     }
 
     private static Throwable unwrap(Throwable failure) {
