@@ -67,13 +67,22 @@ public final class PlayerLifecycleListener implements Listener {
     public void onPreLogin(AsyncPlayerPreLoginEvent event) {
         var playerId = new PlayerId(event.getUniqueId());
         Duration timeout = configuration.current().settings().playerDataLoadTimeout();
+        long token;
+        try {
+            token = pendingLogins.loaded(playerId);
+        } catch (RuntimeException exception) {
+            deny(event, playerId, exception);
+            return;
+        }
         try {
             work.submit(() -> cache.load(playerId)).get(timeout.toNanos(), TimeUnit.NANOSECONDS);
-            preLoginTokens.put(event, pendingLogins.loaded(playerId));
+            preLoginTokens.put(event, token);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            pendingLogins.rejected(playerId, token);
             deny(event, playerId, exception);
         } catch (ExecutionException | TimeoutException | RuntimeException exception) {
+            pendingLogins.rejected(playerId, token);
             deny(event, playerId, exception);
         }
     }
@@ -110,8 +119,9 @@ public final class PlayerLifecycleListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
-        pendingLogins.joined(playerId);
-        work.submit(() -> continueAfter(despawn(playerId), () -> cache.unload(playerId)))
+        boolean unloadCache = pendingLogins.departed(playerId);
+        work.submit(() -> continueAfter(despawn(playerId), () -> unloadCache
+                        ? cache.unload(playerId) : CompletableFuture.completedFuture(null)))
                 .whenComplete((ignored, failure) -> logFailure("unload player " + playerId, failure));
     }
 
@@ -122,7 +132,6 @@ public final class PlayerLifecycleListener implements Listener {
     }
 
     private void deny(AsyncPlayerPreLoginEvent event, PlayerId playerId, Throwable failure) {
-        cache.unload(playerId);
         logger.log(Level.WARNING, "Could not load NeoPets profile for " + playerId, unwrap(failure));
         event.disallow(PlayerPreLoginEvent.Result.KICK_OTHER,
                 messages.render(MessageSpec.of("errors.profile-load")));

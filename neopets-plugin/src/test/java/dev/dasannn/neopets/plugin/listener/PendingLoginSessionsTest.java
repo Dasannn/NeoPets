@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.plugin.listener;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PlayerId;
 import java.util.ArrayList;
@@ -42,5 +43,40 @@ class PendingLoginSessionsTest {
         expiries.getFirst().run();
 
         assertEquals(List.of(), cleanups);
+    }
+
+    @Test
+    void rejectedSecondConnectionCannotEvictJoinedFirstConnection() {
+        var expiries = new ArrayList<Runnable>();
+        var cleanups = new ArrayList<String>();
+        var sessions = new PendingLoginSessions(expiries::add,
+                (player, reason) -> cleanups.add(reason));
+
+        sessions.loaded(PLAYER);
+        sessions.joined(PLAYER);
+        long duplicate = sessions.loaded(PLAYER);
+
+        sessions.rejected(PLAYER, duplicate);
+        expiries.getLast().run();
+
+        assertEquals(List.of(), cleanups);
+        assertTrue(sessions.departed(PLAYER));
+    }
+
+    @Test
+    void cacheSharedByOverlappingLoginsIsCleanedOnlyAfterLastSessionIsRejected() {
+        var expiries = new ArrayList<Runnable>();
+        var cleanups = new ArrayList<String>();
+        var sessions = new PendingLoginSessions(expiries::add,
+                (player, reason) -> cleanups.add(reason));
+
+        long first = sessions.loaded(PLAYER);
+        long second = sessions.loaded(PLAYER);
+
+        sessions.rejected(PLAYER, first);
+        assertEquals(List.of(), cleanups);
+
+        sessions.rejected(PLAYER, second);
+        assertEquals(List.of("rejected login"), cleanups);
     }
 }

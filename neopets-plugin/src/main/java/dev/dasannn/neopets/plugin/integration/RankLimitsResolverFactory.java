@@ -2,7 +2,6 @@ package dev.dasannn.neopets.plugin.integration;
 
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
 import java.util.Objects;
-import java.util.concurrent.Executor;
 import net.luckperms.api.LuckPermsProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -14,9 +13,8 @@ public final class RankLimitsResolverFactory {
     /**
      * Creates a resolver using LuckPerms when available, otherwise Bukkit permissions.
      *
-     * <p>The Bukkit fallback evaluates permission checks on the server thread through an
-     * executor. This avoids reading Bukkit permission state asynchronously while keeping
-     * permission changes visible immediately.
+     * <p>The Bukkit fallback captures permissions on the server thread and serves immutable
+     * snapshots to asynchronous continuations.
      */
     public static ConfiguredRankLimitsResolver create(
             JavaPlugin plugin,
@@ -31,12 +29,13 @@ public final class RankLimitsResolverFactory {
             plugin.getLogger().info(
                     "Rank limits strategy: LuckPerms cached inherited groups and permissions");
         } else {
-            Executor mainThreadExecutor = task -> plugin.getServer().getScheduler().runTask(plugin, task);
-            rankSource = new BukkitPermissionRankSource(
-                    plugin.getServer(), mainThreadExecutor, plugin.getServer()::isPrimaryThread);
+            var bukkitPermissions = new BukkitPermissionRankSource(
+                    plugin.getServer(), plugin.getServer()::isPrimaryThread);
+            plugin.getServer().getPluginManager().registerEvents(bukkitPermissions, plugin);
+            rankSource = bukkitPermissions;
             plugin.getLogger().warning(
                     "LuckPerms is unavailable; rank limits strategy: Bukkit permissions "
-                            + "evaluated on the server thread");
+                            + "snapshotted on the server thread");
         }
 
         return new ConfiguredRankLimitsResolver(

@@ -5,12 +5,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 4;
+    public static final int CURRENT_VERSION = 5;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -63,7 +64,22 @@ public final class ConfigurationMigrator {
 
             @Override
             public void apply(YamlConfiguration configuration) {
-                // Version 4 changes vanilla skill-tree values from absolute targets to cumulative bonuses.
+                // Version 4 repairs legacy pet resources; the root document needs only its version bump.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 4;
+            }
+
+            @Override
+            public int toVersion() {
+                return 5;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 5 changes vanilla skill-tree values from absolute targets to cumulative bonuses.
                 // The related per-tree files are migrated by migrateSkillTree.
             }
         }));
@@ -116,19 +132,57 @@ public final class ConfigurationMigrator {
     }
 
     /**
-     * Rewrites only unchanged bundled skill-tree values whose meaning changed in version 4.
+     * Rewrites only unchanged bundled skill-tree values whose meaning changed in version 5.
      * User-customized value arrays are deliberately preserved.
      */
     public boolean migrateSkillTree(YamlConfiguration configuration, String type, int sourceVersion) {
         Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(type, "type");
-        if (sourceVersion < 1 || sourceVersion >= 4) {
+        if (currentVersion < 5 || sourceVersion < 1 || sourceVersion >= 5) {
             return false;
         }
         boolean changed = false;
         for (ValueMigration migration : SKILL_TREE_VALUE_MIGRATIONS.getOrDefault(type, List.of())) {
             if (sameNumbers(configuration.getList(migration.path()), migration.oldValues())) {
                 configuration.set(migration.path(), migration.newValues());
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /** Migrates one pet document using the root configuration's original schema version. */
+    public boolean migratePet(YamlConfiguration configuration, String petType, int sourceVersion) {
+        Objects.requireNonNull(configuration, "configuration");
+        Objects.requireNonNull(petType, "petType");
+        if (currentVersion < 4 || sourceVersion >= 4) {
+            return false;
+        }
+
+        ConfigurationSection variants = configuration.getConfigurationSection("variants");
+        if (variants == null) {
+            return false;
+        }
+        return switch (petType) {
+            case "cat" -> migrateCatAppearances(configuration, variants);
+            case "parrot" -> migrateParrotAppearances(configuration, variants);
+            default -> false;
+        };
+    }
+
+    private static boolean migrateCatAppearances(
+            YamlConfiguration configuration, ConfigurationSection variants
+    ) {
+        boolean changed = false;
+        for (String variantId : variants.getKeys(false)) {
+            String appearance = "variants." + variantId + ".appearance";
+            String legacyPath = appearance + ".variant";
+            String currentPath = appearance + ".type";
+            if (configuration.isSet(legacyPath)) {
+                if (!configuration.isSet(currentPath)) {
+                    configuration.set(currentPath, configuration.get(legacyPath));
+                }
+                configuration.set(legacyPath, null);
                 changed = true;
             }
         }
@@ -205,5 +259,33 @@ public final class ConfigurationMigrator {
     }
 
     private record ValueMigration(String path, List<Number> oldValues, List<Number> newValues) {
+    }
+
+    private static boolean migrateParrotAppearances(
+            YamlConfiguration configuration, ConfigurationSection variants
+    ) {
+        boolean changed = false;
+        for (String variantId : variants.getKeys(false)) {
+            String variantPath = "variants." + variantId + ".appearance.variant";
+            String legacyVariant = configuration.getString(variantPath);
+            String currentVariant = switch (legacyVariant == null ? "" : legacyVariant) {
+                case "red_blue" -> "red";
+                case "yellow_blue" -> "cyan";
+                default -> null;
+            };
+            if (currentVariant != null) {
+                configuration.set(variantPath, currentVariant);
+                changed = true;
+            }
+        }
+
+        for (String legacyBaby : List.of("parrot_red_blue_baby", "parrot_green_baby")) {
+            String babyPath = "variants." + legacyBaby + ".baby";
+            if (configuration.getBoolean(babyPath, false)) {
+                configuration.set(babyPath, false);
+                changed = true;
+            }
+        }
+        return changed;
     }
 }

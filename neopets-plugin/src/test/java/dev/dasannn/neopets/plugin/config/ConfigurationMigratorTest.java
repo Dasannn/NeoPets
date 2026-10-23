@@ -40,13 +40,13 @@ class ConfigurationMigratorTest {
         var migrator = new ConfigurationMigrator();
         var configuration = new YamlConfiguration();
 
-        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 5));
+        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 6));
         assertThrows(IllegalArgumentException.class,
                 () -> new ConfigurationMigrator(2, List.of()).migrate(configuration, 1));
     }
 
     @Test
-    void versionFourRewritesOnlyUntouchedLegacySkillTreeValues() {
+    void versionFiveRewritesOnlyUntouchedLegacySkillTreeValues() {
         var migrator = new ConfigurationMigrator();
         var dog = new YamlConfiguration();
         dog.set("attributes.health.values", List.of(22, 24, 26, 28, 30));
