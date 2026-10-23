@@ -57,6 +57,47 @@ class TreeProgressTest {
     }
 
     @Test
+    void assignedSkillPointsUsesEveryActiveLevelsConfiguredCost() {
+        var definition = new SkillTreeDefinition(new PetTypeId("polar_bear"), List.of(
+                new AttributeDefinition("life", AttributeCategory.VANILLA, 3,
+                        new VanillaEffectReference("max_health",
+                                List.of(BigDecimal.ONE, BigDecimal.TWO, BigDecimal.valueOf(3))),
+                        List.of(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO),
+                        List.of(0, 2, 5)),
+                new AttributeDefinition("claw", AttributeCategory.CUSTOM, 1,
+                        new CustomEffectReference("claw"), List.of(BigDecimal.ZERO), List.of(3))
+        ));
+
+        var oneActiveLevel = TreeProgress.empty(petId, definition).withLevels("life", 1, 1);
+        var twoActiveLevels = oneActiveLevel.withLevels("life", 2, 2);
+        var allActive = twoActiveLevels.withLevels("life", 3, 3).withLevels("claw", 1, 1);
+
+        assertEquals(1, oneActiveLevel.activeNodes());
+        assertEquals(0, oneActiveLevel.assignedSkillPoints(definition));
+        assertEquals(2, twoActiveLevels.activeNodes());
+        assertEquals(2, twoActiveLevels.assignedSkillPoints(definition));
+        assertEquals(4, allActive.activeNodes());
+        assertEquals(10, allActive.assignedSkillPoints(definition));
+    }
+
+    @Test
+    void assignedSkillPointsRejectsIncompatibleDefinitions() {
+        var progress = TreeProgress.empty(petId, definition());
+        var absentAttribute = new SkillTreeDefinition(new PetTypeId("polar_bear"), List.of());
+        var changedMaximum = new SkillTreeDefinition(new PetTypeId("polar_bear"), List.of(
+                new AttributeDefinition("life", AttributeCategory.VANILLA, 2,
+                        new VanillaEffectReference("max_health", List.of(BigDecimal.ONE, BigDecimal.TWO)),
+                        List.of(BigDecimal.ZERO, BigDecimal.ZERO)),
+                new AttributeDefinition("claw", AttributeCategory.CUSTOM, 1,
+                        new CustomEffectReference("claw"), List.of(BigDecimal.ZERO))
+        ));
+
+        assertThrows(NullPointerException.class, () -> progress.assignedSkillPoints(null));
+        assertThrows(IllegalArgumentException.class, () -> progress.assignedSkillPoints(absentAttribute));
+        assertThrows(IllegalArgumentException.class, () -> progress.assignedSkillPoints(changedMaximum));
+    }
+
+    @Test
     void validatesAndDefensivelyCopiesProgressMap() {
         var source = new LinkedHashMap<String, AttributeLevelProgress>();
         source.put("life", new AttributeLevelProgress(1, 1, 3));

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +25,7 @@ class SkillTreeRegistryTest {
 
         assertThrows(NullPointerException.class, () -> new InMemorySkillTreeRegistry(null));
         assertThrows(NullPointerException.class,
-                () -> new InMemorySkillTreeRegistry(List.of((SkillTreeDefinition) null)));
+                () -> new InMemorySkillTreeRegistry(Collections.singletonList(null)));
         assertThrows(IllegalArgumentException.class,
                 () -> new InMemorySkillTreeRegistry(List.of(cat, cat)));
 

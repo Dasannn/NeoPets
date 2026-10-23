@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -129,7 +130,7 @@ class AttributeDefinitionTest {
         assertThrows(IllegalArgumentException.class, () -> new CustomEffectReference("Claw"));
         assertThrows(NullPointerException.class, () -> new CustomEffectReference("claw", (Optional<List<Map<String, String>>>) null));
         assertThrows(NullPointerException.class,
-                () -> new CustomEffectReference("claw", List.of((Map<String, String>) null)));
+                () -> new CustomEffectReference("claw", Collections.singletonList(null)));
     }
 
     private static AttributeDefinition attribute(

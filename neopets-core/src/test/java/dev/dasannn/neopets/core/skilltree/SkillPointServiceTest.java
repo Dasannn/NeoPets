@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.core.skilltree;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.dasannn.neopets.core.event.DomainEventBus;
@@ -54,6 +55,39 @@ class SkillPointServiceTest {
                 new SkillPointsChanged(playerId, 7, 5),
                 new SkillPointsChanged(playerId, 5, 20)
         ), events);
+    }
+
+    @Test
+    void serializesOverlappingGivesForTheSamePlayer() {
+        var repository = new DelayedFirstSaveRepository(new PlayerProfile(playerId, 10, List.of()));
+        var service = new SkillPointService(repository, new DomainEventBus());
+
+        var first = service.give(playerId, 2);
+        var second = service.give(playerId, 3);
+
+        assertEquals(1, repository.findCount);
+        assertEquals(1, repository.saveCount);
+        assertFalse(second.isDone());
+
+        repository.completeFirstSave();
+
+        assertEquals(12, first.join());
+        assertEquals(15, second.join());
+        assertEquals(15, repository.profile.skillPointBalance());
+    }
+
+    @Test
+    void serializesOverlappingGiveAndTakeForTheSamePlayer() {
+        var repository = new DelayedFirstSaveRepository(new PlayerProfile(playerId, 10, List.of()));
+        var service = new SkillPointService(repository, new DomainEventBus());
+
+        var give = service.give(playerId, 3);
+        var take = service.take(playerId, 12);
+        repository.completeFirstSave();
+
+        assertEquals(13, give.join());
+        assertEquals(1, take.join());
+        assertEquals(1, repository.profile.skillPointBalance());
     }
 
     @Test
@@ -134,6 +168,41 @@ class SkillPointServiceTest {
             this.profile = Optional.of(profile);
             saveCount++;
             return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    private static final class DelayedFirstSaveRepository implements PlayerRepository {
+        private PlayerProfile profile;
+        private PlayerProfile delayedProfile;
+        private CompletableFuture<Void> delayedSave;
+        private int findCount;
+        private int saveCount;
+
+        private DelayedFirstSaveRepository(PlayerProfile profile) {
+            this.profile = profile;
+        }
+
+        @Override
+        public CompletableFuture<Optional<PlayerProfile>> findById(PlayerId playerId) {
+            findCount++;
+            return CompletableFuture.completedFuture(Optional.of(profile));
+        }
+
+        @Override
+        public CompletableFuture<Void> save(PlayerProfile profile) {
+            saveCount++;
+            if (saveCount == 1) {
+                delayedProfile = profile;
+                delayedSave = new CompletableFuture<>();
+                return delayedSave;
+            }
+            this.profile = profile;
+            return CompletableFuture.completedFuture(null);
+        }
+
+        private void completeFirstSave() {
+            profile = delayedProfile;
+            delayedSave.complete(null);
         }
     }
 }

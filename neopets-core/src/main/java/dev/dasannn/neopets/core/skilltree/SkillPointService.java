@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.core.skilltree;
 
+import dev.dasannn.neopets.core.concurrent.KeyedSequencer;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.SkillPointsChanged;
 import dev.dasannn.neopets.core.model.PlayerId;
@@ -14,6 +15,7 @@ import java.util.function.IntUnaryOperator;
 public final class SkillPointService {
     private final PlayerRepository playerRepository;
     private final DomainEventBus eventBus;
+    private final KeyedSequencer<PlayerId> mutations = new KeyedSequencer<>();
 
     public SkillPointService(PlayerRepository playerRepository, DomainEventBus eventBus) {
         this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository");
@@ -60,6 +62,10 @@ public final class SkillPointService {
 
     private CompletableFuture<Integer> update(PlayerId playerId, IntUnaryOperator mutation) {
         Objects.requireNonNull(playerId, "playerId");
+        return mutations.submit(playerId, () -> updateUnsequenced(playerId, mutation));
+    }
+
+    private CompletableFuture<Integer> updateUnsequenced(PlayerId playerId, IntUnaryOperator mutation) {
         return playerRepository.findById(playerId).thenCompose(foundProfile -> {
             var profile = foundProfile.orElseGet(() -> new PlayerProfile(playerId, 0, List.of()));
             int previousBalance = profile.skillPointBalance();

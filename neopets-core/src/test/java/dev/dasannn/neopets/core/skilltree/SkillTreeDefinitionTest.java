@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import dev.dasannn.neopets.core.model.PetTypeId;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,7 @@ class SkillTreeDefinitionTest {
         assertThrows(NullPointerException.class,
                 () -> new SkillTreeDefinition(new PetTypeId("cat"), null));
         assertThrows(NullPointerException.class,
-                () -> new SkillTreeDefinition(new PetTypeId("cat"), List.of((AttributeDefinition) null)));
+                () -> new SkillTreeDefinition(new PetTypeId("cat"), Collections.singletonList(null)));
         assertThrows(IllegalArgumentException.class,
                 () -> new SkillTreeDefinition(new PetTypeId("cat"), List.of(life, life)));
     }

@@ -2,6 +2,7 @@ package dev.dasannn.neopets.core.skilltree;
 
 import dev.dasannn.neopets.core.model.PetId;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -34,9 +35,42 @@ public record TreeProgress(PetId petId, Map<String, AttributeLevelProgress> attr
         return attributes.values().stream().mapToInt(AttributeLevelProgress::unlockedLevel).sum();
     }
 
-    /** Returns the number of active nodes, equal to skill points assigned to this pet. */
+    /** Returns the number of active nodes. */
     public int activeNodes() {
         return attributes.values().stream().mapToInt(AttributeLevelProgress::activeLevel).sum();
+    }
+
+    /** Returns the skill points assigned to active levels using the definition's per-level costs. */
+    public int assignedSkillPoints(SkillTreeDefinition definition) {
+        Objects.requireNonNull(definition, "definition");
+        var definitionsById = new HashMap<String, AttributeDefinition>();
+        for (AttributeDefinition attribute : definition.attributes()) {
+            definitionsById.put(attribute.id(), attribute);
+        }
+
+        int assigned = 0;
+        for (var entry : attributes.entrySet()) {
+            AttributeDefinition definitionAttribute = definitionsById.get(entry.getKey());
+            if (definitionAttribute == null) {
+                throw new IllegalArgumentException("progress contains an attribute absent from the definition: "
+                        + entry.getKey());
+            }
+
+            AttributeLevelProgress progress = entry.getValue();
+            if (progress.maxLevel() != definitionAttribute.maxLevel()) {
+                throw new IllegalArgumentException("progress maxLevel does not match the definition for attribute: "
+                        + entry.getKey());
+            }
+            for (int level = 0; level < progress.activeLevel(); level++) {
+                try {
+                    assigned = Math.addExact(assigned, definitionAttribute.skillPointCosts().get(level));
+                } catch (ArithmeticException exception) {
+                    throw new IllegalArgumentException(
+                            "assigned skill points exceed the supported integer range", exception);
+                }
+            }
+        }
+        return assigned;
     }
 
     /** Returns a copy with the unlocked level changed for one existing attribute. */
