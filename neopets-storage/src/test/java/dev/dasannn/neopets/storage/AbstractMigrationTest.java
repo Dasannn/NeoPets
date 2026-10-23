@@ -20,9 +20,12 @@ abstract class AbstractMigrationTest {
             "np_player", Set.of("uuid", "sp_balance"),
             "np_pet", Set.of("id", "owner", "variant_id", "name", "status", "active", "created_at"),
             "np_pet_attribute", Set.of("pet_id", "attribute_id", "unlocked_level", "active_level"),
-            "np_soul_token", Set.of("token_id", "pet_id", "owner", "issued_at", "consumed_at"),
+            "np_soul_token", Set.of("token_id", "pet_id", "owner", "issued_at", "consumed_at",
+                    "delivered_at", "active_pet_id"),
             "np_pet_storage", Set.of("pet_id", "contents"),
-            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at"));
+            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at", "claimed"),
+            "np_pet_death_work", Set.of(
+                    "pet_id", "owner", "keep_skills", "skills_handled", "completed", "created_at"));
 
     abstract StorageSettings settings();
 
@@ -39,9 +42,11 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of(), nullableColumns(metadata, "np_player"));
             assertEquals(Set.of("name"), nullableColumns(metadata, "np_pet"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_attribute"));
-            assertEquals(Set.of("consumed_at"), nullableColumns(metadata, "np_soul_token"));
+            assertEquals(Set.of("consumed_at", "delivered_at", "active_pet_id"),
+                    nullableColumns(metadata, "np_soul_token"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_storage"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pending_soul_delivery"));
+            assertEquals(Set.of(), nullableColumns(metadata, "np_pet_death_work"));
 
             assertEquals(Set.of("uuid"), primaryKey(metadata, "np_player"));
             assertEquals(Set.of("id"), primaryKey(metadata, "np_pet"));
@@ -49,12 +54,15 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of("token_id"), primaryKey(metadata, "np_soul_token"));
             assertEquals(Set.of("pet_id"), primaryKey(metadata, "np_pet_storage"));
             assertEquals(Set.of("token_id"), primaryKey(metadata, "np_pending_soul_delivery"));
+            assertEquals(Set.of("pet_id"), primaryKey(metadata, "np_pet_death_work"));
             assertTrue(indexedColumns(metadata, "np_pet").contains(Set.of("owner")));
             assertTrue(indexedColumns(metadata, "np_soul_token").contains(Set.of("owner")));
             assertTrue(indexedColumns(metadata, "np_pending_soul_delivery").contains(Set.of("owner")));
+            assertTrue(indexedColumns(metadata, "np_pet_death_work").contains(Set.of("owner")));
             assertTrue(tableExists(metadata, "np_flyway_schema_history"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
         }
     }
 

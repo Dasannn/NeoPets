@@ -68,6 +68,7 @@ import dev.dasannn.neopets.platform.paper.effect.SkillTreePetEffectApplier;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import dev.dasannn.neopets.storage.JdbcPetRepository;
 import dev.dasannn.neopets.storage.JdbcPendingSoulDeliveryRepository;
+import dev.dasannn.neopets.storage.JdbcPetDeathWorkRepository;
 import dev.dasannn.neopets.storage.JdbcPlayerRepository;
 import dev.dasannn.neopets.storage.JdbcSoulTokenRepository;
 import dev.dasannn.neopets.storage.JdbcTreeProgressRepository;
@@ -157,6 +158,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var jdbcPets = new JdbcPetRepository(storage);
             var jdbcSoulTokens = new JdbcSoulTokenRepository(storage);
             var pendingSoulDeliveries = new JdbcPendingSoulDeliveryRepository(storage);
+            var petDeathWork = new JdbcPetDeathWorkRepository(storage);
             var jdbcTrees = new JdbcTreeProgressRepository(storage, petId -> jdbcPets.findById(petId).thenApply(pet -> {
                 OwnedPet owned = pet.orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
                 PetVariant variant = configuration.current().variants().findById(owned.variant())
@@ -226,9 +228,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
             economyPort.bind(EconomyProvider.resolve(plugin.getServer(), scheduler::runOnMain, plugin.getLogger()));
             rankPort.bind(RankLimitsResolverFactory.create(plugin, configuration));
 
-            var playerLifecycle = new PlayerLifecycleListener(
-                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
-                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work);
             var pluginManager = plugin.getServer().getPluginManager();
             var placeholderData = new RuntimePlaceholderDataSource(
                     cache, livePets, rankPort, configuration,
@@ -245,20 +244,26 @@ public final class NeoPetsRuntime implements AutoCloseable {
             if (placeholderRegistration.isEmpty()) {
                 plugin.getLogger().info("PlaceholderAPI is unavailable; placeholders are disabled");
             }
-            pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             var damagePolicy = new PetDamagePolicy(
                     () -> configuration.current().settings().features().death().enabled(),
                     () -> configuration.current().settings().features().death().pvp());
             pluginManager.registerEvents(new PetProtectionListener(damagePolicy), plugin);
             var soulDeliveries = new SoulDeliveryCoordinator(
-                    plugin.getServer(), scheduler, pendingSoulDeliveries, pets,
+                    plugin.getServer(), scheduler, pendingSoulDeliveries, pets, soulItems, operations,
                     new SoulItemFactory(configuration, messages), new SoulItemDelivery<>(), messages,
                     work, plugin.getLogger());
             pluginManager.registerEvents(soulDeliveries, plugin);
+            var petDeathWorkflow = new dev.dasannn.neopets.plugin.listener.PetDeathWorkflow(
+                    pets, petDeathWork, petService, skillTrees, soulItems, soulDeliveries,
+                    () -> configuration.current().settings().features().death().keepSkills(), clock);
             pluginManager.registerEvents(new PetDeathListener(
-                    petService, skillTrees, soulItems, soulDeliveries, livePets,
-                    configuration, work, plugin.getLogger()), plugin);
+                    petDeathWorkflow, livePets, work, plugin.getLogger()), plugin);
+            var playerLifecycle = new PlayerLifecycleListener(
+                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
+                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work,
+                    petDeathWorkflow::reconcile);
+            pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new FelineLandingListener(felineLanding), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());

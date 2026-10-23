@@ -584,6 +584,24 @@ class SkillTreeServiceTest {
                 new PlayerOperationQueue()));
     }
 
+    @Test
+    void deathResetUsesDurableRefundPortWithExactConfiguredCosts() {
+        var fixture = new Fixture(pet(PLAYER, PetStatus.DEAD), 2, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(2, 2, 1, 1));
+        fixture.progressRepository.deathPlayer = fixture.playerRepository;
+
+        var reset = assertInstanceOf(ResetResult.Reset.class,
+                fixture.service.resetForDeath(PLAYER, PET_ID).join());
+        assertEquals(4, reset.refundedSkillPoints());
+        assertEquals(6, fixture.playerRepository.profile.skillPointBalance());
+        assertEquals(TreeProgress.empty(PET_ID, DEFINITION), fixture.progress());
+        assertEquals(List.of(), fixture.economy.deposits);
+
+        fixture.service.resetForDeath(PLAYER, PET_ID).join();
+        assertEquals(6, fixture.playerRepository.profile.skillPointBalance());
+        assertEquals(0, fixture.progressRepository.saveCount);
+    }
+
     private static OwnedPet alivePet() {
         return pet(PLAYER, PetStatus.ALIVE);
     }
@@ -661,6 +679,23 @@ class SkillTreeServiceTest {
 
     private static final class InMemoryProgressRepository implements TreeProgressRepository {
         private Optional<TreeProgress> progress = Optional.empty();
+        private InMemoryPlayerRepository deathPlayer;
+        private boolean deathReset;
+
+        @Override
+        public CompletableFuture<Integer> resetForDeath(PlayerId owner, TreeProgress zeroed, int refund) {
+            if (deathPlayer == null) {
+                return CompletableFuture.failedFuture(new UnsupportedOperationException());
+            }
+            if (!deathReset) {
+                deathPlayer.profile = deathPlayer.profile.withSkillPointBalance(
+                        Math.addExact(deathPlayer.profile.skillPointBalance(), refund));
+                progress = Optional.of(zeroed);
+                deathReset = true;
+            }
+            return CompletableFuture.completedFuture(deathPlayer.profile.skillPointBalance());
+        }
+
         private RuntimeException loadFailure;
         private RuntimeException saveFailure;
         private int failSaveNumber;
