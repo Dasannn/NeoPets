@@ -37,9 +37,10 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(5, snapshot.settings().configVersion());
+        assertEquals(6, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
+        assertEquals(30, snapshot.settings().bukkitRankRefreshInterval().toSeconds());
         assertEquals(5, snapshot.skillTrees().size());
         assertTrue(Files.isRegularFile(temporaryDirectory.resolve("config.yml")));
         assertTrue(Files.isRegularFile(temporaryDirectory.resolve("lang/es.yml")));
@@ -163,10 +164,22 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void bukkitRankRefreshIntervalMustBePositive() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "bukkit-refresh-interval-seconds: 30",
+                "bukkit-refresh-interval-seconds: 0");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "config.yml", "rank-resolution.bukkit-refresh-interval-seconds");
+    }
+
+    @Test
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 5", "config-version: 99");
+        replace("config.yml", "config-version: 6", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -269,8 +282,9 @@ class ConfigurationLoaderTest {
     void oldInstallBackfillsConfigAndLanguageWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 5", "config-version: 1");
+        replace("config.yml", "config-version: 6", "config-version: 1");
         replace("config.yml", "  load-timeout-seconds: 10\n", "");
+        replace("config.yml", "  bukkit-refresh-interval-seconds: 30\n", "");
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
         replace("lang/es.yml", "    header-name: \"<gold><bold>Mis mascotas</bold></gold>\"\n", "");
@@ -280,23 +294,40 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(5, upgraded.settings().configVersion());
+        assertEquals(6, upgraded.settings().configVersion());
         assertEquals(37.0, upgraded.settings().followTeleportDistance());
         assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
+        assertEquals(30, upgraded.settings().bukkitRankRefreshInterval().toSeconds());
         assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
         assertEquals("cierre personalizado", upgraded.language().find("gui.pets.close").orElseThrow());
         assertTrue(upgraded.language().find("errors.profile-load").isPresent());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
-        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 5"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 6"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml"))
+                .contains("bukkit-refresh-interval-seconds: 30"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("header-name:"));
+    }
+
+    @Test
+    void versionFiveInstallPreservesCustomBukkitRankRefreshInterval() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 6", "config-version: 5");
+        replace("config.yml", "bukkit-refresh-interval-seconds: 30",
+                "bukkit-refresh-interval-seconds: 17");
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(6, upgraded.settings().configVersion());
+        assertEquals(17, upgraded.settings().bukkitRankRefreshInterval().toSeconds());
     }
 
     @Test
     void versionTwoInstallReceivesEveryPetsMenuMessageAndStillLoads() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 5", "config-version: 2");
+        replace("config.yml", "config-version: 6", "config-version: 2");
         String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
         int petsSection = language.indexOf("  pets:\n", language.indexOf("gui:\n"));
         int adminSection = language.indexOf("\nadmin:\n", petsSection);
@@ -305,7 +336,7 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(5, upgraded.settings().configVersion());
+        assertEquals(6, upgraded.settings().configVersion());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
         assertTrue(upgraded.language().find("gui.pets.rename-invalid").isPresent());
     }
@@ -315,7 +346,7 @@ class ConfigurationLoaderTest {
     void oldInstallMigratesBundledSkillValuesButPreservesCustomProgressions(int sourceVersion) throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 5", "config-version: " + sourceVersion);
+        replace("config.yml", "config-version: 6", "config-version: " + sourceVersion);
         replace("skilltrees/dog.yml", "values: [2, 4, 6, 8, 10]", "values: [22, 24, 26, 28, 30]");
         replace("skilltrees/dog.yml", "values: [0.05, 0.1, 0.15, 0.2, 0.25]",
                 "values: [0.32, 0.34, 0.36, 0.38, 0.4]");
@@ -323,7 +354,7 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(5, upgraded.settings().configVersion());
+        assertEquals(6, upgraded.settings().configVersion());
         var dog = upgraded.skillTree(new PetTypeId("dog")).orElseThrow();
         assertEquals(List.of(2, 4, 6, 8, 10), values(dog, "health"));
         assertEquals(List.of(0.05, 0.1, 0.15, 0.2, 0.25), values(dog, "speed"));
@@ -336,13 +367,21 @@ class ConfigurationLoaderTest {
     void versionThreeInstallMigratesPreviouslyShippedPetResourcesBeforePlatformValidation() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory, new PetSpawner()::validateAppearance);
         loader.load();
-        replace("config.yml", "config-version: 5", "config-version: 3");
+        replace("config.yml", "config-version: 6", "config-version: 3");
         installLegacyPetResource("cat");
         installLegacyPetResource("parrot");
+        replace("pets/cat.yml", "type: cat", "type: cat\ncustom-root: retained");
+        replace("pets/cat.yml", "appearance: { variant: black }", "appearance: { type: black }");
+        replace("pets/cat.yml", "weight: 10", "weight: 41");
+        replace("pets/cat.yml", "display-name: \"Gato atigrado\"", "display-name: \"Nombre personalizado\"");
+        replace("pets/cat.yml", "icon: COD", "icon: COD\n    custom-variant: retained");
+        replace("pets/parrot.yml", "weight: 10", "weight: 37");
+        replace("pets/parrot.yml", "display-name: \"Loro rojo y azul\"",
+                "display-name: \"Loro personalizado\"");
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(5, upgraded.settings().configVersion());
+        assertEquals(6, upgraded.settings().configVersion());
         assertEquals(13, upgraded.variants().findByType(new PetTypeId("cat")).size());
         assertEquals(7, upgraded.variants().findByType(new PetTypeId("parrot")).size());
         assertTrue(upgraded.variants().findByType(new PetTypeId("parrot")).stream()
@@ -351,26 +390,35 @@ class ConfigurationLoaderTest {
         String parrot = Files.readString(temporaryDirectory.resolve("pets/parrot.yml"));
         assertTrue(cat.contains("type: tabby"));
         assertFalse(cat.contains("variant: tabby"));
+        assertTrue(cat.contains("type: black"));
+        assertTrue(cat.contains("custom-root: retained"));
+        assertTrue(cat.contains("custom-variant: retained"));
+        assertTrue(cat.contains("display-name: Nombre personalizado"));
+        assertTrue(cat.contains("weight: 41"));
         assertTrue(parrot.contains("variant: red"));
         assertTrue(parrot.contains("variant: cyan"));
         assertFalse(parrot.contains("variant: red_blue"));
         assertFalse(parrot.contains("variant: yellow_blue"));
-        assertTrue(parrot.contains("display-name: Loro rojo y azul"));
-        assertTrue(parrot.contains("weight: 10"));
+        assertTrue(parrot.contains("display-name: Loro personalizado"));
+        assertTrue(parrot.contains("weight: 37"));
+
+        loader.load();
+        assertEquals(cat, Files.readString(temporaryDirectory.resolve("pets/cat.yml")));
+        assertEquals(parrot, Files.readString(temporaryDirectory.resolve("pets/parrot.yml")));
     }
 
     @Test
     void versionThreeInstallMigratesPetsAndSkillTreesTogether() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory, new PetSpawner()::validateAppearance);
         loader.load();
-        replace("config.yml", "config-version: 5", "config-version: 3");
+        replace("config.yml", "config-version: 6", "config-version: 3");
         installLegacyPetResource("cat");
         installLegacyPetResource("parrot");
         replace("skilltrees/dog.yml", "values: [2, 4, 6, 8, 10]", "values: [22, 24, 26, 28, 30]");
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(5, upgraded.settings().configVersion());
+        assertEquals(6, upgraded.settings().configVersion());
         assertEquals(List.of(2, 4, 6, 8, 10),
                 values(upgraded.skillTree(new PetTypeId("dog")).orElseThrow(), "health"));
         assertTrue(Files.readString(temporaryDirectory.resolve("pets/cat.yml")).contains("type: tabby"));

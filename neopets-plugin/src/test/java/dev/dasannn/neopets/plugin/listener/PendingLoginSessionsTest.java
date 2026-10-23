@@ -18,11 +18,13 @@ class PendingLoginSessionsTest {
         var expiries = new ArrayList<Runnable>();
         var cleanups = new ArrayList<String>();
         var sessions = new PendingLoginSessions(expiries::add,
-                (player, reason) -> cleanups.add(player + ":" + reason));
+                (player, token, reason) -> cleanups.add(player + ":" + reason));
 
-        long rejected = sessions.loaded(PLAYER);
+        long rejected = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, rejected);
         sessions.rejected(PLAYER, rejected);
-        sessions.loaded(PLAYER);
+        long newer = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, newer);
         expiries.getFirst().run();
 
         assertEquals(List.of(PLAYER + ":rejected login"), cleanups);
@@ -36,9 +38,10 @@ class PendingLoginSessionsTest {
         var expiries = new ArrayList<Runnable>();
         var cleanups = new ArrayList<String>();
         var sessions = new PendingLoginSessions(expiries::add,
-                (player, reason) -> cleanups.add(reason));
+                (player, token, reason) -> cleanups.add(reason));
 
-        sessions.loaded(PLAYER);
+        long token = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, token);
         sessions.joined(PLAYER);
         expiries.getFirst().run();
 
@@ -50,17 +53,19 @@ class PendingLoginSessionsTest {
         var expiries = new ArrayList<Runnable>();
         var cleanups = new ArrayList<String>();
         var sessions = new PendingLoginSessions(expiries::add,
-                (player, reason) -> cleanups.add(reason));
+                (player, token, reason) -> cleanups.add(reason));
 
-        sessions.loaded(PLAYER);
+        long connected = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, connected);
         sessions.joined(PLAYER);
-        long duplicate = sessions.loaded(PLAYER);
+        long duplicate = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, duplicate);
 
         sessions.rejected(PLAYER, duplicate);
         expiries.getLast().run();
 
-        assertEquals(List.of(), cleanups);
-        assertTrue(sessions.departed(PLAYER));
+        assertEquals(List.of("rejected login"), cleanups);
+        assertEquals(connected, sessions.departed(PLAYER));
     }
 
     @Test
@@ -68,15 +73,36 @@ class PendingLoginSessionsTest {
         var expiries = new ArrayList<Runnable>();
         var cleanups = new ArrayList<String>();
         var sessions = new PendingLoginSessions(expiries::add,
-                (player, reason) -> cleanups.add(reason));
+                (player, token, reason) -> cleanups.add(reason));
 
-        long first = sessions.loaded(PLAYER);
-        long second = sessions.loaded(PLAYER);
+        long first = sessions.started(PLAYER);
+        long second = sessions.started(PLAYER);
+        sessions.loaded(PLAYER, first);
+        sessions.loaded(PLAYER, second);
 
         sessions.rejected(PLAYER, first);
-        assertEquals(List.of(), cleanups);
+        assertEquals(List.of("rejected login"), cleanups);
 
         sessions.rejected(PLAYER, second);
-        assertEquals(List.of("rejected login"), cleanups);
+        assertEquals(List.of("rejected login", "rejected login"), cleanups);
+    }
+
+    @Test
+    void abandonmentExpiryStartsOnlyAfterProfileLoadingCompletes() {
+        var expiries = new ArrayList<Runnable>();
+        var cleanups = new ArrayList<String>();
+        var sessions = new PendingLoginSessions(expiries::add,
+                (player, token, reason) -> cleanups.add(reason));
+
+        long token = sessions.started(PLAYER);
+
+        assertTrue(expiries.isEmpty());
+        assertTrue(cleanups.isEmpty());
+
+        sessions.loaded(PLAYER, token);
+        assertEquals(1, expiries.size());
+
+        expiries.getFirst().run();
+        assertEquals(List.of("abandoned login"), cleanups);
     }
 }

@@ -12,11 +12,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.permissions.PermissionAttachmentInfo;
 import org.junit.jupiter.api.Test;
 
 class BukkitPermissionRankSourceTest {
@@ -28,8 +28,10 @@ class BukkitPermissionRankSourceTest {
         var mainThread = new AtomicBoolean(true);
         var livePermissionChecks = new AtomicInteger();
         Player player = playerWith(livePermissionChecks, "neopets.rank.vip");
-        var source = new BukkitPermissionRankSource(serverWith(player), mainThread::get);
+        var source = new BukkitPermissionRankSource(
+                serverWith(player), mainThread::get, () -> Set.of("vip", "vipplus"));
         source.onJoin(new PlayerJoinEvent(player, Component.text("joined")));
+        livePermissionChecks.set(0);
         mainThread.set(false);
         var work = new RuntimeWorkTracker();
 
@@ -42,29 +44,69 @@ class BukkitPermissionRankSourceTest {
         assertEquals(0, livePermissionChecks.get());
     }
 
+    @Test
+    void snapshotUsesHasPermissionAndMatchesMainThreadResolution() {
+        var mainThread = new AtomicBoolean(true);
+        var checks = new AtomicInteger();
+        Player player = playerWith(checks, "neopets.rank.operator");
+        var source = new BukkitPermissionRankSource(
+                serverWith(player), mainThread::get, () -> Set.of("operator", "vip"));
+
+        source.onJoin(new PlayerJoinEvent(player, Component.text("joined")));
+        mainThread.set(false);
+        Set<String> snapshot = source.findRankIds(PLAYER_ID, Set.of("operator", "vip"));
+        mainThread.set(true);
+
+        assertEquals(Set.of("operator"), snapshot);
+        assertEquals(snapshot, source.findRankIds(PLAYER_ID, Set.of("operator", "vip")));
+    }
+
+    @Test
+    void periodicRefreshPicksUpGrantAndRevocationForAsyncResolution() {
+        var mainThread = new AtomicBoolean(true);
+        var checks = new AtomicInteger();
+        var grants = new AtomicReference<>(Set.of("neopets.rank.vip"));
+        Player player = playerWith(checks, grants);
+        var source = new BukkitPermissionRankSource(
+                serverWith(player), mainThread::get, () -> Set.of("vip", "vipplus"));
+        source.onJoin(new PlayerJoinEvent(player, Component.text("joined")));
+
+        mainThread.set(false);
+        assertEquals(Set.of("vip"), source.findRankIds(PLAYER_ID, Set.of("vip", "vipplus")));
+
+        grants.set(Set.of("neopets.rank.vipplus"));
+        mainThread.set(true);
+        source.refreshOnlinePlayers();
+        mainThread.set(false);
+
+        assertEquals(Set.of("vipplus"), source.findRankIds(PLAYER_ID, Set.of("vip", "vipplus")));
+    }
+
     private static Server serverWith(Player player) {
         return proxy(Server.class, (method, arguments) -> switch (method) {
             case "getPlayer" -> PLAYER_UUID.equals(arguments[0]) ? player : null;
+            case "getOnlinePlayers" -> Set.of(player);
             default -> throw new UnsupportedOperationException(method);
         });
     }
 
     private static Player playerWith(AtomicInteger livePermissionChecks, String... grantedPermissions) {
-        Player[] player = new Player[1];
-        Set<String> granted = Set.of(grantedPermissions);
-        player[0] = proxy(Player.class, (method, arguments) -> switch (method) {
+        return playerWith(livePermissionChecks, new AtomicReference<>(Set.of(grantedPermissions)));
+    }
+
+    private static Player playerWith(
+            AtomicInteger livePermissionChecks,
+            AtomicReference<Set<String>> grantedPermissions
+    ) {
+        return proxy(Player.class, (method, arguments) -> switch (method) {
             case "getUniqueId" -> PLAYER_UUID;
-            case "getEffectivePermissions" -> granted.stream()
-                    .map(permission -> new PermissionAttachmentInfo(player[0], permission, null, true))
-                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
             case "hasPermission" -> {
                 livePermissionChecks.incrementAndGet();
-                yield granted.contains(arguments[0]);
+                yield grantedPermissions.get().contains(arguments[0]);
             }
             case "getName" -> "SnapshotPlayer";
             default -> throw new UnsupportedOperationException(method);
         });
-        return player[0];
     }
 
     private static <T> T proxy(Class<T> type, Invocation invocation) {

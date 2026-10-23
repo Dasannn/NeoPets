@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 5
+config-version: 6
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -34,6 +34,10 @@ reset:
 
 follow:
   teleport-distance: 20
+
+rank-resolution:
+  # Without LuckPerms, online permission snapshots are refreshed on the server thread at this interval.
+  bukkit-refresh-interval-seconds: 30
 
 ranks:
   default:

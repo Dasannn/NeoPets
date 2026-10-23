@@ -11,7 +11,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 5;
+    public static final int CURRENT_VERSION = 6;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -81,6 +81,23 @@ public final class ConfigurationMigrator {
             public void apply(YamlConfiguration configuration) {
                 // Version 5 changes vanilla skill-tree values from absolute targets to cumulative bonuses.
                 // The related per-tree files are migrated by migrateSkillTree.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 5;
+            }
+
+            @Override
+            public int toVersion() {
+                return 6;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                if (!configuration.isSet("rank-resolution.bukkit-refresh-interval-seconds")) {
+                    configuration.set("rank-resolution.bukkit-refresh-interval-seconds", 30);
+                }
             }
         }));
     }

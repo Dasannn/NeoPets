@@ -30,10 +30,12 @@ import java.util.function.Supplier;
 /**
  * Keeps the complete persistence view of each online player in memory.
  *
- * <p>Call {@link #load(PlayerId)} before admitting a player and {@link #unload(PlayerId)} after
- * disconnect. Mutations made through the caching repository decorators are serialized per player,
- * applied optimistically, and rolled back if their durable write fails. No cache monitor is held
- * while a repository future is pending.</p>
+ * <p>Call {@link #load(PlayerId, long)} before admitting a player and
+ * {@link #unload(PlayerId, long)} after disconnect. The session-aware methods ensure delayed
+ * cleanup from an earlier connection cannot evict a profile acquired by a later connection.
+ * Mutations made through the caching repository decorators are serialized per player, applied
+ * optimistically, and rolled back if their durable write fails. No cache monitor is held while a
+ * repository future is pending.</p>
  */
 public final class PlayerDataCache {
     private final Object monitor = new Object();
@@ -63,15 +65,34 @@ public final class PlayerDataCache {
      * @return the fully assembled profile installed in the cache
      */
     public CompletableFuture<PlayerProfile> load(PlayerId playerId) {
+        return load(playerId, null);
+    }
+
+    /**
+     * Loads a player's complete profile and acquires it for one connection session.
+     * Acquisition is serialized with conditional session unloads for the same player.
+     *
+     * @param playerId player to load
+     * @param sessionToken unique token for this connection attempt
+     * @return the fully assembled profile installed in the cache
+     */
+    public CompletableFuture<PlayerProfile> load(PlayerId playerId, long sessionToken) {
+        return load(playerId, Long.valueOf(sessionToken));
+    }
+
+    private CompletableFuture<PlayerProfile> load(PlayerId playerId, Long sessionToken) {
         Objects.requireNonNull(playerId, "playerId");
         return operations.submit(playerId, () -> {
             synchronized (monitor) {
                 var current = players.get(playerId);
                 if (current != null) {
+                    if (sessionToken != null) {
+                        players.put(playerId, current.withSession(sessionToken));
+                    }
                     return CompletableFuture.completedFuture(current.profile());
                 }
             }
-            return loadFromDelegates(playerId);
+            return loadFromDelegates(playerId, sessionToken);
         });
     }
 
@@ -81,6 +102,22 @@ public final class PlayerDataCache {
      * never performs persistence writes.
      */
     public CompletableFuture<Void> unload(PlayerId playerId) {
+        return unload(playerId, null);
+    }
+
+    /**
+     * Releases one connection session and evicts only when it is the last owner of the snapshot.
+     * A token that no longer owns the cached entry is a successful no-op.
+     *
+     * @param playerId player whose connection ended
+     * @param sessionToken token returned for that connection attempt
+     * @return completion after the conditional eviction has been serialized
+     */
+    public CompletableFuture<Void> unload(PlayerId playerId, long sessionToken) {
+        return unload(playerId, Long.valueOf(sessionToken));
+    }
+
+    private CompletableFuture<Void> unload(PlayerId playerId, Long sessionToken) {
         Objects.requireNonNull(playerId, "playerId");
         List<CompletableFuture<Void>> unresolvedOperations;
         synchronized (monitor) {
@@ -90,7 +127,7 @@ public final class PlayerDataCache {
             synchronized (monitor) {
                 var cached = players.get(playerId);
                 if (cached != null) {
-                    evict(playerId, cached);
+                    release(playerId, cached, sessionToken);
                 }
             }
             return CompletableFuture.completedFuture(null);
@@ -267,12 +304,12 @@ public final class PlayerDataCache {
         return detachedView(lifecycle);
     }
 
-    private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {
+    private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId, Long sessionToken) {
         CompletableFuture<Optional<PlayerProfile>> profileFuture = invoke(() -> playerDelegate.findById(playerId));
         CompletableFuture<List<OwnedPet>> petsFuture = invoke(() -> petDelegate.findByOwner(playerId));
         return profileFuture.thenCombine(petsFuture, (storedProfile, pets) -> assemble(playerId, storedProfile, pets))
                 .thenCompose(profile -> loadProgress(profile).thenApply(progress -> {
-                    install(profile, progress);
+                    install(profile, progress, sessionToken);
                     return profile;
                 }));
     }
@@ -296,9 +333,14 @@ public final class PlayerDataCache {
         });
     }
 
-    private void install(PlayerProfile profile, Map<PetId, Optional<TreeProgress>> progress) {
+    private void install(
+            PlayerProfile profile,
+            Map<PetId, Optional<TreeProgress>> progress,
+            Long sessionToken
+    ) {
         var knownPetIds = Set.copyOf(progress.keySet());
-        var data = new CachedPlayerData(profile, knownPetIds, progress);
+        Set<Long> sessions = sessionToken == null ? Set.of() : Set.of(sessionToken);
+        var data = new CachedPlayerData(profile, knownPetIds, progress, sessions);
         synchronized (monitor) {
             players.put(profile.playerId(), data);
             for (PetId petId : knownPetIds) {
@@ -313,6 +355,23 @@ public final class PlayerDataCache {
         }
         for (PetId petId : snapshot.knownPetIds()) {
             petOwners.remove(petId, playerId);
+        }
+    }
+
+    private void release(PlayerId playerId, CachedPlayerData snapshot, Long sessionToken) {
+        if (sessionToken == null) {
+            evict(playerId, snapshot);
+            return;
+        }
+        if (!snapshot.sessions().contains(sessionToken)) {
+            return;
+        }
+        var remainingSessions = new HashSet<>(snapshot.sessions());
+        remainingSessions.remove(sessionToken);
+        if (remainingSessions.isEmpty()) {
+            evict(playerId, snapshot);
+        } else {
+            players.replace(playerId, snapshot, snapshot.withSessions(remainingSessions));
         }
     }
 
@@ -349,7 +408,7 @@ public final class PlayerDataCache {
         knownPetIds.add(pet.id());
         var progress = new LinkedHashMap<>(current.treeProgress());
         progress.putIfAbsent(pet.id(), Optional.empty());
-        var changed = new CachedPlayerData(profile, knownPetIds, progress);
+        var changed = new CachedPlayerData(profile, knownPetIds, progress, current.sessions());
         petOwners.put(pet.id(), pet.owner());
         return replace(pet.owner(), current, changed);
     }
@@ -365,7 +424,7 @@ public final class PlayerDataCache {
         var progress = new LinkedHashMap<>(current.treeProgress());
         progress.put(petId, Optional.empty());
         var changed = new CachedPlayerData(
-                current.profile().withOwnedPets(pets), current.knownPetIds(), progress);
+                current.profile().withOwnedPets(pets), current.knownPetIds(), progress, current.sessions());
         return replace(owner, current, changed);
     }
 
@@ -519,20 +578,32 @@ public final class PlayerDataCache {
     private record CachedPlayerData(
             PlayerProfile profile,
             Set<PetId> knownPetIds,
-            Map<PetId, Optional<TreeProgress>> treeProgress
+            Map<PetId, Optional<TreeProgress>> treeProgress,
+            Set<Long> sessions
     ) {
         private CachedPlayerData {
             Objects.requireNonNull(profile, "profile");
             knownPetIds = Set.copyOf(knownPetIds);
             treeProgress = Map.copyOf(treeProgress);
+            sessions = Set.copyOf(sessions);
         }
 
         private CachedPlayerData withProfile(PlayerProfile changedProfile) {
-            return new CachedPlayerData(changedProfile, knownPetIds, treeProgress);
+            return new CachedPlayerData(changedProfile, knownPetIds, treeProgress, sessions);
         }
 
         private CachedPlayerData withTreeProgress(Map<PetId, Optional<TreeProgress>> changedProgress) {
-            return new CachedPlayerData(profile, knownPetIds, changedProgress);
+            return new CachedPlayerData(profile, knownPetIds, changedProgress, sessions);
+        }
+
+        private CachedPlayerData withSession(long sessionToken) {
+            var changedSessions = new HashSet<>(sessions);
+            changedSessions.add(sessionToken);
+            return withSessions(changedSessions);
+        }
+
+        private CachedPlayerData withSessions(Set<Long> changedSessions) {
+            return new CachedPlayerData(profile, knownPetIds, treeProgress, changedSessions);
         }
     }
 

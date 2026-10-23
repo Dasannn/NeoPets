@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /** Tracks which pending or joined connections currently own each player's shared cache entry. */
@@ -14,52 +13,66 @@ final class PendingLoginSessions {
     private final Map<PlayerId, LinkedHashMap<Long, SessionState>> sessions = new HashMap<>();
     private final AtomicLong sequence = new AtomicLong();
     private final Consumer<Runnable> scheduleExpiry;
-    private final BiConsumer<PlayerId, String> cleanup;
+    private final Cleanup cleanup;
 
-    PendingLoginSessions(Consumer<Runnable> scheduleExpiry, BiConsumer<PlayerId, String> cleanup) {
+    PendingLoginSessions(Consumer<Runnable> scheduleExpiry, Cleanup cleanup) {
         this.scheduleExpiry = Objects.requireNonNull(scheduleExpiry, "scheduleExpiry");
         this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
     }
 
-    long loaded(PlayerId playerId) {
+    long started(PlayerId playerId) {
         Objects.requireNonNull(playerId, "playerId");
         long token = sequence.incrementAndGet();
         synchronized (sessions) {
             sessions.computeIfAbsent(playerId, ignored -> new LinkedHashMap<>())
-                    .put(token, SessionState.PENDING);
-        }
-        try {
-            scheduleExpiry.accept(() -> abandon(playerId, token, "abandoned login"));
-        } catch (RuntimeException failure) {
-            synchronized (sessions) {
-                remove(playerId, token);
-            }
-            throw failure;
+                    .put(token, SessionState.LOADING);
         }
         return token;
     }
 
-    void joined(PlayerId playerId) {
+    void loaded(PlayerId playerId, long token) {
         Objects.requireNonNull(playerId, "playerId");
         synchronized (sessions) {
             LinkedHashMap<Long, SessionState> playerSessions = sessions.get(playerId);
-            if (playerSessions == null) {
+            if (playerSessions == null || !playerSessions.replace(
+                    token, SessionState.LOADING, SessionState.PENDING)) {
                 return;
             }
-            playerSessions.entrySet().stream()
-                    .filter(entry -> entry.getValue() == SessionState.PENDING)
-                    .findFirst()
-                    .ifPresent(entry -> entry.setValue(SessionState.JOINED));
+        }
+        try {
+            scheduleExpiry.accept(() -> abandon(playerId, token, "abandoned login"));
+        } catch (RuntimeException failure) {
+            abandon(playerId, token, "abandoned login");
+            throw failure;
         }
     }
 
-    /** Removes one connected session and reports whether its cache is no longer shared. */
-    boolean departed(PlayerId playerId) {
+    Long joined(PlayerId playerId) {
         Objects.requireNonNull(playerId, "playerId");
         synchronized (sessions) {
             LinkedHashMap<Long, SessionState> playerSessions = sessions.get(playerId);
             if (playerSessions == null) {
-                return true;
+                return null;
+            }
+            Map.Entry<Long, SessionState> pending = playerSessions.entrySet().stream()
+                    .filter(entry -> entry.getValue() == SessionState.PENDING)
+                    .findFirst()
+                    .orElse(null);
+            if (pending == null) {
+                return null;
+            }
+            pending.setValue(SessionState.JOINED);
+            return pending.getKey();
+        }
+    }
+
+    /** Removes one connected session and returns the cache lease that it owned. */
+    Long departed(PlayerId playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        synchronized (sessions) {
+            LinkedHashMap<Long, SessionState> playerSessions = sessions.get(playerId);
+            if (playerSessions == null) {
+                return null;
             }
             Long joinedToken = playerSessions.entrySet().stream()
                     .filter(entry -> entry.getValue() == SessionState.JOINED)
@@ -69,7 +82,7 @@ final class PendingLoginSessions {
             if (joinedToken != null) {
                 remove(playerId, joinedToken);
             }
-            return !sessions.containsKey(playerId);
+            return joinedToken;
         }
     }
 
@@ -93,18 +106,17 @@ final class PendingLoginSessions {
     }
 
     private void abandon(PlayerId playerId, long token, String reason) {
-        boolean cleanupRequired;
         synchronized (sessions) {
             LinkedHashMap<Long, SessionState> playerSessions = sessions.get(playerId);
-            if (playerSessions == null || playerSessions.get(token) != SessionState.PENDING) {
+            if (playerSessions == null || playerSessions.get(token) == SessionState.JOINED) {
+                return;
+            }
+            if (!playerSessions.containsKey(token)) {
                 return;
             }
             remove(playerId, token);
-            cleanupRequired = !sessions.containsKey(playerId);
         }
-        if (cleanupRequired) {
-            cleanup.accept(playerId, reason);
-        }
+        cleanup.accept(playerId, token, reason);
     }
 
     private void remove(PlayerId playerId, long token) {
@@ -119,7 +131,13 @@ final class PendingLoginSessions {
     }
 
     private enum SessionState {
+        LOADING,
         PENDING,
         JOINED
+    }
+
+    @FunctionalInterface
+    interface Cleanup {
+        void accept(PlayerId playerId, long token, String reason);
     }
 }

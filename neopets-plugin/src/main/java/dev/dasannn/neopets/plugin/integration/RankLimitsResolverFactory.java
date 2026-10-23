@@ -30,12 +30,19 @@ public final class RankLimitsResolverFactory {
                     "Rank limits strategy: LuckPerms cached inherited groups and permissions");
         } else {
             var bukkitPermissions = new BukkitPermissionRankSource(
-                    plugin.getServer(), plugin.getServer()::isPrimaryThread);
+                    plugin.getServer(), plugin.getServer()::isPrimaryThread,
+                    () -> configurationManager.current().settings().ranks().keySet());
             plugin.getServer().getPluginManager().registerEvents(bukkitPermissions, plugin);
+            long refreshTicks = configurationManager.current().settings()
+                    .bukkitRankRefreshInterval().toSeconds() * 20L;
+            plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, bukkitPermissions::refreshOnlinePlayers, refreshTicks, refreshTicks);
             rankSource = bukkitPermissions;
             plugin.getLogger().warning(
                     "LuckPerms is unavailable; rank limits strategy: Bukkit permissions "
-                            + "snapshotted on the server thread");
+                            + "snapshotted on the server thread (refresh every "
+                            + configurationManager.current().settings()
+                                    .bukkitRankRefreshInterval().toSeconds() + "s)");
         }
 
         return new ConfiguredRankLimitsResolver(

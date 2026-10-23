@@ -13,6 +13,7 @@ public record PluginSettings(
         Features features,
         double followTeleportDistance,
         Map<String, RankLimits> ranks,
+        Duration bukkitRankRefreshInterval,
         Courier courier,
         Duration playerDataLoadTimeout
 ) {
@@ -29,6 +30,10 @@ public record PluginSettings(
         ranks = Map.copyOf(ranks);
         if (!ranks.containsKey("default")) {
             throw new IllegalArgumentException("ranks must contain default");
+        }
+        Objects.requireNonNull(bukkitRankRefreshInterval, "bukkitRankRefreshInterval");
+        if (bukkitRankRefreshInterval.isZero() || bukkitRankRefreshInterval.isNegative()) {
+            throw new IllegalArgumentException("bukkitRankRefreshInterval must be positive");
         }
         Objects.requireNonNull(courier, "courier");
         Objects.requireNonNull(playerDataLoadTimeout, "playerDataLoadTimeout");

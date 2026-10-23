@@ -67,15 +67,10 @@ public final class PlayerLifecycleListener implements Listener {
     public void onPreLogin(AsyncPlayerPreLoginEvent event) {
         var playerId = new PlayerId(event.getUniqueId());
         Duration timeout = configuration.current().settings().playerDataLoadTimeout();
-        long token;
+        long token = pendingLogins.started(playerId);
         try {
-            token = pendingLogins.loaded(playerId);
-        } catch (RuntimeException exception) {
-            deny(event, playerId, exception);
-            return;
-        }
-        try {
-            work.submit(() -> cache.load(playerId)).get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            work.submit(() -> cache.load(playerId, token)).get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            pendingLogins.loaded(playerId, token);
             preLoginTokens.put(event, token);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -119,9 +114,9 @@ public final class PlayerLifecycleListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
-        boolean unloadCache = pendingLogins.departed(playerId);
-        work.submit(() -> continueAfter(despawn(playerId), () -> unloadCache
-                        ? cache.unload(playerId) : CompletableFuture.completedFuture(null)))
+        Long sessionToken = pendingLogins.departed(playerId);
+        work.submit(() -> continueAfter(despawn(playerId), () -> sessionToken == null
+                        ? CompletableFuture.completedFuture(null) : cache.unload(playerId, sessionToken)))
                 .whenComplete((ignored, failure) -> logFailure("unload player " + playerId, failure));
     }
 
@@ -137,8 +132,8 @@ public final class PlayerLifecycleListener implements Listener {
                 messages.render(MessageSpec.of("errors.profile-load")));
     }
 
-    private void cleanupRejectedLogin(PlayerId playerId, String reason) {
-        work.submit(() -> cache.unload(playerId)).whenComplete((ignored, failure) ->
+    private void cleanupRejectedLogin(PlayerId playerId, long token, String reason) {
+        work.submit(() -> cache.unload(playerId, token)).whenComplete((ignored, failure) ->
                 logFailure(reason + " for " + playerId, failure));
     }
 

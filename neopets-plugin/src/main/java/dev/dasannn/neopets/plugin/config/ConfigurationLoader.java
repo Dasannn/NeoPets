@@ -323,6 +323,8 @@ public final class ConfigurationLoader {
                 BigDecimal.valueOf(20)).doubleValue();
 
         var ranks = parseRanks(root, file, issues);
+        int rankRefreshSeconds = valueOr(integer(
+                root, file, "rank-resolution.bukkit-refresh-interval-seconds", 1, 86_400, issues), 30);
         long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
         long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
         long loadTimeoutSeconds = valueOr(longInteger(
@@ -334,6 +336,7 @@ public final class ConfigurationLoader {
         var reset = new PluginSettings.Reset(resetEnabled, resetCost);
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
         return new PluginSettings(version, storage, features, teleportDistance, ranks,
+                Duration.ofSeconds(rankRefreshSeconds),
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
                 Duration.ofSeconds(loadTimeoutSeconds));
     }

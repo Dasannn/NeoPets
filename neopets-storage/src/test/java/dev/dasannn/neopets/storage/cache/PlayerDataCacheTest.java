@@ -200,6 +200,33 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void delayedCleanupCannotEvictAProfileAcquiredByANewerSession() throws Exception {
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 5, List.of()));
+        await(cache.load(PLAYER, 101L));
+
+        await(cache.load(PLAYER, 202L));
+        await(cache.unload(PLAYER, 101L));
+
+        assertTrue(cache.isLoaded(PLAYER));
+        assertEquals(5, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
+
+        await(cache.unload(PLAYER, 202L));
+        assertFalse(cache.isLoaded(PLAYER));
+    }
+
+    @Test
+    void rejectedDuplicateReleasesOnlyItsOwnCacheSession() throws Exception {
+        await(cache.load(PLAYER, 301L));
+        await(cache.load(PLAYER, 302L));
+
+        await(cache.unload(PLAYER, 302L));
+
+        assertTrue(cache.isLoaded(PLAYER));
+        await(cache.unload(PLAYER, 301L));
+        assertFalse(cache.isLoaded(PLAYER));
+    }
+
+    @Test
     void flushAllDoesNotIssueDuplicateWritesForCompletedOperations() throws Exception {
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
         delegates.players.put(OTHER_PLAYER, new PlayerProfile(OTHER_PLAYER, 2, List.of()));
