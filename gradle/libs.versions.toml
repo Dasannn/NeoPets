@@ -8,6 +8,7 @@ flyway = "13.11.1"
 vault-api = "1.7.1"
 luckperms-api = "5.5"
 placeholderapi = "2.12.3"
+archunit = "1.5.1"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper-api" }
@@ -21,3 +22,4 @@ flyway = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 vault-api = { module = "com.github.MilkBowl:VaultAPI", version.ref = "vault-api" }
 luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms-api" }
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
+archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
