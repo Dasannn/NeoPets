@@ -2,9 +2,7 @@ package dev.dasannn.neopets.platform.paper.ability;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayDeque;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -17,10 +15,8 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.World;
-import org.bukkit.block.BlockState;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.loot.Lootable;
 
 /** Dog treasure scanner registered as the {@code treasure_hunter} custom effect. */
 public final class BuscatesorosAbility implements Ability {
@@ -127,78 +123,34 @@ public final class BuscatesorosAbility implements Ability {
 
     private static final class ScanState {
         private final World world;
-        private final int originX;
-        private final int originY;
-        private final int originZ;
-        private final double radiusSquared;
         private final Settings settings;
-        private final ArrayDeque<BlockState> containers;
-        private final OrePositionCursor orePositions;
-        private final Map<BlockKey, Location> targets = new LinkedHashMap<>();
-        private int scannedBlocks;
+        private final TreasureScan scanner;
         private Instant markedUntil;
 
-        private ScanState(
-                World world,
-                int originX,
-                int originY,
-                int originZ,
-                double radius,
-                Settings settings,
-                ArrayDeque<BlockState> containers,
-                OrePositionCursor orePositions
-        ) {
+        private ScanState(World world, Settings settings, TreasureScan scanner) {
             this.world = world;
-            this.originX = originX;
-            this.originY = originY;
-            this.originZ = originZ;
-            this.radiusSquared = radius * radius;
             this.settings = settings;
-            this.containers = containers;
-            this.orePositions = orePositions;
+            this.scanner = scanner;
         }
 
         static ScanState start(Location origin, double radius, Settings settings) {
             World world = Objects.requireNonNull(origin.getWorld(), "pet world");
-            int originX = origin.getBlockX();
-            int originY = origin.getBlockY();
-            int originZ = origin.getBlockZ();
-            return new ScanState(
-                    world,
-                    originX,
-                    originY,
-                    originZ,
-                    radius,
-                    settings,
-                    nearbyTileEntities(world, originX, originZ, radius, settings.maxScanBlocks()),
-                    new OrePositionCursor(world, originX, originY, originZ, radius));
+            return new ScanState(world, settings, new TreasureScan(
+                    world, origin.getBlockX(), origin.getBlockY(), origin.getBlockZ(), radius, settings));
         }
 
         void advance(Instant now) {
-            int remainingThisTick = BLOCKS_PER_TICK;
-            while (remainingThisTick > 0 && !complete()) {
-                if (!containers.isEmpty()) {
-                    inspectContainer(containers.removeFirst());
-                } else {
-                    BlockPosition position = orePositions.next();
-                    if (position == null) {
-                        finish(now);
-                        break;
-                    }
-                    inspectOre(position);
-                }
-                scannedBlocks++;
-                remainingThisTick--;
-                if (targets.size() >= settings.maxTargets()
-                        || scannedBlocks >= settings.maxScanBlocks()) {
-                    finish(now);
-                }
+            scanner.advance(BLOCKS_PER_TICK);
+            if (scanner.complete()) {
+                markedUntil = now.plus(settings.duration());
             }
         }
 
         void emitParticles(Player owner) {
-            for (Location target : targets.values()) {
-                owner.spawnParticle(Particle.END_ROD, target, 3, 0.2, 0.35, 0.2, 0.01);
+            for (var target : scanner.targets()) {
+                owner.spawnParticle(Particle.END_ROD,
+                        new Location(world, target.x() + 0.5, target.y() + 0.7, target.z() + 0.5),
+                        3, 0.2, 0.35, 0.2, 0.01);
             }
         }
 
@@ -210,151 +162,8 @@ public final class BuscatesorosAbility implements Ability {
             return markedUntil != null && !now.isBefore(markedUntil);
         }
 
-        List<Location> targets() {
-            return List.copyOf(targets.values());
+        List<TreasureScan.Position> targets() {
+            return scanner.targets();
         }
-
-        private void inspectContainer(BlockState state) {
-            Location location = state.getLocation();
-            if (state instanceof Lootable lootable
-                    && lootable.hasLootTable()
-                    && withinRadius(location.getBlockX(), location.getBlockY(), location.getBlockZ())) {
-                addTarget(location.getBlockX(), location.getBlockY(), location.getBlockZ());
-            }
-        }
-
-        private void inspectOre(BlockPosition position) {
-            if (!world.isChunkLoaded(position.x() >> 4, position.z() >> 4)) {
-                return;
-            }
-            Material material = world.getBlockAt(position.x(), position.y(), position.z()).getType();
-            if (settings.oreMaterials().contains(material)) {
-                addTarget(position.x(), position.y(), position.z());
-            }
-        }
-
-        private void addTarget(int x, int y, int z) {
-            var key = new BlockKey(x, y, z);
-            targets.putIfAbsent(key, new Location(world, x + 0.5, y + 0.7, z + 0.5));
-        }
-
-        private boolean withinRadius(int x, int y, int z) {
-            double dx = x - originX;
-            double dy = y - originY;
-            double dz = z - originZ;
-            return dx * dx + dy * dy + dz * dz <= radiusSquared;
-        }
-
-        private void finish(Instant now) {
-            markedUntil = now.plus(settings.duration());
-            containers.clear();
-        }
-
-        private static ArrayDeque<BlockState> nearbyTileEntities(
-                World world,
-                int originX,
-                int originZ,
-                double radius,
-                int maximum
-        ) {
-            var states = new ArrayDeque<BlockState>();
-            double minimumX = originX - radius;
-            double maximumX = originX + radius;
-            double minimumZ = originZ - radius;
-            double maximumZ = originZ + radius;
-            outer:
-            for (var chunk : world.getLoadedChunks()) {
-                int chunkMinimumX = chunk.getX() << 4;
-                int chunkMinimumZ = chunk.getZ() << 4;
-                if (chunkMinimumX > maximumX || chunkMinimumX + 15 < minimumX
-                        || chunkMinimumZ > maximumZ || chunkMinimumZ + 15 < minimumZ) {
-                    continue;
-                }
-                for (BlockState state : chunk.getTileEntities()) {
-                    if (states.size() >= maximum) {
-                        break outer;
-                    }
-                    states.addLast(state);
-                }
-            }
-            return states;
-        }
-
-    }
-
-    /** Generates nearest-first positions lazily so large configured caps never allocate a volume-sized list. */
-    private static final class OrePositionCursor {
-        private final World world;
-        private final int originX;
-        private final int originY;
-        private final int originZ;
-        private final int maximumShell;
-        private final double radiusSquared;
-        private int shell;
-        private int x;
-        private int y;
-        private int z;
-        private boolean initialized;
-
-        private OrePositionCursor(World world, int originX, int originY, int originZ, double radius) {
-            this.world = world;
-            this.originX = originX;
-            this.originY = originY;
-            this.originZ = originZ;
-            this.maximumShell = (int) Math.ceil(radius);
-            this.radiusSquared = radius * radius;
-        }
-
-        BlockPosition next() {
-            while (shell <= maximumShell) {
-                if (!initialized) {
-                    x = -shell;
-                    y = -shell;
-                    z = -shell;
-                    initialized = true;
-                }
-                int candidateX = x;
-                int candidateY = y;
-                int candidateZ = z;
-                int candidateShell = shell;
-                advanceCoordinates();
-                int actualY = originY + candidateY;
-                if (Math.max(Math.max(Math.abs(candidateX), Math.abs(candidateY)), Math.abs(candidateZ))
-                        == candidateShell
-                        && candidateX * (double) candidateX
-                        + candidateY * (double) candidateY
-                        + candidateZ * (double) candidateZ <= radiusSquared
-                        && actualY >= world.getMinHeight()
-                        && actualY < world.getMaxHeight()) {
-                    return new BlockPosition(originX + candidateX, actualY, originZ + candidateZ);
-                }
-            }
-            return null;
-        }
-
-        private void advanceCoordinates() {
-            z++;
-            if (z <= shell) {
-                return;
-            }
-            z = -shell;
-            y++;
-            if (y <= shell) {
-                return;
-            }
-            y = -shell;
-            x++;
-            if (x <= shell) {
-                return;
-            }
-            shell++;
-            initialized = false;
-        }
-    }
-
-    private record BlockPosition(int x, int y, int z) {
-    }
-
-    private record BlockKey(int x, int y, int z) {
     }
 }
