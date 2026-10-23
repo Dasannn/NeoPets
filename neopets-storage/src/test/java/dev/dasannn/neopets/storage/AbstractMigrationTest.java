@@ -126,6 +126,32 @@ abstract class AbstractMigrationTest {
         }
     }
 
+    @Test
+    final void aSecondBootstrapPreservesExistingData() throws Exception {
+        var settings = settings();
+        var playerId = "10000000-0000-0000-0000-000000000001";
+        try (var firstBootstrap = new StorageBootstrap(settings);
+                var connection = firstBootstrap.dataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        "INSERT INTO np_player (uuid, sp_balance) VALUES (?, 17)")) {
+            statement.setString(1, playerId);
+            statement.executeUpdate();
+        }
+
+        try (var secondBootstrap = new StorageBootstrap(settings);
+                var connection = secondBootstrap.dataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT sp_balance FROM np_player WHERE uuid = ?")) {
+            statement.setString(1, playerId);
+            try (var result = statement.executeQuery()) {
+                assertTrue(result.next());
+                assertEquals(17, result.getInt("sp_balance"));
+            }
+            assertEquals(1, countWhere(
+                    connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
+        }
+    }
+
     private StorageBootstrap bootstrap() {
         return new StorageBootstrap(settings());
     }

@@ -1,0 +1,246 @@
+package dev.dasannn.neopets.storage;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.dasannn.neopets.core.model.OwnedPet;
+import dev.dasannn.neopets.core.model.PetId;
+import dev.dasannn.neopets.core.model.PetStatus;
+import dev.dasannn.neopets.core.model.PlayerId;
+import dev.dasannn.neopets.core.model.PlayerProfile;
+import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+abstract class AbstractJdbcRepositoryTest {
+    private static final PlayerId OWNER = new PlayerId(UUID.fromString("10000000-0000-0000-0000-000000000001"));
+    private static final PlayerId OTHER_OWNER =
+            new PlayerId(UUID.fromString("10000000-0000-0000-0000-000000000002"));
+    private static final PetId PET_ID = new PetId(UUID.fromString("20000000-0000-0000-0000-000000000001"));
+    private static final PetId OTHER_PET_ID =
+            new PetId(UUID.fromString("20000000-0000-0000-0000-000000000002"));
+    private static final Instant CREATED_AT = Instant.parse("2026-10-23T12:34:56.123Z");
+
+    private StorageBootstrap bootstrap;
+    private JdbcPetRepository pets;
+    private JdbcPlayerRepository players;
+    private JdbcSoulTokenRepository tokens;
+    private JdbcPetStorageRepository petStorage;
+
+    abstract StorageSettings settings();
+
+    void beforeBootstrap() throws Exception {
+    }
+
+    @BeforeEach
+    final void createRepositories() throws Exception {
+        beforeBootstrap();
+        bootstrap = new StorageBootstrap(settings());
+        pets = new JdbcPetRepository(bootstrap);
+        players = new JdbcPlayerRepository(bootstrap);
+        tokens = new JdbcSoulTokenRepository(bootstrap);
+        petStorage = new JdbcPetStorageRepository(bootstrap);
+    }
+
+    @AfterEach
+    final void closeStorage() {
+        if (bootstrap != null) {
+            bootstrap.close();
+        }
+    }
+
+    @Test
+    final void playerRepositoryCreatesReadsAndUpdatesBalancesWithoutPersistingPets() throws Exception {
+        assertEquals(Optional.empty(), await(players.findById(OWNER)));
+
+        var ownedPet = pet(PET_ID, OWNER, "dog_brown");
+        await(players.save(new PlayerProfile(OWNER, 7, List.of(ownedPet))));
+        assertEquals(Optional.of(new PlayerProfile(OWNER, 7, List.of())), await(players.findById(OWNER)));
+        assertEquals(Optional.empty(), await(pets.findById(PET_ID)));
+
+        await(players.save(new PlayerProfile(OWNER, 13, List.of())));
+        assertEquals(13, await(players.findById(OWNER)).orElseThrow().skillPointBalance());
+    }
+
+    @Test
+    final void petRepositoryProvidesFullCrud() throws Exception {
+        var original = pet(PET_ID, OWNER, "cat_black");
+        var second = pet(OTHER_PET_ID, OWNER, "dog_brown");
+
+        assertEquals(Optional.empty(), await(pets.findById(PET_ID)));
+        assertEquals(List.of(), await(pets.findByOwner(OWNER)));
+
+        await(pets.save(original));
+        await(pets.save(second));
+        assertEquals(Optional.of(original), await(pets.findById(PET_ID)));
+        assertEquals(Set.of(original, second), Set.copyOf(await(pets.findByOwner(OWNER))));
+
+        var updated = new OwnedPet(
+                PET_ID,
+                OTHER_OWNER,
+                new VariantId("parrot_red"),
+                Optional.of("Scout"),
+                PetStatus.IN_TRANSIT,
+                true,
+                CREATED_AT.plusMillis(1));
+        await(pets.save(updated));
+
+        assertEquals(Optional.of(updated), await(pets.findById(PET_ID)));
+        assertEquals(List.of(second), await(pets.findByOwner(OWNER)));
+        assertEquals(List.of(updated), await(pets.findByOwner(OTHER_OWNER)));
+
+        await(pets.deleteById(PET_ID));
+        await(pets.deleteById(PET_ID));
+        assertEquals(Optional.empty(), await(pets.findById(PET_ID)));
+    }
+
+    @Test
+    final void duplicateOwnerAndVariantMapsToDomainConflictWithoutReplacingEitherPet() throws Exception {
+        var original = pet(PET_ID, OWNER, "dog_brown");
+        var duplicate = pet(OTHER_PET_ID, OWNER, "dog_brown");
+        await(pets.save(original));
+
+        var exception = assertThrows(ExecutionException.class, () -> await(pets.save(duplicate)));
+        var conflict = assertInstanceOf(DuplicatePetVariantException.class, exception.getCause());
+        assertEquals(OWNER, conflict.ownerId());
+        assertEquals(new VariantId("dog_brown"), conflict.variantId());
+        assertEquals(Optional.of(original), await(pets.findById(PET_ID)));
+        assertEquals(Optional.empty(), await(pets.findById(OTHER_PET_ID)));
+    }
+
+    @Test
+    final void updatingAPetToAnOwnedVariantMapsToDomainConflict() throws Exception {
+        var first = pet(PET_ID, OWNER, "dog_brown");
+        var second = pet(OTHER_PET_ID, OWNER, "dog_black");
+        await(pets.save(first));
+        await(pets.save(second));
+
+        var conflictingUpdate = new OwnedPet(
+                OTHER_PET_ID,
+                OWNER,
+                new VariantId("dog_brown"),
+                Optional.empty(),
+                PetStatus.DEAD,
+                false,
+                CREATED_AT);
+        var exception = assertThrows(ExecutionException.class, () -> await(pets.save(conflictingUpdate)));
+        assertInstanceOf(DuplicatePetVariantException.class, exception.getCause());
+        assertEquals(Optional.of(second), await(pets.findById(OTHER_PET_ID)));
+    }
+
+    @Test
+    final void petStorageSnapshotsWritesReturnsIndependentReadsAndDeletes() throws Exception {
+        await(pets.save(pet(PET_ID, OWNER, "donkey_brown")));
+        assertEquals(Optional.empty(), await(petStorage.load(PET_ID)));
+
+        var contents = new byte[] {1, 2, 3};
+        var pendingSave = petStorage.save(PET_ID, contents);
+        contents[0] = 99;
+        await(pendingSave);
+
+        var firstRead = await(petStorage.load(PET_ID)).orElseThrow();
+        assertArrayEquals(new byte[] {1, 2, 3}, firstRead);
+        firstRead[1] = 88;
+        assertArrayEquals(new byte[] {1, 2, 3}, await(petStorage.load(PET_ID)).orElseThrow());
+
+        await(petStorage.save(PET_ID, new byte[] {4, 5}));
+        assertArrayEquals(new byte[] {4, 5}, await(petStorage.load(PET_ID)).orElseThrow());
+        await(petStorage.deleteById(PET_ID));
+        await(petStorage.deleteById(PET_ID));
+        assertEquals(Optional.empty(), await(petStorage.load(PET_ID)));
+    }
+
+    @Test
+    final void storageRequiresAnExistingPetAndPetDeletionCascadesToChildren() throws Exception {
+        var missingSave = assertThrows(
+                ExecutionException.class, () -> await(petStorage.save(PET_ID, new byte[] {1})));
+        assertInstanceOf(java.sql.SQLException.class, missingSave.getCause());
+
+        await(pets.save(pet(PET_ID, OWNER, "donkey_brown")));
+        await(petStorage.save(PET_ID, new byte[] {1, 2}));
+        try (var connection = bootstrap.dataSource().getConnection();
+                var statement = connection.prepareStatement("""
+                        INSERT INTO np_pet_attribute
+                            (pet_id, attribute_id, unlocked_level, active_level)
+                        VALUES (?, 'armor', 2, 1)
+                        """)) {
+            statement.setString(1, PET_ID.toString());
+            statement.executeUpdate();
+        }
+
+        await(pets.deleteById(PET_ID));
+
+        assertEquals(Optional.empty(), await(petStorage.load(PET_ID)));
+        try (var connection = bootstrap.dataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT COUNT(*) FROM np_pet_attribute WHERE pet_id = ?")) {
+            statement.setString(1, PET_ID.toString());
+            try (var result = statement.executeQuery()) {
+                assertTrue(result.next());
+                assertEquals(0, result.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    final void soulTokensValidateIdentityAndCanOnlyBeConsumedOnce() throws Exception {
+        var tokenId = UUID.fromString("30000000-0000-0000-0000-000000000001");
+        var issuedAt = Instant.parse("2026-10-23T13:00:00.456Z");
+        await(tokens.issue(tokenId, PET_ID, OWNER, issuedAt));
+
+        assertTrue(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
+        assertFalse(await(tokens.isUsable(tokenId, OTHER_PET_ID, OWNER)));
+        assertFalse(await(tokens.isUsable(tokenId, PET_ID, OTHER_OWNER)));
+        assertFalse(await(tokens.isUsable(UUID.randomUUID(), PET_ID, OWNER)));
+
+        assertFalse(await(tokens.consume(tokenId, PET_ID, OTHER_OWNER, issuedAt.plusSeconds(1))));
+        var firstConsumption = tokens.consume(tokenId, PET_ID, OWNER, issuedAt.plusSeconds(2));
+        var competingConsumption = tokens.consume(tokenId, PET_ID, OWNER, issuedAt.plusSeconds(3));
+        var successfulConsumptions = (await(firstConsumption) ? 1 : 0)
+                + (await(competingConsumption) ? 1 : 0);
+        assertEquals(1, successfulConsumptions);
+        assertFalse(await(tokens.consume(tokenId, PET_ID, OWNER, issuedAt.plusSeconds(3))));
+        assertFalse(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
+    }
+
+    @Test
+    final void duplicateSoulTokenIdentifiersFailWithoutChangingTheOriginal() throws Exception {
+        var tokenId = UUID.fromString("30000000-0000-0000-0000-000000000002");
+        await(tokens.issue(tokenId, PET_ID, OWNER, CREATED_AT));
+
+        var exception = assertThrows(
+                ExecutionException.class,
+                () -> await(tokens.issue(tokenId, OTHER_PET_ID, OTHER_OWNER, CREATED_AT)));
+        assertInstanceOf(java.sql.SQLException.class, exception.getCause());
+        assertTrue(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
+        assertFalse(await(tokens.isUsable(tokenId, OTHER_PET_ID, OTHER_OWNER)));
+    }
+
+    private static OwnedPet pet(PetId id, PlayerId owner, String variant) {
+        return new OwnedPet(
+                id,
+                owner,
+                new VariantId(variant),
+                Optional.empty(),
+                PetStatus.ALIVE,
+                false,
+                CREATED_AT);
+    }
+
+    private static <T> T await(java.util.concurrent.CompletableFuture<T> future) throws Exception {
+        return future.get(10, TimeUnit.SECONDS);
+    }
+}
