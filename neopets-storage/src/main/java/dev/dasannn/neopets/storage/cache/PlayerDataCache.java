@@ -11,8 +11,10 @@ import dev.dasannn.neopets.core.port.PlayerRepository;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +23,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -39,7 +40,7 @@ public final class PlayerDataCache {
     private final Map<PlayerId, CachedPlayerData> players = new HashMap<>();
     private final Map<PetId, PlayerId> petOwners = new HashMap<>();
     private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
-    private final Set<CompletableFuture<Void>> pendingOwnerLookups = ConcurrentHashMap.newKeySet();
+    private final Set<CompletableFuture<Void>> pendingOwnerOperations = new HashSet<>();
     private final PlayerRepository playerDelegate;
     private final PetRepository petDelegate;
     private final TreeProgressRepository treeDelegate;
@@ -81,15 +82,19 @@ public final class PlayerDataCache {
      */
     public CompletableFuture<Void> unload(PlayerId playerId) {
         Objects.requireNonNull(playerId, "playerId");
-        return operations.submit(playerId, () -> {
+        List<CompletableFuture<Void>> unresolvedOperations;
+        synchronized (monitor) {
+            unresolvedOperations = List.copyOf(pendingOwnerOperations);
+        }
+        return awaitFailures(unresolvedOperations).thenCompose(ignored -> operations.submit(playerId, () -> {
             synchronized (monitor) {
-                var snapshot = players.get(playerId);
-                if (snapshot != null) {
-                    evict(playerId, snapshot);
+                var cached = players.get(playerId);
+                if (cached != null) {
+                    evict(playerId, cached);
                 }
             }
             return CompletableFuture.completedFuture(null);
-        });
+        }));
     }
 
     /**
@@ -97,11 +102,12 @@ public final class PlayerDataCache {
      * method does not issue duplicate repository operations or evict online-player snapshots.
      */
     public CompletableFuture<Void> flushAll() {
-        // Owner lookups may still enqueue player operations, so wait for them before the queues.
-        var lookups = pendingOwnerLookups.toArray(CompletableFuture<?>[]::new);
-        return CompletableFuture.allOf(lookups)
-                .handle((ignored, failure) -> null)
-                .thenCompose(ignored -> operations.awaitAll());
+        List<CompletableFuture<?>> outstanding;
+        synchronized (monitor) {
+            outstanding = new ArrayList<>(pendingOwnerOperations);
+        }
+        outstanding.add(operations.awaitAll());
+        return awaitFailures(outstanding).thenCompose(PlayerDataCache::reportFailures);
     }
 
     /** Returns whether the player's complete snapshot is currently cached. */
@@ -214,18 +220,30 @@ public final class PlayerDataCache {
             Supplier<CompletableFuture<Void>> durableWrite
     ) {
         PlayerId cachedOwner;
+        var lifecycle = new CompletableFuture<Void>();
         synchronized (monitor) {
             cachedOwner = petOwners.get(petId);
+            if (cachedOwner == null) {
+                pendingOwnerOperations.add(lifecycle);
+            }
         }
         if (cachedOwner != null) {
             return operations.submit(cachedOwner, cachedWrite.apply(cachedOwner));
         }
-        CompletableFuture<Void> routed = resolveOwner(petId).thenCompose(owner -> owner
+        var routed = resolveOwner(petId).thenCompose(owner -> owner
                 .map(playerId -> operations.submit(playerId, cachedWrite.apply(playerId)))
                 .orElseGet(() -> invoke(durableWrite)));
-        pendingOwnerLookups.add(routed);
-        routed.whenComplete((ignored, failure) -> pendingOwnerLookups.remove(routed));
-        return routed;
+        routed.whenComplete((ignored, failure) -> {
+            if (failure == null) {
+                lifecycle.complete(null);
+            } else {
+                lifecycle.completeExceptionally(unwrap(failure));
+            }
+            synchronized (monitor) {
+                pendingOwnerOperations.remove(lifecycle);
+            }
+        });
+        return detachedView(lifecycle);
     }
 
     private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {
@@ -423,6 +441,49 @@ public final class PlayerDataCache {
         } catch (Throwable failure) {
             return CompletableFuture.failedFuture(failure);
         }
+    }
+
+    private static <T> CompletableFuture<T> detachedView(CompletableFuture<T> source) {
+        var view = new CompletableFuture<T>();
+        source.whenComplete((value, failure) -> {
+            if (failure == null) {
+                view.complete(value);
+            } else {
+                view.completeExceptionally(unwrap(failure));
+            }
+        });
+        return view;
+    }
+
+    private static CompletableFuture<List<Throwable>> awaitFailures(
+            List<? extends CompletableFuture<?>> futures
+    ) {
+        var outcomes = futures.stream()
+                .map(future -> future.handle((ignored, failure) -> Optional.ofNullable(failure).map(
+                        PlayerDataCache::unwrap)))
+                .toList();
+        return CompletableFuture.allOf(outcomes.toArray(CompletableFuture<?>[]::new))
+                .thenApply(ignored -> outcomes.stream()
+                        .map(CompletableFuture::join)
+                        .flatMap(Optional::stream)
+                        .toList());
+    }
+
+    private static CompletableFuture<Void> reportFailures(List<Throwable> failures) {
+        var uniqueFailures = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        uniqueFailures.addAll(failures);
+        if (uniqueFailures.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (uniqueFailures.size() == 1) {
+            return CompletableFuture.failedFuture(uniqueFailures.iterator().next());
+        }
+
+        var iterator = uniqueFailures.iterator();
+        var aggregate = new IllegalStateException(
+                "multiple cache operations failed (" + uniqueFailures.size() + ")", iterator.next());
+        iterator.forEachRemaining(aggregate::addSuppressed);
+        return CompletableFuture.failedFuture(aggregate);
     }
 
     private static Throwable unwrap(Throwable failure) {
