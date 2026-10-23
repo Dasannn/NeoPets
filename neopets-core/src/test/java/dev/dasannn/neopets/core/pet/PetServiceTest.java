@@ -616,8 +616,36 @@ class PetServiceTest {
         assertFalse(result.pet().active());
         assertEquals(result.pet(), pets.stored.get(active.id()));
         assertEquals(List.of(new PetDied(active.id(), player)), publishedEvents);
+        assertEquals(List.of(active.id()), entities.despawned);
         assertInstanceOf(DeathResult.AlreadyDead.class, service.die(player, active.id()).join());
         assertEquals(1, publishedEvents.size());
+    }
+
+    @Test
+    void failedDeathPreparationLeavesTheLivePetUntouched() {
+        var player = player(160);
+        var active = pet(1600, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+
+        assertThrows(CompletionException.class, () -> service.die(player, active.id(),
+                pet -> CompletableFuture.failedFuture(new IllegalStateException("intent write failed"))).join());
+
+        assertEquals(active, pets.stored.get(active.id()));
+        assertTrue(entities.despawned.isEmpty());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void failedDeathCleanupDoesNotMarkThePetDead() {
+        var player = player(160);
+        var active = pet(1600, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+        entities.despawnFailure = new IllegalStateException("despawn failed");
+
+        assertThrows(CompletionException.class, () -> service.die(player, active.id()).join());
+
+        assertEquals(active, pets.stored.get(active.id()));
+        assertTrue(publishedEvents.isEmpty());
     }
 
     @Test

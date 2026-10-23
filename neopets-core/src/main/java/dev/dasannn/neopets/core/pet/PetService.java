@@ -254,23 +254,38 @@ public final class PetService {
 
     /** Marks an alive owned pet dead and inactive in the per-player operation sequence. */
     public CompletableFuture<DeathResult> die(PlayerId playerId, PetId petId) {
+        return die(playerId, petId, pet -> CompletableFuture.completedFuture(null));
+    }
+
+    /**
+     * Persists a death intent and transitions the pet within one player operation.
+     * The preparation callback also runs for an already dead pet, allowing durable recovery;
+     * it must use unsequenced collaborators and must not submit to this player's queue.
+     */
+    public CompletableFuture<DeathResult> die(
+            PlayerId playerId, PetId petId, Function<OwnedPet, CompletableFuture<Void>> prepareDeath
+    ) {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(petId, "petId");
+        Objects.requireNonNull(prepareDeath, "prepareDeath");
         return serialized(playerId, () -> petRepository.findById(petId).thenCompose(found -> {
             if (found.isEmpty() || !found.orElseThrow().owner().equals(playerId)) {
                 return CompletableFuture.completedFuture(new DeathResult.NotOwned(petId));
             }
             OwnedPet pet = found.orElseThrow();
-            if (pet.status() == PetStatus.DEAD) {
-                return CompletableFuture.completedFuture(new DeathResult.AlreadyDead(pet));
-            }
             if (pet.status() == PetStatus.IN_TRANSIT) {
                 return CompletableFuture.completedFuture(new DeathResult.InTransit(pet));
             }
-            OwnedPet dead = pet.withStatus(PetStatus.DEAD).withActive(false);
-            return savePet(dead).thenApply(ignored -> {
-                eventBus.publish(new PetDied(petId, playerId));
-                return new DeathResult.Died(dead);
+            return prepareDeath.apply(pet).thenCompose(prepared -> {
+                if (pet.status() == PetStatus.DEAD) {
+                    return CompletableFuture.completedFuture(new DeathResult.AlreadyDead(pet));
+                }
+                OwnedPet dead = pet.withStatus(PetStatus.DEAD).withActive(false);
+                return invokeEntityAction(() -> entityGateway.despawn(petId))
+                        .thenCompose(ignored -> savePet(dead)).thenApply(ignored -> {
+                            eventBus.publish(new PetDied(petId, playerId));
+                            return new DeathResult.Died(dead);
+                        });
             });
         }));
     }

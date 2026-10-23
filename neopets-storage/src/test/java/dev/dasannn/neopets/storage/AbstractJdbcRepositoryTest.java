@@ -247,12 +247,14 @@ abstract class AbstractJdbcRepositoryTest {
             public List<PetVariant> findByType(
                     PetTypeId type) { return List.of(); }
         };
+        var despawned = new java.util.ArrayList<PetId>();
         var entities = new PetEntityGateway() {
             public CompletableFuture<Void> spawn(PetId id) {
                 throw new AssertionError("death/revive must not spawn entities");
             }
             public CompletableFuture<Void> despawn(PetId id) {
-                throw new AssertionError("death/revive must not despawn entities");
+                despawned.add(id);
+                return CompletableFuture.completedFuture(null);
             }
             public CompletableFuture<Void> applyEffects(PetId id) {
                 throw new AssertionError("death/revive must not apply effects");
@@ -263,6 +265,7 @@ abstract class AbstractJdbcRepositoryTest {
                 ignored -> { throw new AssertionError("death/revive must not resolve ranks"); },
                 new DomainEventBus(), () -> 0.0, clock);
         assertInstanceOf(DeathResult.Died.class, await(service.die(OWNER, PET_ID)));
+        assertEquals(List.of(PET_ID), despawned);
 
         assertArrayEquals(new byte[] {7, 8, 9},
                 await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {0})).contents());

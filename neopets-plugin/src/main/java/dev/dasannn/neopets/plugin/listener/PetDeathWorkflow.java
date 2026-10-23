@@ -19,12 +19,14 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 
 /** Runs and reconciles the durable, idempotent steps caused by a pet death. */
 public final class PetDeathWorkflow {
     @FunctionalInterface
     interface DeathTransition {
-        CompletableFuture<DeathResult> die(PlayerId ownerId, PetId petId);
+        CompletableFuture<DeathResult> die(
+                PlayerId ownerId, PetId petId, Function<OwnedPet, CompletableFuture<Void>> prepareDeath);
     }
 
     @FunctionalInterface
@@ -96,32 +98,30 @@ public final class PetDeathWorkflow {
     }
 
     private CompletableFuture<Void> startUnsequenced(PlayerId ownerId, PetId petId) {
-        return pets.findById(petId).thenCompose(found -> {
-            if (found.isEmpty() || !found.orElseThrow().owner().equals(ownerId)
-                    || found.orElseThrow().status() == PetStatus.IN_TRANSIT) {
-                return CompletableFuture.completedFuture(null);
-            }
-            OwnedPet pet = found.orElseThrow();
-            return work.findByPet(petId).thenCompose(existing -> {
-                if (pet.status() == PetStatus.DEAD) {
-                    return ensureWork(pet).thenCompose(this::complete);
-                }
-                if (existing.isPresent() && !existing.orElseThrow().completed()) {
-                    return transition(existing.orElseThrow());
-                }
-                PetDeathWork started = new PetDeathWork(
-                        petId, ownerId, keepSkills.getAsBoolean(), false, clock.instant());
-                return work.save(started).thenCompose(ignored -> transition(started));
-            });
-        });
+        return deaths.die(ownerId, petId, pet -> prepare(pet).thenApply(ignored -> null))
+                .thenCompose(result -> switch (result) {
+                    case DeathResult.Died ignored -> completeSaved(petId);
+                    case DeathResult.AlreadyDead ignored -> completeSaved(petId);
+                    case DeathResult.NotOwned ignored -> CompletableFuture.completedFuture(null);
+                    case DeathResult.InTransit ignored -> CompletableFuture.completedFuture(null);
+                });
     }
 
-    private CompletableFuture<Void> transition(PetDeathWork started) {
-        return deaths.die(started.ownerId(), started.petId()).thenCompose(result -> switch (result) {
-            case DeathResult.Died ignored -> complete(started);
-            case DeathResult.AlreadyDead ignored -> complete(started);
-            case DeathResult.NotOwned ignored -> CompletableFuture.completedFuture(null);
-            case DeathResult.InTransit ignored -> CompletableFuture.completedFuture(null);
+    private CompletableFuture<Void> completeSaved(PetId petId) {
+        return work.findByPet(petId).thenCompose(saved -> complete(saved.orElseThrow()));
+    }
+
+    private CompletableFuture<PetDeathWork> prepare(OwnedPet pet) {
+        if (pet.status() == PetStatus.DEAD) {
+            return ensureWork(pet);
+        }
+        return work.findByPet(pet.id()).thenCompose(existing -> {
+            if (existing.isPresent() && !existing.orElseThrow().completed()) {
+                return CompletableFuture.completedFuture(existing.orElseThrow());
+            }
+            PetDeathWork started = new PetDeathWork(
+                    pet.id(), pet.owner(), keepSkills.getAsBoolean(), false, clock.instant());
+            return work.save(started).thenApply(ignored -> started);
         });
     }
 
@@ -139,12 +139,12 @@ public final class PetDeathWorkflow {
         OwnedPet pet = ownedPets.get(index);
         CompletableFuture<Void> reconciled;
         if (pet.status() == PetStatus.DEAD) {
-            reconciled = ensureWork(pet).thenCompose(this::complete);
+            reconciled = startUnsequenced(pet.owner(), pet.id());
         } else {
             reconciled = work.findByPet(pet.id()).thenCompose(existing -> {
                 if (pet.status() == PetStatus.ALIVE && existing.isPresent()
                         && !existing.orElseThrow().completed()) {
-                    return transition(existing.orElseThrow());
+                    return startUnsequenced(pet.owner(), pet.id());
                 }
                 return CompletableFuture.completedFuture(null);
             });
