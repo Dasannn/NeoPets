@@ -97,15 +97,21 @@ class BuscatesorosAbilityTest {
         assertEquals(1, fixture.particles, "first target is marked while traversal is pending");
         assertEquals(0, fixture.notifications);
         fixture.tick(1);
-        assertEquals(3, fixture.particles, "second target is marked as soon as it is found");
-        assertEquals(1, fixture.notifications);
+        assertEquals(2, fixture.particles);
+        fixture.tick(2);
+        assertEquals(3, fixture.particles);
+        // Nearby shells cross four chunks; the one-snapshot-per-tick limit delays this discovery.
+        fixture.tick(3);
+        assertEquals(5, fixture.particles, "second target is marked as soon as it is found");
+        assertEquals(0, fixture.notifications, "notification waits for the remaining scan budget");
         fixture.tick(4);
-        assertEquals(5, fixture.particles);
+        assertEquals(7, fixture.particles);
+        assertEquals(1, fixture.notifications);
         fixture.tick(5);
-        assertEquals(6, fixture.particles, "only the later discovery remains marked");
-        fixture.tick(6);
+        assertEquals(8, fixture.particles, "only the later discovery remains marked");
+        fixture.tick(8);
         fixture.tick(29);
-        assertEquals(6, fixture.particles, "each target expires five seconds after discovery");
+        assertEquals(8, fixture.particles, "each target expires five seconds after discovery");
         assertEquals(1, fixture.notifications);
         int snapshots = fixture.snapshots;
         fixture.tick(30);

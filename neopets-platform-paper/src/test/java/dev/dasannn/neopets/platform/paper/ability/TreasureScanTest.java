@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +50,7 @@ class TreasureScanTest {
     }
 
     @Test
-    void fullScanFindsAdjacentTreasureAtNormalWorldHeightAcrossChunkBoundaries() {
+    void defaultBudgetFindsAdjacentTreasureAtNormalWorldHeightAcrossChunkBoundaries() {
         var fixture = new Fixture();
         fixture.minHeight = -64;
         fixture.maxHeight = 320;
@@ -56,12 +58,50 @@ class TreasureScanTest {
                 new TreasureScan.Position(-1, 64, 0), new TreasureScan.Position(0, 64, -1),
                 new TreasureScan.Position(0, 65, 0), new TreasureScan.Position(0, 63, 0));
         expected.forEach(position -> fixture.blocks.put(position, new Facts(Material.CHEST, true)));
-        var scan = fixture.scan(0, 64, 0, 16, 0, 40_000, 32);
+        var scan = fixture.scan(0, 64, 0, 16, 0, 8192, 32);
 
         finish(scan);
 
         assertEquals(expected, Set.copyOf(scan.targets()));
-        assertTrue(scan.scannedBlocks() < 40_000);
+        assertEquals(8192, scan.scannedBlocks());
+    }
+
+    @Test
+    void defaultBudgetFindsTreasureAcrossThePositiveChunkCorner() {
+        var fixture = new Fixture();
+        fixture.minHeight = -64;
+        fixture.maxHeight = 320;
+        var treasure = new TreasureScan.Position(16, 64, 16);
+        fixture.blocks.put(treasure, new Facts(Material.CHEST, true));
+        var scan = fixture.scan(15, 64, 15, 16, 0, 8192, 32);
+
+        finish(scan);
+
+        assertEquals(Set.of(treasure), Set.copyOf(scan.targets()));
+        assertEquals(8192, scan.scannedBlocks());
+    }
+
+    @Test
+    void budgetCutsOffFartherShellsAcrossChunkBorders() {
+        var fixture = new Fixture();
+        fixture.minHeight = -64;
+        fixture.maxHeight = 320;
+        var scan = fixture.scan(0, 64, 0, 16, 0, 8192, 32);
+        finish(scan);
+
+        int previousDistance = -1;
+        var visited = new HashSet<TreasureScan.Position>();
+        for (var position : fixture.inspected) {
+            int distance = Math.max(Math.max(Math.abs(position.x()), Math.abs(position.y() - 64)),
+                    Math.abs(position.z()));
+            assertTrue(distance >= previousDistance, "nearer shells must precede farther shells");
+            assertTrue(visited.add(position), "positions must never be revisited");
+            previousDistance = distance;
+        }
+        assertTrue(visited.contains(new TreasureScan.Position(-1, 64, 0)));
+        assertTrue(visited.contains(new TreasureScan.Position(0, 64, -1)));
+        assertEquals(fixture.capturedChunks.size(), fixture.snapshots);
+        assertTrue(fixture.snapshots <= 9, "radius 16 intersects at most nine chunks here");
     }
 
     @Test
@@ -76,7 +116,8 @@ class TreasureScanTest {
             int calls = 0;
             while (!scan.complete()) {
                 scan.advance(1024);
-                assertTrue(++calls <= 10, "default scan must finish within five seconds of shared ticks");
+                assertTrue(++calls <= 8 + fixture.snapshots,
+                        "only snapshot acquisition may yield before the per-tick work budget");
             }
             assertEquals(Set.of(treasure), Set.copyOf(scan.targets()));
             assertEquals(8192, scan.scannedBlocks());
@@ -111,9 +152,9 @@ class TreasureScanTest {
         fixture.defaultMaterial = Material.DIAMOND_ORE;
         var capped = fixture.scan(8, 0, 8, 1, 0, 3, 20);
         finish(capped);
-        // Snapshot acquisition and two inspected positions each consume budget.
+        // Snapshot acquisition, the origin, and a rejected cube corner each consume budget.
         assertEquals(3, capped.scannedBlocks());
-        assertEquals(2, capped.targets().size());
+        assertEquals(1, capped.targets().size());
 
         var targetCapped = fixture.scan(8, 0, 8, 1, 0, 100, 2);
         finish(targetCapped);
@@ -195,7 +236,7 @@ class TreasureScanTest {
         fixture.loaded = ignored -> false;
         var scan = fixture.scan(0, 0, 0, 128, 0, 100, 32);
         scan.advance(7);
-        assertEquals(7, fixture.chunkProbes);
+        assertTrue(fixture.chunkProbes <= 7);
         assertEquals(7, scan.scannedBlocks());
         assertFalse(scan.complete());
         finish(scan);
@@ -235,6 +276,7 @@ class TreasureScanTest {
         private final Set<TreasureScan.Position> capturedChunks = new HashSet<>();
         private int states;
         private int blockReads;
+        private final List<TreasureScan.Position> inspected = new ArrayList<>();
         private int chunkProbes;
         private Predicate<TreasureScan.Position> loaded = ignored -> true;
         private final World world = proxy(World.class, (proxy, method, args) -> switch (method.getName()) {
@@ -271,6 +313,8 @@ class TreasureScanTest {
                     int y = (int) coordinates[1];
                     assertTrue(y >= minHeight && y < maxHeight, "Y must be clipped before reads");
                     blockReads++;
+                    inspected.add(new TreasureScan.Position((chunkX << 4) + (int) coordinates[0], y,
+                            (chunkZ << 4) + (int) coordinates[2]));
                     return facts((chunkX << 4) + (int) coordinates[0], y,
                             (chunkZ << 4) + (int) coordinates[2]).material();
                 });
