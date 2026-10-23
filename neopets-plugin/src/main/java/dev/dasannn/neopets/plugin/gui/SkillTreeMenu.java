@@ -100,7 +100,7 @@ public final class SkillTreeMenu {
         }));
     }
 
-    private void handle(Menu.Session session, Player player, ViewState state, String actionId) {
+    void handle(Menu.Session session, Player player, ViewState state, String actionId) {
         Optional<SkillTreeMenuAction> parsed = SkillTreeMenuAction.parse(actionId);
         if (parsed.isEmpty() || state.loading) {
             return;
@@ -281,7 +281,7 @@ public final class SkillTreeMenu {
         return current;
     }
 
-    private static final class ViewState {
+    static final class ViewState {
         private final PetId petId;
         private String petName = "";
         private int page;
@@ -289,7 +289,7 @@ public final class SkillTreeMenu {
         private boolean resetConfirmation;
         private boolean loading;
 
-        private ViewState(PetId petId) {
+        ViewState(PetId petId) {
             this.petId = petId;
         }
 

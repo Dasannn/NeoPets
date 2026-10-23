@@ -9,8 +9,15 @@ public record SkillNodeView(SkillNodeState state, SkillNodeReason reason, Option
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(reason, "reason");
         Objects.requireNonNull(actionId, "actionId");
-        if (state != SkillNodeState.UNAVAILABLE && reason != SkillNodeReason.NONE
-                && !(state == SkillNodeState.LOCKED && reason == SkillNodeReason.PREVIOUS_LEVEL)) {
+        boolean validReason = switch (state) {
+            case ACTIVE, NEXT_UNLOCKABLE -> reason == SkillNodeReason.NONE;
+            case UNLOCKED -> reason == SkillNodeReason.NONE || reason == SkillNodeReason.PREVIOUS_ACTIVATION;
+            case LOCKED -> reason == SkillNodeReason.PREVIOUS_LEVEL;
+            case UNAVAILABLE -> reason != SkillNodeReason.NONE
+                    && reason != SkillNodeReason.PREVIOUS_LEVEL
+                    && reason != SkillNodeReason.PREVIOUS_ACTIVATION;
+        };
+        if (!validReason) {
             throw new IllegalArgumentException("reason does not match node state");
         }
     }

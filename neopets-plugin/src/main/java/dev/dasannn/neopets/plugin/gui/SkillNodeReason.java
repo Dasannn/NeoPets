@@ -4,6 +4,7 @@ package dev.dasannn.neopets.plugin.gui;
 public enum SkillNodeReason {
     NONE,
     PREVIOUS_LEVEL,
+    PREVIOUS_ACTIVATION,
     NODE_LIMIT,
     SKILL_POINT_LIMIT,
     INSUFFICIENT_SKILL_POINTS,

@@ -170,6 +170,7 @@ gui:
     action-activate: "<yellow>Clic <dark_gray>» <gray>Activar</gray></dark_gray></yellow>"
     action-unlock: "<yellow>Clic <dark_gray>» <gray>Desbloquear</gray></dark_gray></yellow>"
     reason-previous: "<dark_gray>Desbloquea el nivel anterior</dark_gray>"
+    reason-previous-activation: "<dark_gray>Activa primero el nivel anterior</dark_gray>"
     reason-node-limit: "<red>Límite de rango: <limit> nodos</red>"
     reason-sp-limit: "<red>Límite de rango: <limit> SP</red>"
     reason-no-sp: "<red>No tienes SP disponibles</red>"

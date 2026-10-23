@@ -108,7 +108,7 @@ public final class SkillTreeMenuLayoutFactory {
         }
         if (level <= progress.unlockedLevel()) {
             if (level > progress.activeLevel() + 1) {
-                return view(SkillNodeState.LOCKED, SkillNodeReason.PREVIOUS_LEVEL, null);
+                return view(SkillNodeState.UNLOCKED, SkillNodeReason.PREVIOUS_ACTIVATION, null);
             }
             int cost = attribute.skillPointCosts().get(level - 1);
             if ((long) data.assignedSkillPoints() + cost > data.maxSkillPoints()) {
@@ -125,11 +125,13 @@ public final class SkillTreeMenuLayoutFactory {
         }
         if (level == progress.unlockedLevel() + 1) {
             BigDecimal cost = attribute.unlockMoneyCosts().get(level - 1);
-            if (data.economyBalance().isEmpty()) {
-                return view(SkillNodeState.UNAVAILABLE, SkillNodeReason.ECONOMY_UNAVAILABLE, null);
-            }
-            if (data.economyBalance().orElseThrow().compareTo(cost) < 0) {
-                return view(SkillNodeState.UNAVAILABLE, SkillNodeReason.INSUFFICIENT_FUNDS, null);
+            if (cost.signum() > 0) {
+                if (data.economyBalance().isEmpty()) {
+                    return view(SkillNodeState.UNAVAILABLE, SkillNodeReason.ECONOMY_UNAVAILABLE, null);
+                }
+                if (data.economyBalance().orElseThrow().compareTo(cost) < 0) {
+                    return view(SkillNodeState.UNAVAILABLE, SkillNodeReason.INSUFFICIENT_FUNDS, null);
+                }
             }
             return view(SkillNodeState.NEXT_UNLOCKABLE, SkillNodeReason.NONE,
                     ACTION_UNLOCK_PREFIX + attribute.id());
@@ -167,9 +169,7 @@ public final class SkillTreeMenuLayoutFactory {
             case ACTIVE -> item("LIME_DYE", "gui.skill-tree.node-active-name",
                     List.of(effect), levelText, true, view.actionId());
             case UNLOCKED -> item("YELLOW_DYE", "gui.skill-tree.node-unlocked-name",
-                    List.of(effect,
-                            text("gui.skill-tree.node-sp-cost", "cost", attribute.skillPointCosts().get(level - 1)),
-                            "", text("gui.skill-tree.action-activate")), levelText, false, view.actionId());
+                    unlockedLore(view, data, attribute, level, effect), levelText, false, view.actionId());
             case NEXT_UNLOCKABLE -> item("ORANGE_DYE", "gui.skill-tree.node-next-name",
                     List.of(effect, text("gui.skill-tree.node-money-cost", "cost",
                             money(attribute.unlockMoneyCosts().get(level - 1))), "",
@@ -179,6 +179,21 @@ public final class SkillTreeMenuLayoutFactory {
             case UNAVAILABLE -> item("RED_DYE", "gui.skill-tree.node-unavailable-name",
                     List.of(effect, "", reason(view.reason(), data)), levelText, false, view.actionId());
         };
+    }
+
+    private List<String> unlockedLore(
+            SkillNodeView view,
+            SkillTreeMenuData data,
+            AttributeDefinition attribute,
+            int level,
+            String effect
+    ) {
+        if (view.reason() == SkillNodeReason.PREVIOUS_ACTIVATION) {
+            return List.of(effect, "", reason(view.reason(), data));
+        }
+        return List.of(effect,
+                text("gui.skill-tree.node-sp-cost", "cost", attribute.skillPointCosts().get(level - 1)),
+                "", text("gui.skill-tree.action-activate"));
     }
 
     private MenuItem item(
@@ -202,6 +217,7 @@ public final class SkillTreeMenuLayoutFactory {
     private String reason(SkillNodeReason reason, SkillTreeMenuData data) {
         return switch (reason) {
             case PREVIOUS_LEVEL -> text("gui.skill-tree.reason-previous");
+            case PREVIOUS_ACTIVATION -> text("gui.skill-tree.reason-previous-activation");
             case NODE_LIMIT -> text("gui.skill-tree.reason-node-limit", "limit", data.maxNodes());
             case SKILL_POINT_LIMIT -> text("gui.skill-tree.reason-sp-limit", "limit", data.maxSkillPoints());
             case INSUFFICIENT_SKILL_POINTS -> text("gui.skill-tree.reason-no-sp");

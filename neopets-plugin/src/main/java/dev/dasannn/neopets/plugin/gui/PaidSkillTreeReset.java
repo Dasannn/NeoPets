@@ -9,7 +9,10 @@ import dev.dasannn.neopets.core.skilltree.SkillTreeService;
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /** Charges the configured reset price, invokes the core reset, and compensates failed resets. */
 public final class PaidSkillTreeReset {
@@ -42,7 +45,9 @@ public final class PaidSkillTreeReset {
         }
         double cost = finiteDouble(configuredCost);
         if (cost == 0) {
-            return resetOperation.apply(playerId, petId).thenApply(PaidResetResult.Completed::new);
+            return invokeReset(playerId, petId).handle((result, failure) -> failure == null
+                    ? new PaidResetResult.Completed(result)
+                    : new PaidResetResult.Failed(unwrap(failure)));
         }
         return economy.has(playerId, cost).thenCompose(check -> {
             if (check instanceof EconomyResult.Failure failure) {
@@ -57,23 +62,79 @@ public final class PaidSkillTreeReset {
                     return CompletableFuture.completedFuture(new PaidResetResult.Failed(
                             new IllegalStateException("economy withdrawal failed: " + failure.reason())));
                 }
-                return resetOperation.apply(playerId, petId).thenCompose(result -> {
+                return resetAfterWithdrawal(playerId, petId, cost);
+            });
+        }).exceptionally(PaidResetResult.Failed::new);
+    }
+
+    private CompletableFuture<PaidResetResult> resetAfterWithdrawal(
+            PlayerId playerId, PetId petId, double cost
+    ) {
+        return invokeReset(playerId, petId)
+                .<CompletableFuture<PaidResetResult>>handle((result, failure) -> {
+                    if (failure != null) {
+                        Throwable cause = unwrap(failure);
+                        return refund(playerId, cost, cause,
+                                new PaidResetResult.Failed(cause));
+                    }
                     if (result instanceof ResetResult.Reset) {
                         return CompletableFuture.completedFuture(new PaidResetResult.Completed(result));
                     }
-                    return economy.deposit(playerId, cost).handle((refund, refundFailure) -> {
-                        if (refundFailure != null) {
-                            return (PaidResetResult) new PaidResetResult.Failed(refundFailure);
-                        }
-                        if (refund instanceof EconomyResult.Failure failure) {
-                            return (PaidResetResult) new PaidResetResult.Failed(new IllegalStateException(
-                                    "economy reset refund failed: " + failure.reason()));
-                        }
-                        return new PaidResetResult.Completed(result);
-                    });
-                });
-            });
-        }).exceptionally(PaidResetResult.Failed::new);
+                    return refund(playerId, cost, null, new PaidResetResult.Completed(result));
+                })
+                .thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<ResetResult> invokeReset(PlayerId playerId, PetId petId) {
+        try {
+            return Objects.requireNonNull(
+                    resetOperation.apply(playerId, petId), "reset operation future");
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+    }
+
+    private CompletableFuture<PaidResetResult> refund(
+            PlayerId playerId,
+            double cost,
+            Throwable originalFailure,
+            PaidResetResult refundedResult
+    ) {
+        CompletableFuture<EconomyResult> refund;
+        try {
+            refund = Objects.requireNonNull(
+                    economy.deposit(playerId, cost), "economy deposit future");
+        } catch (Throwable refundFailure) {
+            return CompletableFuture.completedFuture(refundFailure(
+                    originalFailure, unwrap(refundFailure)));
+        }
+        return refund.handle((result, failure) -> {
+            if (failure != null) {
+                return refundFailure(originalFailure, unwrap(failure));
+            }
+            if (result instanceof EconomyResult.Failure rejected) {
+                return refundFailure(originalFailure, new IllegalStateException(
+                        "economy reset refund failed: " + rejected.reason()));
+            }
+            return refundedResult;
+        });
+    }
+
+    private static PaidResetResult refundFailure(Throwable originalFailure, Throwable refundFailure) {
+        if (originalFailure != null) {
+            originalFailure.addSuppressed(refundFailure);
+            return new PaidResetResult.Failed(originalFailure);
+        }
+        return new PaidResetResult.Failed(refundFailure);
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private static double finiteDouble(BigDecimal value) {
