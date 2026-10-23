@@ -441,7 +441,7 @@ class ConfigurationLoaderTest {
     void versionEightInstallReceivesBuscatesorosMessageAndSettings() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 10", "config-version: 8");
+        replace("config.yml", "config-version: " + ConfigurationMigrator.CURRENT_VERSION, "config-version: 8");
         String config = Files.readString(temporaryDirectory.resolve("config.yml"));
         int abilityStart = config.indexOf("  buscatesoros:\n");
         int ranksStart = config.indexOf("\nranks:\n", abilityStart);
