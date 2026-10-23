@@ -49,7 +49,22 @@ class AdminMenuLayoutFactoryTest {
         assertEquals("GRAY_STAINED_GLASS_PANE", layout.items().get(48).material());
         assertEquals("GRAY_STAINED_GLASS_PANE", layout.items().get(50).material());
         assertEquals(1, built.totalPages());
-        assertEquals(15, Paging.CONTENT_SLOTS.stream().filter(layout.items()::containsKey).count());
+        assertEquals(24, Paging.CONTENT_SLOTS.stream().filter(layout.items()::containsKey).count());
+    }
+
+    @Test
+    void rendersToggleStateInNameAndGlintAndReadableNumericRanges() {
+        var layout = factory.build(settings, FeatureRegistry.features(), 0).layout();
+        assertTrue(layout.items().get(10).glint());
+        assertEquals(net.kyori.adventure.text.format.NamedTextColor.GREEN,
+                MiniMessage.miniMessage().deserialize(layout.items().get(10).name()).color());
+        assertFalse(layout.items().get(11).glint());
+        assertEquals(net.kyori.adventure.text.format.NamedTextColor.RED,
+                MiniMessage.miniMessage().deserialize(layout.items().get(11).name()).color());
+        assertEquals("Rango: 0 – sin límite", plain(layout.items().get(16).lore().get(3)));
+        var cooldown = factory.build(settings,
+                List.of(FeatureRegistry.find("abilities.zarpazo.cooldown-seconds").orElseThrow()), 0).layout();
+        assertEquals("Rango: 1 s – 1 d", plain(cooldown.items().get(10).lore().get(3)));
     }
 
     @Test
@@ -63,7 +78,7 @@ class AdminMenuLayoutFactoryTest {
     void writesTheRequiredAdminPreviewAsJson() throws Exception {
         Path output = Path.of(System.getProperty("neopets.preview.dir"));
         MenuLayoutJson.write(output.resolve("admin-page-1.json"),
-                factory.build(settings, FeatureRegistry.features(), 0).layout(), List.of(4, 10, 16, 24, 51));
+                factory.build(settings, FeatureRegistry.features(), 0).layout(), List.of(4, 10, 16, 22, 38, 51));
     }
 
     private static String plain(String miniMessage) {

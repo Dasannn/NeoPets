@@ -308,6 +308,11 @@ gui:
     current-disabled: "<gray>Valor: <red>○ Desactivado</red></gray>"
     current-number: "<gray>Valor: <white><value></white></gray>"
     range: "<gray>Rango: <white><minimum></white> – <white><maximum></white></gray>"
+    unbounded: "sin límite"
+    duration-seconds: "<value> s"
+    duration-minutes: "<value> min"
+    duration-hours: "<value> h"
+    duration-days: "<value> d"
     toggle-action: "<yellow>Clic <dark_gray>» <gray>Alternar</gray></dark_gray></yellow>"
     number-action: "<yellow>Clic izq. <dark_gray>» <gray>+<step>  ·  Clic der. » -<step>  ·  Shift » ×10</gray></dark_gray></yellow>"
     previous-page: "<white>Página anterior</white>"
@@ -364,6 +369,33 @@ gui:
       vigia-duration:
         name: "<white>Duración de Vigía</white>"
         description: "<dark_gray>Segundos que permanecen marcados los enemigos.</dark_gray>"
+      zarpazo-enabled:
+        name: "<white>Zarpazo</white>"
+        description: "<dark_gray>Activa el ataque en área del oso polar.</dark_gray>"
+      vigia-enabled:
+        name: "<white>Vigía</white>"
+        description: "<dark_gray>Activa las alertas del loro.</dark_gray>"
+      buscatesoros-enabled:
+        name: "<white>Buscatesoros</white>"
+        description: "<dark_gray>Activa la búsqueda de tesoros del perro.</dark_gray>"
+      buscatesoros-cooldown:
+        name: "<white>Recarga de Buscatesoros</white>"
+        description: "<dark_gray>Segundos entre búsquedas de tesoros.</dark_gray>"
+      buscatesoros-radius:
+        name: "<white>Radio de Buscatesoros</white>"
+        description: "<dark_gray>Radio base de búsqueda en bloques.</dark_gray>"
+      buscatesoros-duration:
+        name: "<white>Duración de Buscatesoros</white>"
+        description: "<dark_gray>Segundos que permanecen marcados los tesoros.</dark_gray>"
+      buscatesoros-max-targets:
+        name: "<white>Objetivos de Buscatesoros</white>"
+        description: "<dark_gray>Máximo de objetivos marcados por búsqueda.</dark_gray>"
+      buscatesoros-max-scan-blocks:
+        name: "<white>Bloques de Buscatesoros</white>"
+        description: "<dark_gray>Máximo de bloques examinados por búsqueda.</dark_gray>"
+      aterrizaje-felino-enabled:
+        name: "<white>Aterrizaje felino</white>"
+        description: "<dark_gray>Protege al dueño del daño por caída.</dark_gray>"
 
 admin:
   feature-enabled: "<green><feature> activada.</green>"

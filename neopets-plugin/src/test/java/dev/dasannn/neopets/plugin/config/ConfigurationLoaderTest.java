@@ -96,6 +96,27 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void versionThirteenInstallReceivesExpandedAdminKeysAndPreservesCustomNames() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: " + ConfigurationMigrator.CURRENT_VERSION, "config-version: 13");
+        Path languageFile = temporaryDirectory.resolve("lang/es.yml");
+        var yaml = YamlConfiguration.loadConfiguration(languageFile.toFile());
+        yaml.set("gui.admin.unbounded", null);
+        yaml.set("gui.admin.duration-hours", null);
+        yaml.set("gui.admin.features.buscatesoros-max-targets", null);
+        yaml.set("gui.admin.features.zarpazo-enabled.name", "Mi Zarpazo");
+        yaml.save(languageFile.toFile());
+
+        var upgraded = loader.load();
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
+        assertEquals("sin límite", upgraded.language().find("gui.admin.unbounded").orElseThrow());
+        assertEquals("<value> h", upgraded.language().find("gui.admin.duration-hours").orElseThrow());
+        assertTrue(upgraded.language().find("gui.admin.features.buscatesoros-max-targets.name").isPresent());
+        assertEquals("Mi Zarpazo", upgraded.language().find("gui.admin.features.zarpazo-enabled.name").orElseThrow());
+    }
+
+    @Test
     void versionElevenInstallBackfillsFlagsWithoutOverwritingFalse() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();

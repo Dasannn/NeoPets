@@ -39,6 +39,8 @@ public final class FeatureRegistry {
             number("courier.cooldown-seconds", "RECOVERY_COMPASS", "courier-cooldown", 0,
                     MAX_DURATION_SECONDS, 60, true,
                     settings -> BigDecimal.valueOf(settings.courier().cooldown().toSeconds())),
+            toggle("abilities.zarpazo.enabled", "POLAR_BEAR_SPAWN_EGG", "zarpazo-enabled",
+                    settings -> settings.abilities().zarpazo().enabled()),
             number("abilities.zarpazo.cooldown-seconds", "IRON_AXE", "zarpazo-cooldown", 1,
                     86_400, 1, true,
                     settings -> BigDecimal.valueOf(settings.abilities().zarpazo().cooldown().toSeconds())),
@@ -48,6 +50,8 @@ public final class FeatureRegistry {
             positiveNumber("abilities.zarpazo.damage", "BLAZE_POWDER", "zarpazo-damage",
                     2_048, 0.5,
                     settings -> BigDecimal.valueOf(settings.abilities().zarpazo().damage())),
+            toggle("abilities.vigia.enabled", "PARROT_SPAWN_EGG", "vigia-enabled",
+                    settings -> settings.abilities().vigia().enabled()),
             number("abilities.vigia.cooldown-seconds", "GOAT_HORN", "vigia-cooldown", 1,
                     86_400, 1, true,
                     settings -> BigDecimal.valueOf(settings.abilities().vigia().cooldown().toSeconds())),
@@ -56,7 +60,23 @@ public final class FeatureRegistry {
                     settings -> BigDecimal.valueOf(settings.abilities().vigia().radius())),
             number("abilities.vigia.duration-seconds", "GLOW_INK_SAC", "vigia-duration", 1,
                     3_600, 1, true,
-                    settings -> BigDecimal.valueOf(settings.abilities().vigia().duration().toSeconds())));
+                    settings -> BigDecimal.valueOf(settings.abilities().vigia().duration().toSeconds())),
+            toggle("abilities.buscatesoros.enabled", "WOLF_SPAWN_EGG", "buscatesoros-enabled",
+                    settings -> settings.abilities().buscatesoros().enabled()),
+            number("abilities.buscatesoros.cooldown-seconds", "COMPASS", "buscatesoros-cooldown", 1,
+                    86_400, 1, true,
+                    settings -> BigDecimal.valueOf(settings.abilities().buscatesoros().cooldown().toSeconds())),
+            positiveNumber("abilities.buscatesoros.base-radius", "ENDER_EYE", "buscatesoros-radius",
+                    128, 0.5, settings -> BigDecimal.valueOf(settings.abilities().buscatesoros().baseRadius())),
+            number("abilities.buscatesoros.duration-seconds", "LANTERN", "buscatesoros-duration", 1,
+                    3_600, 1, true,
+                    settings -> BigDecimal.valueOf(settings.abilities().buscatesoros().duration().toSeconds())),
+            number("abilities.buscatesoros.max-targets", "GOLD_NUGGET", "buscatesoros-max-targets", 1,
+                    512, 1, true, settings -> settings.abilities().buscatesoros().maxTargets()),
+            number("abilities.buscatesoros.max-scan-blocks", "DIAMOND_ORE", "buscatesoros-max-scan-blocks", 1,
+                    262_144, 512, true, settings -> settings.abilities().buscatesoros().maxScanBlocks()),
+            toggle("abilities.aterrizaje-felino.enabled", "CAT_SPAWN_EGG", "aterrizaje-felino-enabled",
+                    settings -> settings.abilities().felineLandingEnabled()));
 
     static {
         var paths = new HashSet<String>();
@@ -290,8 +310,7 @@ public final class FeatureRegistry {
         public String format(Number value) {
             Objects.requireNonNull(value, "value");
             BigDecimal normalized = new BigDecimal(value.toString()).stripTrailingZeros();
-            return normalized.precision() > 12 || normalized.scale() < -6
-                    ? normalized.toEngineeringString() : normalized.toPlainString();
+            return normalized.toPlainString();
         }
     }
 

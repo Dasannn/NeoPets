@@ -70,7 +70,14 @@ def font_bold(size):
 
 def item_texture(textures, material):
     name = material.lower()
-    candidates = [f"item/{name}.png", f"block/{name}.png"]
+    aliases = {
+        "command_block": "block/command_block_front.png",
+        "clock": "item/clock_00.png",
+        "compass": "item/compass_00.png",
+        "recovery_compass": "item/recovery_compass_00.png",
+        "target": "block/target_top.png",
+    }
+    candidates = ([aliases[name]] if name in aliases else []) + [f"item/{name}.png", f"block/{name}.png"]
     if name.endswith("_stained_glass_pane") or name == "glass_pane":
         candidates.insert(0, f"block/{name.removesuffix('_pane')}.png")
     for rel in candidates:

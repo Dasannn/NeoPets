@@ -120,13 +120,15 @@ public final class ConfigurationLoader {
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
     private static final Set<String> VERSION_10_MESSAGES = Set.of("abilities.buscatesoros.found");
-    private static final Set<String> VERSION_11_MESSAGES = adminMessages();
+    private static final Set<String> VERSION_15_MESSAGES = adminMessages();
 
     private static Set<String> adminMessages() {
         var keys = new java.util.HashSet<>(Set.of(
                 "gui.admin.header-name", "gui.admin.header-count", "gui.admin.page-number",
                 "gui.admin.current-enabled", "gui.admin.current-disabled", "gui.admin.current-number",
-                "gui.admin.range", "gui.admin.toggle-action", "gui.admin.number-action",
+                "gui.admin.range", "gui.admin.unbounded", "gui.admin.duration-seconds",
+                "gui.admin.duration-minutes", "gui.admin.duration-hours", "gui.admin.duration-days",
+                "gui.admin.toggle-action", "gui.admin.number-action",
                 "gui.admin.previous-page", "gui.admin.next-page", "gui.admin.close",
                 "gui.admin.help-name", "gui.admin.help-lore", "gui.admin.help-message", "admin.edit-invalid"));
         for (var feature : FeatureRegistry.features()) {
@@ -200,7 +202,7 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_6_MESSAGES);
         required.addAll(VERSION_9_MESSAGES);
         required.addAll(VERSION_10_MESSAGES);
-        required.addAll(VERSION_11_MESSAGES);
+        required.addAll(VERSION_15_MESSAGES);
         required.addAll(VERSION_13_MESSAGES);
         required.addAll(VERSION_14_MESSAGES);
         return Set.copyOf(required);
@@ -383,8 +385,8 @@ public final class ConfigurationLoader {
         if (sourceVersion < 10) {
             changed |= mergeMissing(language, defaults, VERSION_10_MESSAGES);
         }
-        if (sourceVersion < 11) {
-            changed |= mergeMissing(language, defaults, VERSION_11_MESSAGES);
+        if (sourceVersion < 15) {
+            changed |= mergeMissing(language, defaults, VERSION_15_MESSAGES);
         }
         if (sourceVersion < 14) {
             changed |= mergeMissing(language, defaults, VERSION_14_MESSAGES);
