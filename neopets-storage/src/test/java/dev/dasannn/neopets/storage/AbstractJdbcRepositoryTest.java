@@ -83,6 +83,27 @@ abstract class AbstractJdbcRepositoryTest {
     }
 
     @Test
+    final void soulRevivalAtomicallyChecksOwnerPetStatusAndSingleUse() throws Exception {
+        var dead = pet(PET_ID, OWNER, "dog_brown").withStatus(PetStatus.DEAD);
+        await(pets.save(dead));
+        var token = UUID.randomUUID();
+        await(tokens.issue(token, PET_ID, OWNER, CREATED_AT));
+        var alive = dead.withStatus(PetStatus.ALIVE);
+        assertFalse(await(pets.reviveWithSoul(alive, UUID.randomUUID(), CREATED_AT)));
+        assertFalse(await(pets.reviveWithSoul(new OwnedPet(alive.id(), OTHER_OWNER, alive.variant(), alive.customName(),
+                alive.status(), alive.active(), alive.createdAt()), token, CREATED_AT)));
+        assertEquals(dead, await(pets.findById(PET_ID)).orElseThrow());
+        assertTrue(await(tokens.isUsable(token, PET_ID, OWNER)));
+        assertTrue(await(pets.reviveWithSoul(alive, token, CREATED_AT)));
+        assertEquals(alive, await(pets.findById(PET_ID)).orElseThrow());
+        assertFalse(await(pets.reviveWithSoul(alive, token, CREATED_AT)));
+        var nextToken = UUID.randomUUID();
+        await(tokens.issue(nextToken, PET_ID, OWNER, CREATED_AT));
+        assertFalse(await(pets.reviveWithSoul(alive, nextToken, CREATED_AT)));
+        assertTrue(await(tokens.isUsable(nextToken, PET_ID, OWNER)));
+    }
+
+    @Test
     final void playerRepositoryCreatesReadsAndUpdatesBalancesWithoutPersistingPets() throws Exception {
         assertEquals(Optional.empty(), await(players.findById(OWNER)));
 

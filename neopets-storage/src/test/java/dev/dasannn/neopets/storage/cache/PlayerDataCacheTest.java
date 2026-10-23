@@ -59,6 +59,45 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void successfulReviveRefreshesTheLoadedPet() throws Exception {
+        var dead = pet(PET, PLAYER, "dog_brown").withStatus(PetStatus.DEAD);
+        var alive = dead.withStatus(PetStatus.ALIVE);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 7, List.of()));
+        delegates.pets.put(PET, dead);
+        await(cache.load(PLAYER));
+        assertTrue(await(cache.revivePet(alive, () -> CompletableFuture.completedFuture(true))));
+        assertEquals(alive, await(pets.findById(PET)).orElseThrow());
+        assertEquals(List.of(alive), await(pets.findByOwner(PLAYER)));
+    }
+
+    @Test
+    void reviveUpdatesCacheOnlyAfterDurabilityAndOrdersUnloadAfterIt() throws Exception {
+        var dead = pet(PET, PLAYER, "dog_brown").withStatus(PetStatus.DEAD);
+        var alive = dead.withStatus(PetStatus.ALIVE);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 7, List.of()));
+        delegates.pets.put(PET, dead);
+        await(cache.load(PLAYER));
+        assertFalse(await(cache.revivePet(alive, () -> CompletableFuture.completedFuture(false))));
+        assertThrows(ExecutionException.class, () -> await(cache.revivePet(alive,
+                () -> CompletableFuture.failedFuture(new IllegalStateException("write failed")))));
+        assertEquals(dead, await(pets.findById(PET)).orElseThrow());
+        var durable = new CompletableFuture<Boolean>();
+        var revive = cache.revivePet(alive, () -> durable.thenApply(success -> {
+            delegates.pets.put(PET, alive);
+            return success;
+        }));
+        assertEquals(dead, await(pets.findById(PET)).orElseThrow());
+        var unload = cache.unload(PLAYER);
+        assertFalse(unload.isDone());
+        durable.complete(true);
+        assertTrue(await(revive));
+        await(unload);
+        assertEquals(alive, delegates.pets.get(PET));
+        await(cache.load(PLAYER));
+        assertEquals(alive, await(pets.findById(PET)).orElseThrow());
+    }
+
+    @Test
     void deathResetWaitsForDurabilityBeforeQueuedUnload() throws Exception {
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 7, List.of()));
         delegates.pets.put(PET, pet(PET, PLAYER, "dog_brown"));

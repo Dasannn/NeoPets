@@ -4,11 +4,9 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.pet.GiveResult;
-import dev.dasannn.neopets.core.pet.ReviveResult;
 import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
-import dev.dasannn.neopets.plugin.listener.SoulItemIdentity;
 import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -31,7 +29,6 @@ import java.util.logging.Level;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 
 /** Registers the Paper command API entry points and keeps Bukkit command glue thin. */
 public final class NeoPetsCommands {
@@ -315,85 +312,13 @@ public final class NeoPetsCommands {
             return;
         }
         Player target = plugin.getServer().getPlayerExact(args[1]);
-        if (target == null || !target.isOnline()) {
-            sendReviveOutcome(rt, sender, new ReviveCommandResult.PlayerOffline(args[1]), args[1], "");
-            return;
-        }
-
-        SoulItemIdentity.ReadResult read = SoulItemIdentity.read(target.getInventory().getItemInMainHand());
-        if (read instanceof SoulItemIdentity.ReadResult.Missing) {
-            sendReviveOutcome(rt, sender, new ReviveCommandResult.NoSoulItem(), target.getName(), "");
-            return;
-        }
-        if (read instanceof SoulItemIdentity.ReadResult.Invalid) {
-            sendReviveOutcome(rt, sender, new ReviveCommandResult.InvalidSoul(), target.getName(), "");
-            return;
-        }
-        SoulItemIdentity identity = ((SoulItemIdentity.ReadResult.Found) read).identity();
-        PlayerId playerId = new PlayerId(target.getUniqueId());
-        if (!identity.ownerId().equals(playerId)) {
-            sendReviveOutcome(rt, sender, new ReviveCommandResult.WrongOwner(), target.getName(), "");
-            return;
-        }
-
-        ItemStack reserved = reserveOneMainHandItem(target);
-        CompletableFuture<ReviveResult> result = rt.submit(() -> rt.petService().revive(
-                playerId, identity.petId(), identity.tokenId(), identity.ownerId(), rt.soulItems()));
-        result.whenComplete((coreResult, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
-            if (failure != null) {
-                restoreReservedItem(target, reserved);
-                plugin.getLogger().log(Level.WARNING, "NeoPets revive command failed", unwrap(failure));
-                rt.messages().send(sender, MessageSpec.of("errors.internal"));
-                return;
-            }
-            ReviveCommandResult outcome = ReviveCommandResult.fromCore(coreResult);
-            if (!(outcome instanceof ReviveCommandResult.Revived revived)) {
-                restoreReservedItem(target, reserved);
-                sendReviveOutcome(rt, sender, outcome, target.getName(), "");
-                return;
-            }
-            String petName = rt.petName(revived.pet());
-            rt.messages().send(target, new MessageSpec("pets.revived", Map.of("pet", petName)));
-            sendReviveOutcome(rt, sender, outcome, target.getName(), petName);
-        }));
-    }
-
-    private void sendReviveOutcome(
-            NeoPetsRuntime rt,
-            CommandSender sender,
-            ReviveCommandResult outcome,
-            String playerName,
-            String petName
-    ) {
-        rt.messages().send(sender, ReviveResultMessages.sender(outcome, playerName, petName));
-    }
-
-    private static ItemStack reserveOneMainHandItem(Player player) {
-        ItemStack held = player.getInventory().getItemInMainHand();
-        ItemStack reserved = held.clone();
-        reserved.setAmount(1);
-        if (held.getAmount() == 1) {
-            player.getInventory().setItemInMainHand(ItemStack.empty());
-        } else {
-            held.setAmount(held.getAmount() - 1);
-            player.getInventory().setItemInMainHand(held);
-        }
-        return reserved;
-    }
-
-    private static void restoreReservedItem(Player player, ItemStack reserved) {
-        if (!player.isOnline()) {
-            // A disconnected player's inventory may already have been saved.
-            player.getWorld().dropItem(player.getLocation(), reserved);
-            return;
-        }
-        ItemStack held = player.getInventory().getItemInMainHand();
-        if (held.isEmpty()) {
-            player.getInventory().setItemInMainHand(reserved);
-            return;
-        }
-        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(reserved);
-        leftovers.values().forEach(item -> player.getWorld().dropItem(player.getLocation(), item));
+        new ReviveCommandWorkflow(
+                (playerId, identity) -> rt.submit(() -> rt.petService().revive(playerId, identity.petId(),
+                        identity.tokenId(), identity.ownerId(), rt.soulItems())),
+                action -> plugin.getServer().getScheduler().runTask(plugin, action),
+                rt.messages()::send, rt::petName,
+                failure -> plugin.getLogger().log(Level.WARNING, "NeoPets revive command failed", unwrap(failure)))
+                .execute(sender, target, args[1]);
     }
 
     private void reload(NeoPetsRuntime rt, CommandSender sender, String[] args) {
