@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 15
+config-version: 16
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -65,7 +65,7 @@ abilities:
     base-radius: 16.0
     duration-seconds: 5
     max-targets: 32
-    # Total container states plus block positions inspected per activation.
+    # Chunk queries and positions inspected nearest-first per activation; the budget cuts farthest positions.
     max-scan-blocks: 8192
     ore-materials:
       - ANCIENT_DEBRIS
@@ -106,3 +106,7 @@ ranks:
 courier:
   request-timeout-seconds: 300
   cooldown-seconds: 900
+
+give:
+  # Console command when every candidate is owned; empty disables it. Placeholders: <player>, <uuid>.
+  all-owned-command: ""

@@ -15,7 +15,7 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   en el servidor detenido; respaldar carpeta `plugins/NeoPets` y BD. Usar un
   área aislada y objetos de prueba contados para los ensayos destructivos.
 - [ ] **[Consola]** Arrancar con Paper 26.3 y Java 25: ver
-  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 15),
+  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 16),
   `lang/es.yml`, cinco YAML de mascotas, cinco árboles y `neopets.db` si SQLite.
   No debe aparecer `NeoPets could not start` ni errores de migración SQL.
 - [ ] **[1 jugador + consola, con LuckPerms]** Ejecutar
@@ -61,13 +61,18 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
 - [ ] **[1 jugador]** Conceder solo `neopets.admin` a una cuenta sin los nodos
   concretos; `/neopet admin` y `/neopet reload` deben seguir denegados salvo
   herencias externas del gestor. Comprobar que los nodos concretos sí habilitan
-  cada acción. No tratar `neopets.admin` como padre declarado por el plugin.
+  cada acción. `neopets.admin` sí hereda `neopets.admin.reset`; comprobar reset
+  permitido por ese padre y denegado sin ninguno de los dos nodos.
 - [ ] **[1 jugador + consola]** `neopet give Ana dog_pale` dos veces: solo una
   variante; la segunda responde que ya la posee. `neopet give Ana no_existe` y
   `neopet give Ana random no_existe` informan variante/tipo desconocido.
 - [ ] **[1 jugador + consola]** `neopet give Ana dog_black,dog_snowy` tres veces:
   se entregan como máximo las dos variantes distintas; después «No quedan
-  variantes disponibles». No se ejecuta compensación ni se crea otra instancia.
+  variantes disponibles». Con comando vacío no se ejecuta compensación ni se crea otra instancia.
+- [ ] **[1 jugador + consola]** Configurar `give.all-owned-command: "say premio <player> <uuid>"`
+  y recargar. Agotar una lista/random y repetir: un solo anuncio con nombre/UUID
+  sustituidos además del mensaje. Repetir con ID específico ya poseído. Una
+  variante nueva o ID/tipo inválido no anuncia; restaurar `""` y comprobar que no anuncia.
 - [ ] **[1 jugador + consola]** Repetir `neopet give Ana random parrot` hasta
   agotar los cinco loros: nunca otro tipo ni repetidos. `neopet give Ana random`
   elige entre todas las variantes todavía no poseídas.
@@ -159,6 +164,14 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   las compras previas. Repetir sin dinero: no cambia árbol/saldo. Probar coste
   cero y restaurar valores.
 
+- [ ] **[1 jugador + consola]** Activar 3 SP en una mascota y anotar saldo/dinero.
+  Con reset de jugador desactivado, ejecutar `neopet reset Ana dog_pale`: saldo +3,
+  árbol sin desbloqueos ni efectos, dinero sin cambios. Repetir: +0 SP. Probar UUID
+  persistente y nombre personalizado con espacios; tab sugiere conectados y solo
+  mascotas del jugador seleccionado. Nombre desconocido y UUID inexistente: error;
+  UUID de mascota de otro jugador: no propietario. Ana desconectada: error, sin cambios.
+  Sin `neopets.admin.reset`: denegado; con permiso, consola y jugador pueden ejecutar.
+
 ## Habilidades únicas
 
 Para cada ensayo, entregar el tipo con `neopet give Ana <id>`, abrir su árbol,
@@ -183,7 +196,9 @@ comando de activación.
   real de CustomDungeons: solo cuenta si conserva una tabla de botín vanilla.
 - [ ] **[2 jugadores] Buscatesoros:** Ana ve partículas; Beto no debe recibir las
   partículas privadas de esa búsqueda. Desactivar el flag: deja de escanear;
-  reactivar y esperar cooldown. Olfato V amplía radio base 16 a 36, con los topes
+  reactivar y esperar cooldown. Reducir `max-scan-blocks` y colocar menas a varias
+  distancias: se inspecciona primero lo cercano y se recorta lo más lejano; no carga
+  chunks para ampliar cobertura. Restaurar presupuesto. Olfato V amplía radio base 16 a 36, con los topes
   de escaneo todavía vigentes; no esperar que recorra toda la esfera.
 - [ ] **[1 jugador] Aterrizaje felino:** `neopet give Ana cat_tabby`; con nodo
   activo y gato invocado, saltar desde altura segura de pruebas: sin daño de
@@ -338,16 +353,18 @@ pila y su total entre inventarios y alforjas.
   tipo booleano incorrecto, aspecto inválido o cerrar mal una etiqueta de
   MiniMessage; tras cada caso ejecutar `/neopet reload`: error claro con
   archivo/ruta y configuración anterior todavía funcionando. Restaurar YAML
-  válido y recargar: éxito. Probar también `config-version: 16`: se rechaza.
+  válido y recargar: éxito. Probar también `config-version: 17`: se rechaza.
 - [ ] **[1 jugador + consola]** En copia de datos antigua de versión conocida
-  (1–14), conservar valores personalizados y arrancar/recargar: avanza a 15,
-  añade claves/mensajes faltantes y preserva los personalizados. Para origen
+  (1–15), conservar valores personalizados y arrancar/recargar: avanza a 16,
+  añade claves/mensajes faltantes y preserva los personalizados. Desde v15 añade
+  `give.all-owned-command: ""` y mensajes de reset; conserva un comando personalizado
+  si ya existía. Un valor booleano/lista en esa clave se rechaza al recargar. Para origen
   anterior a v4, comprobar gatos `appearance.type` y loros `red`/`cyan`; anterior
   a v5, solo las listas antiguas predeterminadas se convierten en bonus.
   No bajar la versión de archivos actuales como sustituto de una copia antigua.
 - [ ] **[1 jugador + consola]** Una migración con otro YAML inválido no debe
   guardar parcialmente los documentos migrados. Reparar y repetir; entonces
-  se guarda la versión 15. Comprobar respaldo manual: el plugin no crea uno.
+  se guarda la versión 16. Comprobar respaldo manual: el plugin no crea uno.
 - [ ] **[1 jugador]** Cambiar `follow.teleport-distance` y refresco Bukkit:
   `/neopet reload` valida pero los objetos/timers existentes mantienen el valor
   de arranque. Reiniciar y comprobar nuevo comportamiento. Cambios de motor

@@ -15,3 +15,12 @@ dependencies:
     PlaceholderAPI:
       load: BEFORE
       required: false
+permissions:
+  neopets.admin:
+    description: Administración de NeoPets
+    default: op
+    children:
+      neopets.admin.reset: true
+  neopets.admin.reset:
+    description: Reiniciar gratuitamente el árbol de una mascota
+    default: op

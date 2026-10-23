@@ -34,6 +34,7 @@ import org.bukkit.entity.Player;
 public final class NeoPetsCommands {
     private static final String USE = "neopets.use";
     private static final String GIVE = "neopets.admin.give";
+    private static final String RESET = "neopets.admin.reset";
     private static final String SP = "neopets.admin.sp";
     private static final String ADMIN = "neopets.admin.gui";
     private static final String REVIVE = "neopets.admin.revive";
@@ -101,6 +102,7 @@ public final class NeoPetsCommands {
                 case "give" -> give(rt, source.getSender(), args);
                 case "summon" -> summonOrDismiss(rt, source.getSender(), args, true);
                 case "dismiss" -> summonOrDismiss(rt, source.getSender(), args, false);
+                case "reset" -> reset(rt, source.getSender(), args);
                 case "sp" -> skillPoints(rt, source.getSender(), args);
                 case "courier" -> courier(rt, source.getSender(), args);
                 case "admin" -> admin(rt, source.getSender(), args);
@@ -119,6 +121,7 @@ public final class NeoPetsCommands {
                 if (source.getSender().hasPermission(GIVE)) {
                     choices.add("give");
                 }
+                if (source.getSender().hasPermission(RESET)) choices.add("reset");
                 if (source.getSender().hasPermission(SP)) {
                     choices.add("sp");
                 }
@@ -129,6 +132,16 @@ public final class NeoPetsCommands {
                     choices.add("reload");
                 }
                 return prefix(choices, args[0]);
+            }
+            if (args.length >= 2 && args[0].equalsIgnoreCase("reset")
+                    && source.getSender().hasPermission(RESET)) {
+                if (args.length == 2) return onlinePlayerNames(args[1]);
+                Player target = plugin.getServer().getPlayerExact(args[1]);
+                if (args.length >= 3 && target != null) {
+                    return AdminResetWorkflow.suggestions(runtime.get().loadedPets(
+                            new PlayerId(target.getUniqueId())), List.of(Arrays.copyOfRange(args, 2, args.length)));
+                }
+                return List.of();
             }
             if (args.length >= 2 && args[0].equalsIgnoreCase("give")) {
                 if (args.length == 2) {
@@ -225,6 +238,9 @@ public final class NeoPetsCommands {
         String targetName = Optional.ofNullable(target.getName()).orElse(args[1]);
         complete(result, sender, outcome -> {
             rt.messages().send(sender, PetResultMessages.give(outcome, targetName, rt::petName));
+            GiveCompensation.run(outcome, rt.configuration().current().settings().giveAllOwnedCommand(),
+                    targetName, target.getUniqueId(), command -> plugin.getServer().dispatchCommand(
+                            plugin.getServer().getConsoleSender(), command));
             if (outcome instanceof GiveResult.Granted granted && target.getPlayer() != null) {
                 rt.messages().send(target.getPlayer(), new MessageSpec(
                         "pets.given", Map.of("pet", rt.petName(granted.pet()))));
@@ -257,6 +273,28 @@ public final class NeoPetsCommands {
             complete(rt.submit(() -> rt.petService().dismiss(playerId, selected.orElseThrow().id())), sender,
                     result -> rt.messages().send(sender, PetResultMessages.dismiss(result, rt::petName)));
         }
+    }
+
+    private void reset(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, RESET, rt)) return;
+        if (args.length < 3) {
+            rt.messages().send(sender, MessageSpec.of("general.usage-reset"));
+            return;
+        }
+        Player target = plugin.getServer().getPlayerExact(args[1]);
+        PlayerId playerId = target == null ? null : new PlayerId(target.getUniqueId());
+        String token = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+        CompletableFuture<List<OwnedPet>> candidates;
+        try {
+            PetId requested = new PetId(UUID.fromString(token));
+            candidates = playerId == null ? CompletableFuture.completedFuture(List.of())
+                    : rt.submit(() -> rt.pets().findById(requested)).thenApply(found -> found.stream().toList());
+        } catch (IllegalArgumentException ignored) {
+            candidates = CompletableFuture.completedFuture(playerId == null ? List.of() : rt.loadedPets(playerId));
+        }
+        complete(candidates.thenCompose(pets -> AdminResetWorkflow.execute(playerId, pets,
+                token, (owner, pet) -> rt.submit(() -> rt.skillTrees().reset(owner, pet, true)))), sender,
+                result -> rt.messages().send(sender, AdminResetWorkflow.message(result, args[1], token, rt::petName)));
     }
 
     private void skillPoints(NeoPetsRuntime rt, CommandSender sender, String[] args) {

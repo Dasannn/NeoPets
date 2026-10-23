@@ -120,6 +120,8 @@ public final class ConfigurationLoader {
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
     private static final Set<String> VERSION_10_MESSAGES = Set.of("abilities.buscatesoros.found");
+    private static final Set<String> VERSION_16_MESSAGES = Set.of(
+            "general.usage-reset", "skills.reset-admin", "pets.unknown-pet");
     private static final Set<String> VERSION_15_MESSAGES = adminMessages();
 
     private static Set<String> adminMessages() {
@@ -203,6 +205,7 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_9_MESSAGES);
         required.addAll(VERSION_10_MESSAGES);
         required.addAll(VERSION_15_MESSAGES);
+        required.addAll(VERSION_16_MESSAGES);
         required.addAll(VERSION_13_MESSAGES);
         required.addAll(VERSION_14_MESSAGES);
         return Set.copyOf(required);
@@ -372,7 +375,10 @@ public final class ConfigurationLoader {
             return false;
         }
 
-        boolean changed = sourceVersion < 2 && mergeMissing(language, defaults, VERSION_2_MESSAGES);
+        boolean changed = sourceVersion < 16 && mergeMissing(language, defaults, VERSION_16_MESSAGES);
+        if (sourceVersion < 2) {
+            changed |= mergeMissing(language, defaults, VERSION_2_MESSAGES);
+        }
         if (sourceVersion < 3) {
             changed |= mergeMissing(language, defaults, VERSION_3_MESSAGES);
         }
@@ -532,7 +538,8 @@ public final class ConfigurationLoader {
         return new PluginSettings(version, storage, features, teleportDistance, abilities, ranks,
                 Duration.ofSeconds(rankRefreshSeconds),
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
-                Duration.ofSeconds(loadTimeoutSeconds));
+                Duration.ofSeconds(loadTimeoutSeconds),
+                valueOr(string(root, file, "give.all-owned-command", true, issues), ""));
     }
 
     private Map<String, RankLimits> parseRanks(

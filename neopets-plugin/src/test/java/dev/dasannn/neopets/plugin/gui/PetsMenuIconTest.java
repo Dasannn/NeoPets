@@ -62,7 +62,7 @@ class PetsMenuIconTest {
                 new dev.dasannn.neopets.core.model.RankLimits(1, 3, 10)),
                 Duration.ofSeconds(30),
                 new PluginSettings.Courier(Duration.ofMinutes(5), Duration.ofMinutes(15)),
-                Duration.ofSeconds(10));
+                Duration.ofSeconds(10), "");
         return new ConfigurationSnapshot(settings, new InMemoryVariantCatalog(java.util.List.of(variant)), icons,
                 Map.of(), new LanguageCatalog(Map.of()));
     }

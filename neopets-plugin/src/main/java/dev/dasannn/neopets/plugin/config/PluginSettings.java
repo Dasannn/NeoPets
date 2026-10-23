@@ -19,12 +19,14 @@ public record PluginSettings(
         Map<String, RankLimits> ranks,
         Duration bukkitRankRefreshInterval,
         Courier courier,
-        Duration playerDataLoadTimeout
+        Duration playerDataLoadTimeout,
+        String giveAllOwnedCommand
 ) {
     public PluginSettings {
         if (configVersion < 1) {
             throw new IllegalArgumentException("configVersion must be positive");
         }
+        Objects.requireNonNull(giveAllOwnedCommand, "giveAllOwnedCommand");
         Objects.requireNonNull(storage, "storage");
         Objects.requireNonNull(features, "features");
         if (!Double.isFinite(followTeleportDistance) || followTeleportDistance <= 0) {

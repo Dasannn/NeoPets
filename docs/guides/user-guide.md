@@ -33,7 +33,7 @@ y las mejoras de cada mascota.
 ## Comandos y permisos
 
 `Ana` representa un jugador real. En consola se omite `/`. `give` y `sp` admiten
-jugadores desconectados que ya hayan jugado; `revive` exige que estén conectados.
+jugadores desconectados que ya hayan jugado; `revive` y `reset` exigen que estén conectados.
 Las sugerencias de nombres solo muestran conectados.
 
 | Sintaxis | Permiso exigido | Consola | Ejemplo |
@@ -50,33 +50,37 @@ Las sugerencias de nombres solo muestran conectados.
 | `/neopets revive <jugador>` (también `/pets revive`) | `neopets.admin.revive` | Sí | `/neopets revive Ana` |
 | `/neopet courier accept <UUID-solicitud>` | `neopets.use` | No | `/neopet courier accept <UUID del botón recibido>` |
 | `/neopet courier reject <UUID-solicitud>` | `neopets.use` | No | `/neopet courier reject <UUID del botón recibido>` |
+| `/neopet reset <jugador> <petId\|petName>` | `neopets.admin.reset` | Sí | `/neopet reset Ana dog_pale` |
 | `/neopet admin` | `neopets.admin.gui` | No | `/neopet admin` |
 | `/neopet reload` | `neopets.admin.reload` | Sí | `/neopet reload` |
 
 Los UUID de mensajería los incluyen los botones del chat; solo el destinatario
 puede responder. `give`/`take` requieren entero positivo; `set` admite cero.
 El saldo usa enteros hasta `2147483647`; quitar más de lo disponible o desbordarlo
-se rechaza. No hay un comando de compra, renombrado ni reset administrativo:
-el renombrado y el reset de jugador se hacen en la GUI. `revive` pertenece a la
+se rechaza. No hay un comando de compra ni renombrado; el renombrado y el reset de jugador
+se hacen en la GUI. El reset administrativo es gratuito, devuelve los SP asignados
+y borra los desbloqueos como el reset existente, sin devolver dinero. Acepta UUID
+persistente, ID de variante o nombre personalizado (también con espacios).
+Si varios nombres coinciden, usa el UUID para seleccionar la mascota exacta. `revive` pertenece a la
 raíz plural `/neopets`, no a `/neopet`.
 
-`paper-plugin.yml` declara las dependencias y la versión de API, **no** declara
-comandos ni permisos con valores predeterminados o hijos. Los comandos se
-registran en ejecución y comprueban estos nodos literalmente:
+`paper-plugin.yml` declara dependencias, versión de API y `neopets.admin`
+(predeterminado para operadores), con `neopets.admin.reset` como hijo.
+Los comandos se registran en ejecución y comprueban estos nodos:
 
 | Permiso | Alcance |
 |---|---|
 | `neopets.use` | Menú de mascotas, invocar, guardar y responder mensajería; acceso a las alforjas |
 | `neopets.admin.give` | Entregar variantes |
+| `neopets.admin.reset` | Reset gratuito del árbol de una mascota de un jugador conectado |
 | `neopets.admin.sp` | Dar, quitar y fijar saldo de SP |
 | `neopets.admin.revive` | Ejecutar la integración de revivir para un jugador |
 | `neopets.admin.gui` | Abrir y editar la GUI administrativa |
 | `neopets.admin.reload` | Recargar YAML |
 | `neopets.rank.<id>` | Seleccionar un rango **definido** en `ranks` |
 
-No se comprueba un permiso general `neopets.admin` ni `neopets.admin.reset`.
-Concede los nodos concretos; la herencia o los comodines dependen del gestor de
-permisos. Por ejemplo, en consola con LuckPerms:
+`neopets.admin` hereda `neopets.admin.reset`; concede los demás nodos concretos
+para las otras acciones administrativas. Los comodines dependen del gestor de permisos. Por ejemplo, en consola con LuckPerms:
 
 ```text
 lp group default permission set neopets.use true
@@ -118,7 +122,7 @@ finitos. `I64` significa `9223372036854775807` y `Dmax`, aproximadamente
 
 | Clave | Tipo | Predeterminado | Rango / efecto |
 |---|---|---|---|
-| `config-version` | Entero | 15 | Versiones 1–15 migran a 15; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
+| `config-version` | Entero | 16 | Versiones 1–15 migran a 16; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
 | `storage.type` | Texto | `sqlite` | `sqlite` o `mysql`; selección del motor al arrancar. SQLite es la opción aislada para pruebas; MySQL, para redes de producción. |
 | `storage.sqlite.file` | Texto | `neopets.db` | No vacío; ruta del archivo SQLite, relativa a la carpeta del plugin si no es absoluta. |
 | `storage.mysql.host` | Texto | `127.0.0.1` | No vacío; host MySQL/MariaDB. |
@@ -145,6 +149,7 @@ proveedores de integración o el intervalo del refresco Bukkit requiere reinicio
 | `shop.enabled` | Booleano | `false` | Flag expuesto en admin; no existe flujo de compra implementado. Activarlo no crea una tienda. |
 | `rename.enabled` | Booleano | `true` | Habilita renombrado por chat desde la GUI. |
 | `reset.player-enabled` | Booleano | `false` | Habilita botón de reset del árbol para jugadores. |
+| `give.all-owned-command` | Texto | `""` | Comando de consola si ya posee todos los candidatos, además del mensaje `pets.all-owned` (o `pets.already-owned` para ID específico). Vacío desactiva; sustituye `<player>` y `<uuid>`. Sin `/` inicial; no aparece en GUI admin. |
 | `reset.cost` | Decimal | 5000 | 0–Dmax; coste del reset, cero permite reset gratuito. |
 | `follow.teleport-distance` | Decimal | 20 | Mayor que 0 y finito; distancia de teleport al dueño. Se fija al arrancar: reinicia para aplicarla. |
 
@@ -192,9 +197,8 @@ Lista inicial de `ore-materials`:
 | `courier.request-timeout-seconds` | Entero | 300 | 1–I64; plazo total desde la solicitud, también limita una entrega aceptada. Aceptar no reinicia el plazo. |
 | `courier.cooldown-seconds` | Entero | 900 | 0–I64; espera por burro desde el envío, incluso si se rechaza; cero elimina la espera. |
 
-El comentario distribuido de `max-scan-blocks` menciona estados de contenedor;
-el escáner actual consume presupuesto por consultas de chunks y posiciones, sin
-cobrar aparte cada estado de contenedor.
+El escáner consume presupuesto por consultas de chunks y posiciones, primero las
+más cercanas; al agotar el presupuesto quedan fuera las posiciones más lejanas.
 
 Los máximos de duración son límites de representación, no valores operativos
 aconsejados: una fecha de expiración extremadamente lejana puede desbordarse.
@@ -244,8 +248,9 @@ archivos de tipos automáticamente.
 por comas, sin espacios, o en `random [tipo]`, sortea con los pesos de los
 candidatos restantes: peso 10 frente a 2 equivale a una relación 5:1, no a
 porcentajes fijos. Un ID específico no sortea. Si ya tiene toda la selección,
-solo se muestra «No quedan variantes disponibles de esa selección»; no hay
-compensación configurable implementada.
+se muestra el mensaje configurable y se ejecuta una vez el comando de consola
+`give.all-owned-command` si está configurado. También se aplica a un ID específico
+ya poseído; una entrega exitosa o una selección inválida no ejecuta compensación.
 
 ## Uso de mascotas y árbol
 
@@ -412,7 +417,7 @@ integraciones, el cerebro de seguimiento ni el temporizador Bukkit de permisos;
 reinicia para cambiar esos elementos. Para comprobar nuevos aspectos o valores
 de árboles ya invocados, guarda y vuelve a invocar la mascota.
 
-La versión actual es 15. Las migraciones añaden claves y mensajes nuevos sin
+La versión actual es 16. Las migraciones añaden claves y mensajes nuevos sin
 sobrescribir los personalizados; las antiguas apariencias de gatos/loros y los
 valores de árboles predeterminados anteriores a v5 tienen migración específica.
 No se guarda una migración inválida. No hay copia de seguridad automática.

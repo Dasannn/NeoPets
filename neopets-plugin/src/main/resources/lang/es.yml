@@ -16,14 +16,16 @@ errors:
 general:
   reloaded: "<green>Configuración de NeoPets recargada.</green>"
   usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
-  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|courier|admin|reload</white>.</gray>"
+  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|reset|courier|admin|reload</white>.</gray>"
   usage-pet-action: '<gray>Uso: <white>/neopet summon|dismiss \<variante|id></white></gray>'
   usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
+  usage-reset: '<gray>Uso: <white>/neopet reset \<jugador> \<petId|petName></white></gray>'
   usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
   usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
   usage-courier: '<gray>Usa los botones de la solicitud de mensajería.</gray>'
 
 pets:
+  unknown-pet: "<red>No se encontró la mascota <pet>.</red>"
   none-owned: "<yellow>Aún no tienes mascotas.</yellow>"
   given: "<green>Has recibido <pet>.</green>"
   given-admin: "<green>Entregaste <pet> a <player>.</green>"
@@ -59,6 +61,7 @@ pets:
   shop-disabled: "<yellow>La compra de mascotas está desactivada.</yellow>"
 
 skills:
+  reset-admin: "<green>Árbol de <pet> de <player> reiniciado; <points> SP devueltos.</green>"
   points: "<aqua>SP disponibles: <white><points></white></aqua>"
   points-changed: "<green>El saldo de SP de <player> ahora es <points>.</green>"
   points-insufficient: "<red><player> solo tiene <points> SP; no se pueden quitar <amount>.</red>"

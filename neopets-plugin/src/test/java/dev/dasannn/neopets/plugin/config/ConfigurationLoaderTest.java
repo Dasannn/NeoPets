@@ -34,6 +34,51 @@ class ConfigurationLoaderTest {
     @TempDir
     Path temporaryDirectory;
 
+    @Test
+    void versionFifteenAddsCompensationAndResetMessagesWithoutOverwritingCustomValues() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        Path langFile = temporaryDirectory.resolve("lang/es.yml");
+        for (String command : List.of("", "reward <player> <uuid>")) {
+            var root = YamlConfiguration.loadConfiguration(configFile.toFile());
+            root.set("config-version", 15);
+            root.set("give.all-owned-command", command.isEmpty() ? null : command);
+            root.save(configFile.toFile());
+            var lang = YamlConfiguration.loadConfiguration(langFile.toFile());
+            lang.set("general.usage-reset", null);
+            lang.set("pets.unknown-pet", null);
+            lang.set("skills.reset-admin", "Mi reset: <points>");
+            lang.save(langFile.toFile());
+            var upgraded = loader.load();
+            assertEquals(16, upgraded.settings().configVersion());
+            assertEquals(command, upgraded.settings().giveAllOwnedCommand());
+            assertTrue(upgraded.language().find("general.usage-reset").isPresent());
+            assertTrue(upgraded.language().find("pets.unknown-pet").isPresent());
+            assertEquals("Mi reset: <points>", upgraded.language().find("skills.reset-admin").orElseThrow());
+            assertEquals(command, YamlConfiguration.loadConfiguration(configFile.toFile()).get("give.all-owned-command"));
+        }
+    }
+
+    @Test
+    void compensationRequiresAStringAndIsNotBackfilledAtCurrentVersion() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        Path file = temporaryDirectory.resolve("config.yml");
+        for (Object value : List.of(false, 42, List.of("reward"))) {
+            var root = YamlConfiguration.loadConfiguration(file.toFile());
+            root.set("give.all-owned-command", value);
+            root.save(file.toFile());
+            assertIssue(assertThrows(ConfigurationLoadException.class, loader::load),
+                    "config.yml", "give.all-owned-command");
+        }
+        var root = YamlConfiguration.loadConfiguration(file.toFile());
+        root.set("give.all-owned-command", null);
+        root.save(file.toFile());
+        assertIssue(assertThrows(ConfigurationLoadException.class, loader::load),
+                "config.yml", "give.all-owned-command");
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {9, 10, 11, 12, 13})
     void preFourteenInstallBackfillsCourierMessagesAndPreservesCustomText(int sourceVersion) throws Exception {
@@ -535,7 +580,7 @@ class ConfigurationLoaderTest {
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
         replace("lang/es.yml", "    header-name: \"<gold><bold>Mis mascotas</bold></gold>\"\n", "");
-        replace("lang/es.yml", "  usage-neopet: \"<gray>Usa <white>/neopet give|summon|dismiss|sp|courier|admin|reload</white>.</gray>\"",
+        replace("lang/es.yml", "  usage-neopet: \"<gray>Usa <white>/neopet give|summon|dismiss|sp|reset|courier|admin|reload</white>.</gray>\"",
                 "  usage-neopet: \"mensaje personalizado\"");
         replace("lang/es.yml", "    close: \"<red>Cerrar</red>\"", "    close: \"cierre personalizado\"");
 

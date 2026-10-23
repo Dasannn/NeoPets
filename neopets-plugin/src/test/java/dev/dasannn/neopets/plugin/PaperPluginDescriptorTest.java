@@ -38,6 +38,8 @@ final class PaperPluginDescriptorTest {
                     () -> assertTrue(yaml.contains(
                             "loader: dev.dasannn.neopets.plugin.bootstrap.NeoPetsLoader")),
                     () -> assertTrue(yaml.contains("api-version: '26.3'")),
+                    () -> assertTrue(yaml.contains("    children:\n      neopets.admin.reset: true")),
+                    () -> assertTrue(yaml.contains("  neopets.admin.reset:\n")),
                     () -> assertOptionalDependency(yaml, "Vault"),
                     () -> assertOptionalDependency(yaml, "LuckPerms"),
                     () -> assertOptionalDependency(yaml, "PlaceholderAPI"),
