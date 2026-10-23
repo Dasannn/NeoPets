@@ -1,11 +1,18 @@
 package dev.dasannn.neopets.platform.paper;
 
+import dev.dasannn.neopets.core.port.PetEntityGateway;
+import java.util.Collection;
 import java.util.Objects;
 import org.bukkit.Server;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.EntitiesUnloadEvent;
 
 /** Runs all active pet behavior from one configurable repeating task. */
-public final class PetTicker implements AutoCloseable {
+public final class PetTicker implements AutoCloseable, Listener {
     /** Default shared ticker period in server ticks. */
     public static final long DEFAULT_PERIOD_TICKS = 10L;
 
@@ -13,12 +20,19 @@ public final class PetTicker implements AutoCloseable {
     private final TaskScheduler scheduler;
     private final LivePetRegistry registry;
     private final PetBrain brain;
+    private final PetEntityGateway entityGateway;
     private final long periodTicks;
     private TaskScheduler.RepeatingTask task;
 
     /** Creates a ticker that runs every ten ticks. */
-    public PetTicker(Server server, TaskScheduler scheduler, LivePetRegistry registry, PetBrain brain) {
-        this(server, scheduler, registry, brain, DEFAULT_PERIOD_TICKS);
+    public PetTicker(
+            Server server,
+            TaskScheduler scheduler,
+            LivePetRegistry registry,
+            PetBrain brain,
+            PetEntityGateway entityGateway
+    ) {
+        this(server, scheduler, registry, brain, entityGateway, DEFAULT_PERIOD_TICKS);
     }
 
     /** Creates a ticker with a configured positive period. */
@@ -27,12 +41,14 @@ public final class PetTicker implements AutoCloseable {
             TaskScheduler scheduler,
             LivePetRegistry registry,
             PetBrain brain,
+            PetEntityGateway entityGateway,
             long periodTicks
     ) {
         this.server = Objects.requireNonNull(server, "server");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.brain = Objects.requireNonNull(brain, "brain");
+        this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
         if (periodTicks <= 0) {
             throw new IllegalArgumentException("periodTicks must be greater than zero");
         }
@@ -56,9 +72,30 @@ public final class PetTicker implements AutoCloseable {
         }
     }
 
+    /** Recreates active non-persistent pets when Paper unloads their chunk. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntitiesUnload(EntitiesUnloadEvent event) {
+        recoverUnloaded(event.getEntities());
+    }
+
+    void recoverUnloaded(Collection<? extends Entity> entities) {
+        for (var entity : entities) {
+            PetEntityMetadata.petId(entity).ifPresent(petId -> {
+                if (registry.unregister(petId, entity.getUniqueId())) {
+                    entityGateway.spawn(petId);
+                }
+            });
+        }
+    }
+
     private void tickAll() {
         for (var entry : registry.snapshot().entrySet()) {
             var entity = server.getEntity(entry.getValue());
+            if (entity == null) {
+                // EntitiesUnloadEvent performs recovery. Retain the association until that event is observed so a
+                // transient lookup miss cannot permanently forget an otherwise active domain pet.
+                continue;
+            }
             if (!(entity instanceof Mob pet) || !pet.isValid()) {
                 registry.unregister(entry.getKey(), entry.getValue());
                 continue;

@@ -5,9 +5,12 @@ import dev.dasannn.neopets.core.model.PetVariant;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+import org.bukkit.Location;
 import org.bukkit.Server;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 
 /**
@@ -19,7 +22,7 @@ import org.bukkit.entity.LivingEntity;
 public final class PaperPetEntityGateway implements PetEntityGateway {
     private final Server server;
     private final TaskScheduler scheduler;
-    private final PetSpawner spawner;
+    private final EntitySpawner spawner;
     private final LivePetRegistry registry;
     private final Function<PetId, PetSpawnData> spawnDataLookup;
     private final Function<VariantId, PetVariant> variantLookup;
@@ -42,6 +45,25 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
             Server server,
             TaskScheduler scheduler,
             PetSpawner spawner,
+            LivePetRegistry registry,
+            Function<PetId, PetSpawnData> spawnDataLookup,
+            Function<VariantId, PetVariant> variantLookup,
+            PetEffectApplier effectApplier
+    ) {
+        this(
+                server,
+                scheduler,
+                Objects.requireNonNull(spawner, "spawner")::spawn,
+                registry,
+                spawnDataLookup,
+                variantLookup,
+                effectApplier);
+    }
+
+    PaperPetEntityGateway(
+            Server server,
+            TaskScheduler scheduler,
+            EntitySpawner spawner,
             LivePetRegistry registry,
             Function<PetId, PetSpawnData> spawnDataLookup,
             Function<VariantId, PetVariant> variantLookup,
@@ -106,8 +128,23 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
 
         var entity = spawner.spawn(owner.getLocation(), spawnData.ownerId(), petId, variant);
         registry.register(petId, entity.getUniqueId());
-        if (entity instanceof LivingEntity livingEntity) {
-            effectApplier.apply(petId, livingEntity);
+        try {
+            if (entity instanceof LivingEntity livingEntity) {
+                effectApplier.apply(petId, livingEntity);
+            }
+        } catch (Throwable failure) {
+            registry.unregister(petId, entity.getUniqueId());
+            try {
+                entity.remove();
+            } catch (Throwable cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
         }
+    }
+
+    @FunctionalInterface
+    interface EntitySpawner {
+        Entity spawn(Location location, UUID ownerId, PetId petId, PetVariant variant);
     }
 }

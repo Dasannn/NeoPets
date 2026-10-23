@@ -3,6 +3,7 @@ package dev.dasannn.neopets.platform.paper;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
@@ -76,11 +77,11 @@ public final class PetProtectionListener implements Listener {
         }
     }
 
-    /** Applies the injectable player-versus-pet damage rule, including player-shot projectiles. */
+    /** Applies the injectable player-versus-pet damage rule, including indirect damage sources. */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDamage(EntityDamageByEntityEvent event) {
         var ownerId = PetEntityMetadata.ownerId(event.getEntity());
-        var attackerId = attackingPlayerId(event.getDamager());
+        var attackerId = attackingPlayerId(event.getDamager(), event.getDamageSource());
         if (ownerId.isPresent() && attackerId.isPresent()
                 && damagePolicy.denies(ownerId.orElseThrow(), attackerId.orElseThrow())) {
             event.setCancelled(true);
@@ -99,7 +100,10 @@ public final class PetProtectionListener implements Listener {
                 .orElse(false);
     }
 
-    private static Optional<UUID> attackingPlayerId(Entity damager) {
+    static Optional<UUID> attackingPlayerId(Entity damager, DamageSource damageSource) {
+        if (damageSource.getCausingEntity() instanceof Player player) {
+            return Optional.of(player.getUniqueId());
+        }
         if (damager instanceof Player player) {
             return Optional.of(player.getUniqueId());
         }

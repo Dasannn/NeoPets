@@ -22,3 +22,13 @@ de Crafty vive fuera del repositorio.
 
 ## Despliegue
 - La API de Crafty permite subir archivos a `plugins/`, borrar y reiniciar (`/api/v2/servers/{id}/action/restart_server`).
+
+## Checklist manual de entidades (T16/T17)
+
+Repetir cada comprobación con perro, gato, loro, oso polar y burro:
+
+- La variante, el estado bebé/adulto y el nombre configurados aparecen correctamente.
+- La mascota camina o vuela hacia su dueño al superar la distancia de seguimiento y se teletransporta al superar la distancia configurada o cambiar de mundo.
+- Descargar el chunk de la mascota la reinvoca junto al dueño una sola vez, sin duplicados.
+- La mascota nunca selecciona al dueño como objetivo y el daño directo o indirecto causado por el dueño se cancela.
+- Otro jugador no puede ponerle correa, montarla, alimentarla/criarla, renombrarla con etiqueta ni cambiar su estado sentado/de pie; el dueño sí conserva sus interacciones permitidas.
