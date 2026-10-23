@@ -7,7 +7,6 @@ de Crafty vive fuera del repositorio.
 |---|---|
 | Panel | Crafty Controller — `https://8080-agqvsroda4lyjadje5zkb7qhie.instabox.tech/` |
 | Servidor principal | "Servidor Agentes" (`8f652573-fdd9-4fd0-93e9-994297a9be87`) |
-| Copia | "Servidor Agentes (copia)" (`5e22d5d7-7182-4217-a691-575c51e92009`) |
 | Paper | `26.3-211` — API `26.3.build.211-stable` |
 | Memoria | `-Xms1024M -Xmx3072M` |
 | Puerto | 25565 |
@@ -19,6 +18,7 @@ de Crafty vive fuera del repositorio.
 
 ## Base de datos
 - Existe un MySQL del proveedor en `127.0.0.1:3307` (lo usa DamageControl). Credenciales no documentadas aquí.
+- NeoPets usa SQLite en este servidor (ver `docs/decisions/0001-storage-test-server.md`).
 
 ## Despliegue
 - La API de Crafty permite subir archivos a `plugins/`, borrar y reiniciar (`/api/v2/servers/{id}/action/restart_server`).

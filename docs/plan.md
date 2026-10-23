@@ -29,7 +29,7 @@ Los hitos M3–M6 pueden avanzar en paralelo una vez cerrados M1 y M2 (los puert
 7. Las tareas con prueba en vivo se despliegan en el servidor de pruebas y se valida su checklist.
 8. Nada llega a `main` sin aprobación explícita del dueño.
 
-Máximo 3 tareas en paralelo, siempre en módulos o paquetes distintos.
+Se paraleliza siempre que las dependencias lo permitan (hasta 5 tareas a la vez), siempre en módulos o paquetes distintos.
 
 ## 3. Riesgos y mitigaciones
 
