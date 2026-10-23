@@ -51,6 +51,8 @@ pets:
 skills:
   points: "<aqua>SP disponibles: <white><points></white></aqua>"
   points-changed: "<green>El saldo de SP de <player> ahora es <points>.</green>"
+  points-insufficient: "<red><player> solo tiene <points> SP; no se pueden quitar <amount>.</red>"
+  points-overflow: "<red>El saldo de SP de <player> excedería el máximo permitido.</red>"
   node-unlocked: "<green>Has desbloqueado <attribute> nivel <level>.</green>"
   node-activated: "<green>Has activado <attribute> nivel <level>.</green>"
   previous-level-required: "<yellow>Debes desbloquear primero el nivel anterior.</yellow>"

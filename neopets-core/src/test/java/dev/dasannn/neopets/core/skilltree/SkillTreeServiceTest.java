@@ -467,8 +467,7 @@ class SkillTreeServiceTest {
         fixture.progressRepository.failDelayedSave(new IllegalStateException("tree write failed"));
 
         assertInstanceOf(ResetResult.Failed.class, reset.join());
-        var failure = assertThrows(CompletionException.class, spend::join);
-        assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+        assertEquals(new SkillPointResult.InsufficientSkillPoints(2, 3), spend.join());
         assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
         assertEquals(1, fixture.progress().activeNodes());
     }

@@ -7,15 +7,18 @@ import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
 import dev.dasannn.neopets.plugin.command.MessageSpec;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
+import dev.dasannn.neopets.plugin.runtime.RuntimeWorkTracker;
 import dev.dasannn.neopets.storage.cache.PlayerDataCache;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.bukkit.event.EventHandler;
@@ -23,6 +26,8 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.player.PlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 /** Loads online-player state and preserves active pets across connection boundaries. */
@@ -33,6 +38,9 @@ public final class PlayerLifecycleListener implements Listener {
     private final ConfigurationManager configuration;
     private final LocalizedMessages messages;
     private final Logger logger;
+    private final PendingLoginSessions pendingLogins;
+    private final RuntimeWorkTracker work;
+    private final ConcurrentHashMap<AsyncPlayerPreLoginEvent, Long> preLoginTokens = new ConcurrentHashMap<>();
 
     public PlayerLifecycleListener(
             PlayerDataCache cache,
@@ -40,7 +48,9 @@ public final class PlayerLifecycleListener implements Listener {
             PetEntityGateway entities,
             ConfigurationManager configuration,
             LocalizedMessages messages,
-            Logger logger
+            Logger logger,
+            Consumer<Runnable> scheduleLoginExpiry,
+            RuntimeWorkTracker work
     ) {
         this.cache = Objects.requireNonNull(cache, "cache");
         this.pets = Objects.requireNonNull(pets, "pets");
@@ -48,6 +58,8 @@ public final class PlayerLifecycleListener implements Listener {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.work = Objects.requireNonNull(work, "work");
+        pendingLogins = new PendingLoginSessions(scheduleLoginExpiry, this::cleanupRejectedLogin);
     }
 
     /** Blocks only Paper's asynchronous login thread until the complete profile is cached. */
@@ -56,7 +68,8 @@ public final class PlayerLifecycleListener implements Listener {
         var playerId = new PlayerId(event.getUniqueId());
         Duration timeout = configuration.current().settings().playerDataLoadTimeout();
         try {
-            cache.load(playerId).get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            work.submit(() -> cache.load(playerId)).get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            preLoginTokens.put(event, pendingLogins.loaded(playerId));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             deny(event, playerId, exception);
@@ -65,13 +78,31 @@ public final class PlayerLifecycleListener implements Listener {
         }
     }
 
+    /** Cleans a successfully loaded profile if a later asynchronous listener rejects the login. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPreLoginComplete(AsyncPlayerPreLoginEvent event) {
+        Long token = preLoginTokens.remove(event);
+        if (token != null && event.getResult() != PlayerPreLoginEvent.Result.ALLOWED) {
+            pendingLogins.rejected(new PlayerId(event.getUniqueId()), token);
+        }
+    }
+
+    /** Cleans a profile if the synchronous login phase rejects the player after pre-login. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onLoginComplete(PlayerLoginEvent event) {
+        if (event.getResult() != PlayerLoginEvent.Result.ALLOWED) {
+            pendingLogins.rejected(new PlayerId(event.getPlayer().getUniqueId()));
+        }
+    }
+
     /** Recreates every entity whose persisted active flag survived the previous disconnect. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
-        pets.findByOwner(playerId)
+        pendingLogins.joined(playerId);
+        work.submit(() -> pets.findByOwner(playerId)
                 .thenCompose(owned -> all(owned.stream().filter(OwnedPet::active)
-                        .map(pet -> entities.spawn(pet.id())).toList()))
+                        .map(pet -> entities.spawn(pet.id())).toList())))
                 .whenComplete((ignored, failure) -> logFailure("re-summon pets for " + playerId, failure));
     }
 
@@ -79,7 +110,8 @@ public final class PlayerLifecycleListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
-        continueAfter(despawn(playerId), () -> cache.unload(playerId))
+        pendingLogins.joined(playerId);
+        work.submit(() -> continueAfter(despawn(playerId), () -> cache.unload(playerId)))
                 .whenComplete((ignored, failure) -> logFailure("unload player " + playerId, failure));
     }
 
@@ -92,8 +124,13 @@ public final class PlayerLifecycleListener implements Listener {
     private void deny(AsyncPlayerPreLoginEvent event, PlayerId playerId, Throwable failure) {
         cache.unload(playerId);
         logger.log(Level.WARNING, "Could not load NeoPets profile for " + playerId, unwrap(failure));
-        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+        event.disallow(PlayerPreLoginEvent.Result.KICK_OTHER,
                 messages.render(MessageSpec.of("errors.profile-load")));
+    }
+
+    private void cleanupRejectedLogin(PlayerId playerId, String reason) {
+        work.submit(() -> cache.unload(playerId)).whenComplete((ignored, failure) ->
+                logFailure(reason + " for " + playerId, failure));
     }
 
     private void logFailure(String operation, Throwable failure) {

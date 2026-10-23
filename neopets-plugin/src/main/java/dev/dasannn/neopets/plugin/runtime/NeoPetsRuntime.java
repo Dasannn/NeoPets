@@ -68,6 +68,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final SkillTreeService skillTrees;
     private final CachingPetRepository pets;
     private final PlayerLifecycleListener playerLifecycle;
+    private final PlayerDataCache cache;
+    private final RuntimeWorkTracker work;
 
     private NeoPetsRuntime(
             RuntimeLifecycle lifecycle,
@@ -78,7 +80,9 @@ public final class NeoPetsRuntime implements AutoCloseable {
             SkillPointService skillPoints,
             SkillTreeService skillTrees,
             CachingPetRepository pets,
-            PlayerLifecycleListener playerLifecycle
+            PlayerLifecycleListener playerLifecycle,
+            PlayerDataCache cache,
+            RuntimeWorkTracker work
     ) {
         this.lifecycle = lifecycle;
         this.configuration = configuration;
@@ -89,6 +93,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.skillTrees = skillTrees;
         this.pets = pets;
         this.playerLifecycle = playerLifecycle;
+        this.cache = cache;
+        this.work = work;
     }
 
     /** Builds and starts the runtime, rolling back already-started resources on failure. */
@@ -120,6 +126,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var events = new DomainEventBus((event, failure) -> plugin.getLogger().log(
                     Level.SEVERE, "Domain event listener failed for " + event.getClass().getSimpleName(), failure));
             var operations = new PlayerOperationQueue();
+            var work = new RuntimeWorkTracker();
             VariantCatalog variants = liveVariants(configuration);
             SkillTreeRegistry treeRegistry = type -> configuration.current().skillTree(type);
             var petService = new PetService(variants, pets, entityPort, rankPort, events,
@@ -148,11 +155,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
             economyPort.bind(EconomyProvider.resolve(plugin.getServer(), mainThread, plugin.getLogger()));
             rankPort.bind(RankLimitsResolverFactory.create(plugin, configuration));
 
-            NeoPetsProvider.register(new NeoPetsApiImpl(pets, players, trees, livePets, configuration));
+            NeoPetsProvider.register(new NeoPetsApiImpl(pets, players, trees, cache, livePets, configuration));
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             var playerLifecycle = new PlayerLifecycleListener(
-                    cache, pets, gateway, configuration, messages, plugin.getLogger());
+                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
+                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work);
             var pluginManager = plugin.getServer().getPluginManager();
             pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
@@ -160,13 +168,17 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(ticker, plugin);
 
             lifecycle.started((AutoCloseable) () -> {
+                NeoPetsProvider.unregister();
+                awaitShutdown(work.stopAndDrain());
+                awaitShutdown(operations.stopAndDrain());
                 CompletableFuture<Void> despawns = CompletableFuture.allOf(livePets.snapshot().keySet().stream()
                         .map(gateway::despawn).toArray(CompletableFuture[]::new));
-                awaitShutdown(despawns, cache.flushAll());
+                awaitShutdown(despawns);
+                awaitShutdown(cache.flushAll());
             });
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService, offlinePetService,
-                    skillPoints, skillTrees, pets, playerLifecycle);
+                    skillPoints, skillTrees, pets, playerLifecycle, cache, work);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
             throw exception;
@@ -206,6 +218,18 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public PlayerLifecycleListener playerLifecycle() {
         return playerLifecycle;
+    }
+
+    /** Starts work only while the runtime is accepting operations and tracks it through completion. */
+    public <T> CompletableFuture<T> submit(
+            java.util.function.Supplier<? extends CompletableFuture<T>> operation
+    ) {
+        return work.submit(operation);
+    }
+
+    /** Returns the cached pets for an online player without falling through to persistence. */
+    public List<OwnedPet> loadedPets(PlayerId playerId) {
+        return cache.loadedPets(playerId).orElseGet(List::of);
     }
 
     /** Returns the configured or custom name displayed for an owned pet. */
@@ -264,26 +288,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
         }
     }
 
-    private static void awaitShutdown(
-            CompletableFuture<Void> despawns, CompletableFuture<Void> flush
-    ) throws Exception {
-        Exception failure = null;
-        try {
-            despawns.get(SHUTDOWN_TIMEOUT.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (Exception exception) {
-            failure = exception;
-        }
-        try {
-            flush.get(SHUTDOWN_TIMEOUT.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (Exception exception) {
-            if (failure == null) {
-                failure = exception;
-            } else {
-                failure.addSuppressed(exception);
-            }
-        }
-        if (failure != null) {
-            throw failure;
-        }
+    private static void awaitShutdown(CompletableFuture<Void> operation) throws Exception {
+        operation.get(SHUTDOWN_TIMEOUT.toNanos(), TimeUnit.NANOSECONDS);
     }
 }

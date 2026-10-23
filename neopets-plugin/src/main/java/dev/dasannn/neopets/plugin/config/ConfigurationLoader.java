@@ -39,6 +39,11 @@ public final class ConfigurationLoader {
     private static final List<String> PET_TYPES = List.of("dog", "cat", "parrot", "polar_bear", "donkey");
     private static final List<String> DEFAULT_RESOURCES = defaultResources();
     private static final Pattern LOWERCASE_KEY = Pattern.compile("[a-z0-9]+(?:_[a-z0-9]+)*");
+    private static final Set<String> VERSION_2_MESSAGES = Set.of(
+            "errors.profile-load", "general.usage-neopet", "general.usage-pet-action",
+            "pets.already-active", "pets.already-inactive", "pets.not-owned", "pets.in-transit",
+            "pets.dead-unavailable", "pets.list-header", "pets.list-entry", "pets.action-summon",
+            "pets.action-dismiss", "skills.points-insufficient", "skills.points-overflow");
     private static final Set<String> REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -54,7 +59,8 @@ public final class ConfigurationLoader {
             "pets.soul-required", "pets.soul-invalid", "pets.soul-item-name", "pets.soul-item-lore",
             "pets.shop-disabled", "skills.points", "skills.points-changed", "skills.node-unlocked",
             "skills.node-activated", "skills.previous-level-required", "skills.not-enough-money",
-            "skills.not-enough-points", "skills.node-limit", "skills.point-limit", "skills.reset",
+            "skills.not-enough-points", "skills.points-insufficient", "skills.points-overflow",
+            "skills.node-limit", "skills.point-limit", "skills.reset",
             "skills.reset-disabled", "skills.reset-cost", "skills.already-unlocked", "skills.already-active",
             "courier.request-sent", "courier.request-received", "courier.accepted", "courier.rejected",
             "courier.returned", "courier.timed-out", "courier.cooldown", "courier.recipient-offline",
@@ -101,8 +107,11 @@ public final class ConfigurationLoader {
         var issues = new ArrayList<ConfigurationIssue>();
 
         YamlConfiguration root = loadYaml(Path.of("config.yml"), issues);
-        migrateRoot(root, issues);
+        MigrationOutcome migration = migrateRoot(root, issues);
         PluginSettings settings = parseSettings(root, issues);
+        YamlConfiguration languageYaml = loadYaml(Path.of("lang", "es.yml"), issues);
+        boolean languageChanged = migration.sourceVersion() == 1
+                && backfillLanguageVersion2(languageYaml, issues);
 
         var variants = new LinkedHashMap<VariantId, PetVariant>();
         var icons = new LinkedHashMap<VariantId, String>();
@@ -111,10 +120,16 @@ public final class ConfigurationLoader {
             parseVariants(type, loadYaml(Path.of("pets", type + ".yml"), issues), variants, icons, issues);
             parseSkillTree(type, loadYaml(Path.of("skilltrees", type + ".yml"), issues), trees, issues);
         }
-        LanguageCatalog language = parseLanguage(loadYaml(Path.of("lang", "es.yml"), issues), issues);
+        LanguageCatalog language = parseLanguage(languageYaml, issues);
 
         if (!issues.isEmpty()) {
             throw new ConfigurationLoadException(issues);
+        }
+        if (languageChanged) {
+            languageYaml.save(dataDirectory.resolve(Path.of("lang", "es.yml")).toFile());
+        }
+        if (migration.changed()) {
+            root.save(dataDirectory.resolve("config.yml").toFile());
         }
         return new ConfigurationSnapshot(settings, new InMemoryVariantCatalog(variants.values()), icons, trees, language);
     }
@@ -147,19 +162,46 @@ public final class ConfigurationLoader {
         return yaml;
     }
 
-    private void migrateRoot(YamlConfiguration root, List<ConfigurationIssue> issues) throws IOException {
+    private MigrationOutcome migrateRoot(YamlConfiguration root, List<ConfigurationIssue> issues) {
         Path file = Path.of("config.yml");
         Integer version = integer(root, file, "config-version", 1, Integer.MAX_VALUE, issues);
         if (version == null) {
-            return;
+            return new MigrationOutcome(-1, false);
         }
         try {
-            if (migrator.migrate(root, version)) {
-                root.save(dataDirectory.resolve(file).toFile());
-            }
+            return new MigrationOutcome(version, migrator.migrate(root, version));
         } catch (IllegalArgumentException exception) {
             issue(issues, file, "config-version", exception.getMessage());
+            return new MigrationOutcome(version, false);
         }
+    }
+
+    private boolean backfillLanguageVersion2(
+            YamlConfiguration language, List<ConfigurationIssue> issues
+    ) {
+        var defaults = new YamlConfiguration();
+        try (InputStream input = resources.getResourceAsStream("lang/es.yml")) {
+            if (input == null) {
+                throw new IOException("bundled configuration resource is missing: lang/es.yml");
+            }
+            defaults.load(new InputStreamReader(input, StandardCharsets.UTF_8));
+        } catch (IOException | InvalidConfigurationException | RuntimeException exception) {
+            issue(issues, Path.of("lang", "es.yml"), "<root>",
+                    "cannot load bundled defaults: " + conciseMessage(exception));
+            return false;
+        }
+
+        boolean changed = false;
+        for (String path : VERSION_2_MESSAGES) {
+            if (!language.isSet(path)) {
+                language.set(path, defaults.get(path));
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private record MigrationOutcome(int sourceVersion, boolean changed) {
     }
 
     private PluginSettings parseSettings(YamlConfiguration root, List<ConfigurationIssue> issues) {
