@@ -1,0 +1,14 @@
+type: polar_bear
+variants:
+  polar_bear:
+    appearance: {}
+    baby: false
+    weight: 10
+    display-name: "Oso polar"
+    icon: SNOWBALL
+  polar_bear_baby:
+    appearance: {}
+    baby: true
+    weight: 3
+    display-name: "Cría de oso polar"
+    icon: SNOWBALL

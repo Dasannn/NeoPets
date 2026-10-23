@@ -1,0 +1,90 @@
+prefix: "<gradient:#57d6ff:#b56cff><bold>NeoPets</bold></gradient> <dark_gray>»</dark_gray>"
+
+errors:
+  no-permission: "<red>No tienes permiso para hacer eso.</red>"
+  player-only: "<red>Este comando solo puede usarlo un jugador.</red>"
+  player-not-found: "<red>No se encontró al jugador <yellow><player></yellow>.</red>"
+  invalid-amount: "<red>La cantidad debe ser un número entero positivo.</red>"
+  config-invalid: "<red>No se pudo recargar la configuración. Revisa la consola.</red>"
+  internal: "<red>Ha ocurrido un error inesperado.</red>"
+
+general:
+  reloaded: "<green>Configuración de NeoPets recargada.</green>"
+  usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
+  usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
+  usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
+  usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
+
+pets:
+  none-owned: "<yellow>Aún no tienes mascotas.</yellow>"
+  given: "<green>Has recibido <pet>.</green>"
+  given-admin: "<green>Entregaste <pet> a <player>.</green>"
+  already-owned: "<yellow><player> ya posee esa variante.</yellow>"
+  all-owned: "<yellow>Ya posees todas las variantes disponibles de esa selección.</yellow>"
+  unknown-variant: "<red>No existe la variante <yellow><variant></yellow>.</red>"
+  unknown-type: "<red>No existe el tipo de mascota <yellow><type></yellow>.</red>"
+  summoned: "<green>Has invocado a <pet>.</green>"
+  dismissed: "<gray>Has desinvocado a <pet>.</gray>"
+  active-limit: "<red>Ya alcanzaste tu límite de <limit> mascotas activas.</red>"
+  renamed: "<green>Tu mascota ahora se llama <name>.</green>"
+  rename-disabled: "<yellow>El renombrado de mascotas está desactivado.</yellow>"
+  dead: "<red><pet> ha muerto. Su alma ha sido entregada a tu inventario.</red>"
+  revived: "<green><pet> ha vuelto a la vida.</green>"
+  soul-required: "<red>Debes sostener el alma válida de la mascota en la mano principal.</red>"
+  soul-invalid: "<red>Esta alma no es válida o ya fue utilizada.</red>"
+  soul-item-name: "<light_purple>Alma de <pet></light_purple>"
+  soul-item-lore: "<gray>Usa una poción de resurrección con este objeto en la mano.</gray>"
+  shop-disabled: "<yellow>La compra de mascotas está desactivada.</yellow>"
+
+skills:
+  points: "<aqua>SP disponibles: <white><points></white></aqua>"
+  points-changed: "<green>El saldo de SP de <player> ahora es <points>.</green>"
+  node-unlocked: "<green>Has desbloqueado <attribute> nivel <level>.</green>"
+  node-activated: "<green>Has activado <attribute> nivel <level>.</green>"
+  previous-level-required: "<yellow>Debes desbloquear primero el nivel anterior.</yellow>"
+  not-enough-money: "<red>Necesitas <cost> para desbloquear este nodo.</red>"
+  not-enough-points: "<red>No tienes suficientes SP disponibles.</red>"
+  node-limit: "<red>Alcanzaste el límite de <limit> nodos desbloqueados para esta mascota.</red>"
+  point-limit: "<red>Alcanzaste el límite de <limit> SP asignados a esta mascota.</red>"
+  reset: "<green>El árbol de <pet> fue reiniciado y recuperaste <points> SP.</green>"
+  reset-disabled: "<yellow>El reinicio de árbol para jugadores está desactivado.</yellow>"
+  reset-cost: "<gray>Reiniciar cuesta <gold><cost></gold>.</gray>"
+  already-unlocked: "<yellow>Ese nodo ya está desbloqueado.</yellow>"
+  already-active: "<yellow>Ese nodo ya está activo.</yellow>"
+
+courier:
+  request-sent: "<green>Solicitud de mensajería enviada a <player>.</green>"
+  request-received: "<yellow><owner> quiere enviarte su burro. Usa <white><accept_command></white> para aceptar.</yellow>"
+  accepted: "<green><player> aceptó la entrega.</green>"
+  rejected: "<yellow>La solicitud de mensajería fue rechazada.</yellow>"
+  returned: "<green>El burro ha vuelto con su dueño.</green>"
+  timed-out: "<yellow>La solicitud o entrega expiró y el burro regresó.</yellow>"
+  cooldown: "<red>Debes esperar <time> antes de volver a enviar al burro.</red>"
+  recipient-offline: "<red>El destinatario debe estar conectado.</red>"
+  unavailable: "<red>El burro no está disponible para ser enviado.</red>"
+  inventory-in-use: "<yellow>Otra persona está usando las alforjas.</yellow>"
+  send: "<green>Enviar burro</green>"
+  return: "<yellow>Devolver al dueño</yellow>"
+
+gui:
+  pets-title: "<dark_purple>Mis mascotas</dark_purple>"
+  skill-tree-title: "<dark_aqua>Árbol de <pet></dark_aqua>"
+  admin-title: "<dark_red>Administración de NeoPets</dark_red>"
+  courier-title: "<gold>Alforjas mensajeras</gold>"
+  previous-page: "<yellow>Página anterior</yellow>"
+  next-page: "<yellow>Página siguiente</yellow>"
+  close: "<red>Cerrar</red>"
+  back: "<gray>Volver</gray>"
+  summoned: "<green>Invocada</green>"
+  dismissed: "<gray>Desinvocada</gray>"
+  dead: "<red>Muerta</red>"
+  locked-node: "<gray>Bloqueado · coste: <cost></gray>"
+  unlocked-node: "<yellow>Desbloqueado · clic para asignar 1 SP</yellow>"
+  active-node: "<green>Activo</green>"
+  unavailable-node: "<red>No disponible</red>"
+  rank-limits: "<gray>SP <assigned>/<sp_limit> · nodos <nodes>/<node_limit></gray>"
+
+admin:
+  feature-enabled: "<green><feature> activada.</green>"
+  feature-disabled: "<yellow><feature> desactivada.</yellow>"
+  value-updated: "<green><setting> ahora vale <value>.</green>"

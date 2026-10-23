@@ -1,0 +1,14 @@
+type: donkey
+variants:
+  donkey:
+    appearance: {}
+    baby: false
+    weight: 10
+    display-name: "Burro"
+    icon: CHEST
+  donkey_baby:
+    appearance: {}
+    baby: true
+    weight: 3
+    display-name: "Cría de burro"
+    icon: CHEST

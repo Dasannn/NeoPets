@@ -1,0 +1,51 @@
+# Incremented only when NeoPets changes the configuration schema.
+config-version: 1
+
+storage:
+  # sqlite is isolated and safe for development/test servers; use mysql in production networks.
+  type: sqlite
+  sqlite:
+    file: neopets.db
+  mysql:
+    host: 127.0.0.1
+    port: 3306
+    database: neopets
+    username: neopets
+    password: "change-me"
+
+death:
+  enabled: true
+  pvp: false
+  keep-skills: true
+
+shop:
+  enabled: false
+
+rename:
+  enabled: true
+
+reset:
+  player-enabled: false
+  cost: 5000
+
+follow:
+  teleport-distance: 20
+
+ranks:
+  default:
+    max-active-pets: 1
+    max-skill-points: 3
+    max-nodes-per-pet: 10
+  # Drafts for future VIP ranks; uncomment when those ranks exist on the server.
+  # vip:
+  #   max-active-pets: 2
+  #   max-skill-points: 6
+  #   max-nodes-per-pet: 16
+  # vipplus:
+  #   max-active-pets: 4
+  #   max-skill-points: 9
+  #   max-nodes-per-pet: 22
+
+courier:
+  request-timeout-seconds: 300
+  cooldown-seconds: 900
