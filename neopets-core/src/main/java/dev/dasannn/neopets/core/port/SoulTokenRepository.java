@@ -3,6 +3,7 @@ package dev.dasannn.neopets.core.port;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -16,6 +17,9 @@ public interface SoulTokenRepository {
      */
     CompletableFuture<Void> issue(UUID tokenId, PetId petId, PlayerId ownerId, Instant issuedAt);
 
+    /** Returns the existing unconsumed token for a pet, if any. */
+    CompletableFuture<Optional<dev.dasannn.neopets.core.pet.SoulToken>> findUnconsumedByPet(PetId petId);
+
     /** Returns whether the token exists, is unconsumed, and matches the supplied pet and owner. */
     CompletableFuture<Boolean> isUsable(UUID tokenId, PetId petId, PlayerId ownerId);
 
@@ -26,4 +30,11 @@ public interface SoulTokenRepository {
      *         token is absent, already consumed, or does not match the supplied pet and owner
      */
     CompletableFuture<Boolean> consume(UUID tokenId, PetId petId, PlayerId ownerId, Instant consumedAt);
+
+    /** Returns whether delivery of the token's item has already been acknowledged. */
+    CompletableFuture<Boolean> wasDelivered(UUID tokenId, PetId petId, PlayerId ownerId);
+
+    /** Acknowledges delivery if the matching token has not previously been acknowledged. */
+    CompletableFuture<Boolean> markDelivered(
+            UUID tokenId, PetId petId, PlayerId ownerId, Instant deliveredAt);
 }

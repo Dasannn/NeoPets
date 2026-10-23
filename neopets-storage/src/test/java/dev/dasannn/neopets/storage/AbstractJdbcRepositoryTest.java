@@ -15,6 +15,7 @@ import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.pet.PendingSoulDelivery;
+import dev.dasannn.neopets.core.pet.PetDeathWork;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +42,7 @@ abstract class AbstractJdbcRepositoryTest {
     private JdbcSoulTokenRepository tokens;
     private JdbcPetStorageRepository petStorage;
     private JdbcPendingSoulDeliveryRepository pendingDeliveries;
+    private JdbcPetDeathWorkRepository deathWork;
 
     abstract StorageSettings settings();
 
@@ -56,6 +58,7 @@ abstract class AbstractJdbcRepositoryTest {
         tokens = new JdbcSoulTokenRepository(bootstrap);
         petStorage = new JdbcPetStorageRepository(bootstrap);
         pendingDeliveries = new JdbcPendingSoulDeliveryRepository(bootstrap);
+        deathWork = new JdbcPetDeathWorkRepository(bootstrap);
     }
 
     @AfterEach
@@ -204,6 +207,13 @@ abstract class AbstractJdbcRepositoryTest {
         var issuedAt = Instant.parse("2026-10-23T13:00:00.456Z");
         await(tokens.issue(tokenId, PET_ID, OWNER, issuedAt));
 
+        assertEquals(Optional.of(new dev.dasannn.neopets.core.pet.SoulToken(
+                tokenId, PET_ID, OWNER, issuedAt)), await(tokens.findUnconsumedByPet(PET_ID)));
+        assertFalse(await(tokens.wasDelivered(tokenId, PET_ID, OWNER)));
+        assertTrue(await(tokens.markDelivered(tokenId, PET_ID, OWNER, issuedAt.plusMillis(1))));
+        assertFalse(await(tokens.markDelivered(tokenId, PET_ID, OWNER, issuedAt.plusMillis(2))));
+        assertTrue(await(tokens.wasDelivered(tokenId, PET_ID, OWNER)));
+
         assertTrue(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
         assertFalse(await(tokens.isUsable(tokenId, OTHER_PET_ID, OWNER)));
         assertFalse(await(tokens.isUsable(tokenId, PET_ID, OTHER_OWNER)));
@@ -217,6 +227,7 @@ abstract class AbstractJdbcRepositoryTest {
         assertEquals(1, successfulConsumptions);
         assertFalse(await(tokens.consume(tokenId, PET_ID, OWNER, issuedAt.plusSeconds(3))));
         assertFalse(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
+        assertEquals(Optional.empty(), await(tokens.findUnconsumedByPet(PET_ID)));
     }
 
     @Test
@@ -244,12 +255,27 @@ abstract class AbstractJdbcRepositoryTest {
         await(pendingDeliveries.save(second));
         await(pendingDeliveries.save(first));
         await(pendingDeliveries.save(other));
+        await(pendingDeliveries.save(first));
 
         assertEquals(List.of(first, second), await(pendingDeliveries.findByOwner(OWNER)));
         assertEquals(List.of(other), await(pendingDeliveries.findByOwner(OTHER_OWNER)));
         await(pendingDeliveries.delete(firstToken));
         await(pendingDeliveries.delete(firstToken));
         assertEquals(List.of(second), await(pendingDeliveries.findByOwner(OWNER)));
+    }
+
+    @Test
+    final void deathWorkPersistsPolicyAndSkillCheckpointByPet() throws Exception {
+        var started = new PetDeathWork(PET_ID, OWNER, false, false, CREATED_AT);
+        await(deathWork.save(started));
+
+        assertEquals(Optional.of(started), await(deathWork.findByPet(PET_ID)));
+        assertEquals(List.of(started), await(deathWork.findByOwner(OWNER)));
+
+        var handled = started.withSkillsHandled();
+        await(deathWork.save(handled));
+        assertEquals(Optional.of(handled), await(deathWork.findByPet(PET_ID)));
+        assertEquals(List.of(), await(deathWork.findByOwner(OTHER_OWNER)));
     }
 
     private static OwnedPet pet(PetId id, PlayerId owner, String variant) {
