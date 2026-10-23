@@ -36,9 +36,7 @@ public final class PlayerDataCache {
     private final Object monitor = new Object();
     private final Map<PlayerId, CachedPlayerData> players = new HashMap<>();
     private final Map<PetId, PlayerId> petOwners = new HashMap<>();
-    private final Set<PendingWrite> pendingWrites = new HashSet<>();
     private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
-    private final KeyedSequencer<PetId> petOperations = new KeyedSequencer<>();
     private final PlayerRepository playerDelegate;
     private final PetRepository petDelegate;
     private final TreeProgressRepository treeDelegate;
@@ -80,14 +78,15 @@ public final class PlayerDataCache {
      */
     public CompletableFuture<Void> unload(PlayerId playerId) {
         Objects.requireNonNull(playerId, "playerId");
-        List<PendingWrite> acceptedWrites;
-        synchronized (monitor) {
-            acceptedWrites = List.copyOf(pendingWrites);
-        }
-
-        return operations.submit(playerId, () -> CompletableFuture.completedFuture(knownPetIds(playerId)))
-                .thenCompose(petIds -> evictAfter(
-                        playerId, awaitWritesFor(playerId, petIds, acceptedWrites)));
+        return operations.submit(playerId, () -> {
+            synchronized (monitor) {
+                var snapshot = players.get(playerId);
+                if (snapshot != null) {
+                    evict(playerId, snapshot);
+                }
+            }
+            return CompletableFuture.completedFuture(null);
+        });
     }
 
     /**
@@ -95,13 +94,7 @@ public final class PlayerDataCache {
      * method does not issue duplicate repository operations or evict online-player snapshots.
      */
     public CompletableFuture<Void> flushAll() {
-        CompletableFuture<?>[] writes;
-        synchronized (monitor) {
-            writes = pendingWrites.stream()
-                    .map(PendingWrite::completion)
-                    .toArray(CompletableFuture<?>[]::new);
-        }
-        return CompletableFuture.allOf(writes);
+        return operations.awaitAll();
     }
 
     /** Returns whether the player's complete snapshot is currently cached. */
@@ -163,111 +156,44 @@ public final class PlayerDataCache {
 
     CompletableFuture<Void> saveProfile(PlayerProfile profile, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(profile, "profile");
-        return trackWrite(Optional.of(profile.playerId()), Optional.empty(),
-                () -> writeThrough(profile.playerId(), () -> {
-                    var current = players.get(profile.playerId());
-                    if (current == null) {
-                        return CacheChange.none();
-                    }
-                    var changedProfile = current.profile().withSkillPointBalance(profile.skillPointBalance());
-                    return replace(profile.playerId(), current, current.withProfile(changedProfile));
-                }, durableWrite));
+        return operations.submit(profile.playerId(), () -> writeThrough(() -> {
+            var current = players.get(profile.playerId());
+            if (current == null) {
+                return CacheChange.none();
+            }
+            var changedProfile = current.profile().withSkillPointBalance(profile.skillPointBalance());
+            return replace(profile.playerId(), current, current.withProfile(changedProfile));
+        }, durableWrite));
     }
 
     CompletableFuture<Void> savePet(OwnedPet pet, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(pet, "pet");
-        return trackWrite(Optional.of(pet.owner()), Optional.of(pet.id()),
-                () -> petOperations.submit(pet.id(), () -> resolveOwner(pet.id()).thenCompose(storedOwner -> {
-                    if (storedOwner.isPresent() && !storedOwner.orElseThrow().equals(pet.owner())) {
-                        return CompletableFuture.failedFuture(new IllegalStateException(
-                                "cannot change owner of pet " + pet.id() + " from "
-                                        + storedOwner.orElseThrow() + " to " + pet.owner()));
-                    }
-                    return writeThrough(pet.owner(), () -> addOrReplacePet(pet), durableWrite);
-                })));
+        return operations.submit(pet.owner(), () -> resolveOwner(pet.id()).thenCompose(storedOwner -> {
+            if (storedOwner.isPresent() && !storedOwner.orElseThrow().equals(pet.owner())) {
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                        "cannot change owner of pet " + pet.id() + " from "
+                                + storedOwner.orElseThrow() + " to " + pet.owner()));
+            }
+            return writeThrough(() -> addOrReplacePet(pet), durableWrite);
+        }));
     }
 
     CompletableFuture<Void> deletePet(PetId petId, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(petId, "petId");
-        return trackWrite(cachedOwner(petId), Optional.of(petId),
-                () -> petOperations.submit(petId, () -> resolveOwner(petId).thenCompose(owner -> owner
-                        .map(playerId -> writeThrough(playerId, () -> deletePet(playerId, petId), durableWrite))
-                        .orElseGet(() -> invoke(durableWrite)))));
+        return resolveOwner(petId).thenCompose(owner -> owner
+                .map(playerId -> operations.submit(
+                        playerId, () -> writeThrough(() -> deletePet(playerId, petId), durableWrite)))
+                .orElseGet(() -> invoke(durableWrite)));
     }
 
     CompletableFuture<Void> saveTreeProgress(
             TreeProgress progress, Supplier<CompletableFuture<Void>> durableWrite
     ) {
         Objects.requireNonNull(progress, "progress");
-        return trackWrite(cachedOwner(progress.petId()), Optional.of(progress.petId()),
-                () -> petOperations.submit(progress.petId(), () -> resolveOwner(progress.petId())
-                        .thenCompose(owner -> owner
-                                .map(playerId -> writeThrough(
-                                        playerId, () -> saveTreeProgress(playerId, progress), durableWrite))
-                                .orElseGet(() -> invoke(durableWrite)))));
-    }
-
-    private CompletableFuture<Void> trackWrite(
-            Optional<PlayerId> playerId,
-            Optional<PetId> petId,
-            Supplier<CompletableFuture<Void>> operation
-    ) {
-        var write = new PendingWrite(playerId, petId, new CompletableFuture<>());
-        synchronized (monitor) {
-            pendingWrites.add(write);
-        }
-
-        invoke(operation).whenComplete((ignored, failure) -> {
-            if (failure == null) {
-                write.completion().complete(null);
-            } else {
-                write.completion().completeExceptionally(failure);
-            }
-            synchronized (monitor) {
-                pendingWrites.remove(write);
-            }
-        });
-        return write.completion();
-    }
-
-    private Optional<PlayerId> cachedOwner(PetId petId) {
-        synchronized (monitor) {
-            return Optional.ofNullable(petOwners.get(petId));
-        }
-    }
-
-    private Set<PetId> knownPetIds(PlayerId playerId) {
-        synchronized (monitor) {
-            var data = players.get(playerId);
-            return data == null ? Set.of() : data.knownPetIds();
-        }
-    }
-
-    private static CompletableFuture<Void> awaitWritesFor(
-            PlayerId playerId, Set<PetId> petIds, List<PendingWrite> acceptedWrites
-    ) {
-        var writes = acceptedWrites.stream()
-                .filter(write -> write.playerId().filter(playerId::equals).isPresent()
-                        || write.petId().filter(petIds::contains).isPresent())
-                .map(PendingWrite::completion)
-                .toArray(CompletableFuture<?>[]::new);
-        return CompletableFuture.allOf(writes);
-    }
-
-    private CompletableFuture<Void> evictAfter(PlayerId playerId, CompletableFuture<Void> writes) {
-        return writes.handle((ignored, writeFailure) -> writeFailure)
-                .thenCompose(writeFailure -> operations.submit(playerId, () -> {
-                    synchronized (monitor) {
-                        var snapshot = players.get(playerId);
-                        if (snapshot != null) {
-                            evict(playerId, snapshot);
-                        }
-                    }
-                    if (writeFailure != null) {
-                        return CompletableFuture.failedFuture(unwrap(writeFailure));
-                    }
-                    return CompletableFuture.completedFuture(null);
-                }));
+        return resolveOwner(progress.petId()).thenCompose(owner -> owner
+                .map(playerId -> operations.submit(
+                        playerId, () -> writeThrough(() -> saveTreeProgress(playerId, progress), durableWrite)))
+                .orElseGet(() -> invoke(durableWrite)));
     }
 
     private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {
@@ -383,30 +309,28 @@ public final class PlayerDataCache {
     }
 
     private CompletableFuture<Void> writeThrough(
-            PlayerId playerId, Supplier<CacheChange> mutation, Supplier<CompletableFuture<Void>> durableWrite
+            Supplier<CacheChange> mutation, Supplier<CompletableFuture<Void>> durableWrite
     ) {
         Objects.requireNonNull(durableWrite, "durableWrite");
-        return operations.submit(playerId, () -> {
-            CacheChange change;
-            try {
-                synchronized (monitor) {
-                    change = Objects.requireNonNull(mutation.get(), "cache mutation");
-                }
-            } catch (Throwable failure) {
-                return CompletableFuture.failedFuture(failure);
+        CacheChange change;
+        try {
+            synchronized (monitor) {
+                change = Objects.requireNonNull(mutation.get(), "cache mutation");
             }
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
 
-            CompletableFuture<Void> write = invoke(durableWrite);
-            return write.handle((ignored, failure) -> {
-                if (failure == null) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-                synchronized (monitor) {
-                    change.rollback();
-                }
-                return CompletableFuture.<Void>failedFuture(unwrap(failure));
-            }).thenCompose(result -> result);
-        });
+        CompletableFuture<Void> write = invoke(durableWrite);
+        return write.handle((ignored, failure) -> {
+            if (failure == null) {
+                return CompletableFuture.<Void>completedFuture(null);
+            }
+            synchronized (monitor) {
+                change.rollback();
+            }
+            return CompletableFuture.<Void>failedFuture(unwrap(failure));
+        }).thenCompose(result -> result);
     }
 
     private CacheChange replace(PlayerId playerId, CachedPlayerData before, CachedPlayerData after) {
@@ -495,18 +419,6 @@ public final class PlayerDataCache {
 
         private CachedPlayerData withTreeProgress(Map<PetId, Optional<TreeProgress>> changedProgress) {
             return new CachedPlayerData(profile, knownPetIds, changedProgress);
-        }
-    }
-
-    private record PendingWrite(
-            Optional<PlayerId> playerId,
-            Optional<PetId> petId,
-            CompletableFuture<Void> completion
-    ) {
-        private PendingWrite {
-            Objects.requireNonNull(playerId, "playerId");
-            Objects.requireNonNull(petId, "petId");
-            Objects.requireNonNull(completion, "completion");
         }
     }
 

@@ -215,7 +215,7 @@ final class PlayerDataCacheTest {
     }
 
     @Test
-    void flushAllWaitsForWritesPendingInBothSequencers() throws Exception {
+    void flushAllWaitsForEveryPlayerSequence() throws Exception {
         var ownedPet = pet(PET, PLAYER, "dog_brown");
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
         delegates.players.put(OTHER_PLAYER, new PlayerProfile(OTHER_PLAYER, 2, List.of()));
@@ -273,6 +273,45 @@ final class PlayerDataCacheTest {
         await(unload);
         assertFalse(cache.isLoaded(PLAYER));
         assertEquals(changedProgress, delegates.progress.get(PET));
+    }
+
+    @Test
+    void reconnectDuringUnloadIsLoadedAfterTheOldSessionIsEvicted() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var changedProgress = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        await(cache.load(PLAYER));
+        int playerReadsBeforeReconnect = delegates.playerReads.get();
+        var petGate = new CompletableFuture<Void>();
+        var treeGate = new CompletableFuture<Void>();
+        delegates.petSave = pet -> petGate.thenRun(() -> delegates.pets.put(pet.id(), pet));
+        delegates.treeSave = progress -> treeGate.thenRun(() -> delegates.progress.put(progress.petId(), progress));
+
+        var petWrite = pets.save(ownedPet);
+        var treeWrite = trees.save(changedProgress);
+        var unload = cache.unload(PLAYER);
+        var reconnect = cache.load(PLAYER);
+
+        assertFalse(unload.isDone());
+        assertFalse(reconnect.isDone());
+        assertEquals(0, delegates.treeWrites.get());
+
+        petGate.complete(null);
+        await(petWrite);
+        assertEquals(1, delegates.treeWrites.get());
+        assertFalse(unload.isDone());
+        assertFalse(reconnect.isDone());
+
+        treeGate.complete(null);
+        await(treeWrite);
+        await(unload);
+        var reloaded = await(reconnect);
+
+        assertTrue(cache.isLoaded(PLAYER));
+        assertEquals(playerReadsBeforeReconnect + 1, delegates.playerReads.get());
+        assertEquals(List.of(ownedPet), reloaded.ownedPets());
+        assertEquals(Optional.of(changedProgress), await(trees.load(PET)));
     }
 
     @Test

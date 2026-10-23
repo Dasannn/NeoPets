@@ -14,6 +14,55 @@ import org.junit.jupiter.api.Test;
 
 class KeyedSequencerTest {
     @Test
+    void awaitAllWaitsForCurrentSequencesButNotLaterSubmissions() {
+        var sequencer = new KeyedSequencer<String>();
+        var firstGate = new CompletableFuture<Void>();
+        var secondGate = new CompletableFuture<Void>();
+
+        var first = sequencer.submit("first", () -> firstGate);
+        var barrier = sequencer.awaitAll();
+        var later = sequencer.submit("second", () -> secondGate);
+
+        assertFalse(barrier.isDone());
+        secondGate.complete(null);
+        assertTrue(later.isDone());
+        assertFalse(barrier.isDone());
+
+        firstGate.complete(null);
+        assertTrue(first.isDone());
+        assertTrue(barrier.isDone());
+    }
+
+    @Test
+    void awaitAllReportsFailuresWithoutStoppingLaterActions() {
+        var sequencer = new KeyedSequencer<String>();
+        var gate = new CompletableFuture<Void>();
+        var failed = sequencer.submit("player", () -> gate);
+        var later = sequencer.submit("player", () -> CompletableFuture.completedFuture(null));
+        var barrier = sequencer.awaitAll();
+
+        gate.completeExceptionally(new IllegalStateException("write failed"));
+
+        assertFutureFailsWith(IllegalStateException.class, failed);
+        assertTrue(later.isDone());
+        assertFutureFailsWith(IllegalStateException.class, barrier);
+    }
+
+    @Test
+    void awaitAllWaitsForTheActionWhenItsPublicResultWasCancelled() {
+        var sequencer = new KeyedSequencer<String>();
+        var action = new CompletableFuture<Void>();
+        var result = sequencer.submit("player", () -> action);
+        result.cancel(false);
+
+        var barrier = sequencer.awaitAll();
+        assertFalse(barrier.isDone());
+
+        action.complete(null);
+        assertTrue(barrier.isDone());
+    }
+
+    @Test
     void runsEqualKeysStrictlyInSubmissionOrderAndRemovesIdleEntries() {
         var sequencer = new KeyedSequencer<String>();
         var starts = new ArrayList<Integer>();
