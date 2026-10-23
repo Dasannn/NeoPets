@@ -3,6 +3,7 @@ package dev.dasannn.neopets.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Optional;
@@ -11,10 +12,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class NeoPetsProviderTest {
+
+    private static final long CONCURRENCY_TIMEOUT_SECONDS = 5;
 
     @AfterEach
     void clearProvider() {
@@ -71,12 +75,17 @@ class NeoPetsProviderTest {
                     .mapToObj(ignored -> executor.submit(() -> tryRegister(ready, start)))
                     .toList();
 
-            ready.await();
-            start.countDown();
+            boolean allContendersReady;
+            try {
+                allContendersReady = ready.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                start.countDown();
+            }
+            assertTrue(allContendersReady, "concurrent registration tasks did not become ready");
 
             long successes = 0;
             for (Future<Boolean> attempt : attempts) {
-                if (attempt.get()) {
+                if (attempt.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                     successes++;
                 }
             }
@@ -87,7 +96,9 @@ class NeoPetsProviderTest {
     private static boolean tryRegister(CountDownLatch ready, CountDownLatch start)
             throws InterruptedException {
         ready.countDown();
-        start.await();
+        if (!start.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("timed out waiting to start concurrent registration");
+        }
         try {
             NeoPetsProvider.register(new StubApi());
             return true;
