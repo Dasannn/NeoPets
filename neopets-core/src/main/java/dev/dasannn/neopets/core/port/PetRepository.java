@@ -7,7 +7,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-/** Asynchronous persistence operations for owned pets. */
+/**
+ * Asynchronous persistence operations for owned pets.
+ *
+ * <p>A pet row is the source of truth for ownership. Implementations must enforce uniqueness of
+ * {@code (owner, variant)} so separate service instances cannot grant one variant twice.</p>
+ */
 public interface PetRepository {
     /** Returns the stored pet, or an empty optional when the identifier is unknown. */
     CompletableFuture<Optional<OwnedPet>> findById(PetId petId);
@@ -18,7 +23,9 @@ public interface PetRepository {
     /**
      * Inserts or replaces a pet by its identifier.
      *
-     * @return a future completed after the change is durable, or completed exceptionally on failure
+     * @return a future completed after the change is durable; it fails with
+     *         {@link DuplicatePetVariantException} when a different pet already has the same owner
+     *         and variant, or exceptionally on any other failure
      */
     CompletableFuture<Void> save(OwnedPet pet);
 
