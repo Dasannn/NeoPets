@@ -4,12 +4,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     private final int currentVersion;
     private final Map<Integer, ConfigMigration> bySource;
@@ -47,6 +48,21 @@ public final class ConfigurationMigrator {
             @Override
             public void apply(YamlConfiguration configuration) {
                 // Version 3 adds language keys only; ConfigurationLoader merges those defaults.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 3;
+            }
+
+            @Override
+            public int toVersion() {
+                return 4;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 4 repairs legacy pet resources; the root document needs only its version bump.
             }
         }));
     }
@@ -93,6 +109,72 @@ public final class ConfigurationMigrator {
             version = migration.toVersion();
             configuration.set("config-version", version);
             changed = true;
+        }
+        return changed;
+    }
+
+    /** Migrates one pet document using the root configuration's original schema version. */
+    public boolean migratePet(YamlConfiguration configuration, String petType, int sourceVersion) {
+        Objects.requireNonNull(configuration, "configuration");
+        Objects.requireNonNull(petType, "petType");
+        if (currentVersion < 4 || sourceVersion >= 4) {
+            return false;
+        }
+
+        ConfigurationSection variants = configuration.getConfigurationSection("variants");
+        if (variants == null) {
+            return false;
+        }
+        return switch (petType) {
+            case "cat" -> migrateCatAppearances(configuration, variants);
+            case "parrot" -> migrateParrotAppearances(configuration, variants);
+            default -> false;
+        };
+    }
+
+    private static boolean migrateCatAppearances(
+            YamlConfiguration configuration, ConfigurationSection variants
+    ) {
+        boolean changed = false;
+        for (String variantId : variants.getKeys(false)) {
+            String appearance = "variants." + variantId + ".appearance";
+            String legacyPath = appearance + ".variant";
+            String currentPath = appearance + ".type";
+            if (configuration.isSet(legacyPath)) {
+                if (!configuration.isSet(currentPath)) {
+                    configuration.set(currentPath, configuration.get(legacyPath));
+                }
+                configuration.set(legacyPath, null);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private static boolean migrateParrotAppearances(
+            YamlConfiguration configuration, ConfigurationSection variants
+    ) {
+        boolean changed = false;
+        for (String variantId : variants.getKeys(false)) {
+            String variantPath = "variants." + variantId + ".appearance.variant";
+            String legacyVariant = configuration.getString(variantPath);
+            String currentVariant = switch (legacyVariant == null ? "" : legacyVariant) {
+                case "red_blue" -> "red";
+                case "yellow_blue" -> "cyan";
+                default -> null;
+            };
+            if (currentVariant != null) {
+                configuration.set(variantPath, currentVariant);
+                changed = true;
+            }
+        }
+
+        for (String legacyBaby : List.of("parrot_red_blue_baby", "parrot_green_baby")) {
+            String babyPath = "variants." + legacyBaby + ".baby";
+            if (configuration.getBoolean(babyPath, false)) {
+                configuration.set(babyPath, false);
+                changed = true;
+            }
         }
         return changed;
     }

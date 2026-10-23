@@ -11,8 +11,10 @@ import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,7 +33,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(3, snapshot.settings().configVersion());
+        assertEquals(4, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -105,7 +107,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 3", "config-version: 99");
+        replace("config.yml", "config-version: 4", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -208,7 +210,7 @@ class ConfigurationLoaderTest {
     void oldInstallBackfillsConfigAndLanguageWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 1");
+        replace("config.yml", "config-version: 4", "config-version: 1");
         replace("config.yml", "  load-timeout-seconds: 10\n", "");
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
@@ -219,14 +221,14 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertEquals(37.0, upgraded.settings().followTeleportDistance());
         assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
         assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
         assertEquals("cierre personalizado", upgraded.language().find("gui.pets.close").orElseThrow());
         assertTrue(upgraded.language().find("errors.profile-load").isPresent());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
-        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 3"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 4"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("header-name:"));
     }
@@ -235,7 +237,7 @@ class ConfigurationLoaderTest {
     void versionTwoInstallReceivesEveryPetsMenuMessageAndStillLoads() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 2");
+        replace("config.yml", "config-version: 4", "config-version: 2");
         String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
         int petsSection = language.indexOf("  pets:\n", language.indexOf("gui:\n"));
         int adminSection = language.indexOf("\nadmin:\n", petsSection);
@@ -244,9 +246,45 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
         assertTrue(upgraded.language().find("gui.pets.rename-invalid").isPresent());
+    }
+
+    @Test
+    void versionThreeInstallMigratesPreviouslyShippedPetResourcesBeforePlatformValidation() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory, new PetSpawner()::validateAppearance);
+        loader.load();
+        replace("config.yml", "config-version: 4", "config-version: 3");
+        installLegacyPetResource("cat");
+        installLegacyPetResource("parrot");
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(4, upgraded.settings().configVersion());
+        assertEquals(13, upgraded.variants().findByType(new PetTypeId("cat")).size());
+        assertEquals(7, upgraded.variants().findByType(new PetTypeId("parrot")).size());
+        assertTrue(upgraded.variants().findByType(new PetTypeId("parrot")).stream()
+                .noneMatch(variant -> variant.baby()));
+        String cat = Files.readString(temporaryDirectory.resolve("pets/cat.yml"));
+        String parrot = Files.readString(temporaryDirectory.resolve("pets/parrot.yml"));
+        assertTrue(cat.contains("type: tabby"));
+        assertFalse(cat.contains("variant: tabby"));
+        assertTrue(parrot.contains("variant: red"));
+        assertTrue(parrot.contains("variant: cyan"));
+        assertFalse(parrot.contains("variant: red_blue"));
+        assertFalse(parrot.contains("variant: yellow_blue"));
+        assertTrue(parrot.contains("display-name: Loro rojo y azul"));
+        assertTrue(parrot.contains("weight: 10"));
+    }
+
+    private void installLegacyPetResource(String type) throws IOException {
+        String resource = "legacy-v3/pets/" + type + ".yml";
+        try (InputStream input = ConfigurationLoaderTest.class.getClassLoader().getResourceAsStream(resource)) {
+            assertTrue(input != null, "missing test resource: " + resource);
+            Files.copy(input, temporaryDirectory.resolve("pets/" + type + ".yml"),
+                    StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private void replace(String relativePath, String target, String replacement) throws IOException {
