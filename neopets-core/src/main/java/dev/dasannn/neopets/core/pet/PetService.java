@@ -288,25 +288,37 @@ public final class PetService {
     }
 
     private CompletableFuture<Void> applyEntityThenPersist(
-            Runnable entityAction,
-            Runnable compensation,
+            Supplier<? extends CompletableFuture<Void>> entityAction,
+            Supplier<? extends CompletableFuture<Void>> compensation,
             OwnedPet pet
     ) {
+        return invokeEntityAction(entityAction).thenCompose(ignored -> savePet(pet)
+                .exceptionallyCompose(failure -> compensateAndFail(compensation, unwrap(failure))));
+    }
+
+    private CompletableFuture<Void> compensateAndFail(
+            Supplier<? extends CompletableFuture<Void>> compensation,
+            Throwable persistenceFailure
+    ) {
+        return invokeEntityAction(compensation).handle((ignored, compensationFailure) -> {
+            if (compensationFailure != null) {
+                Throwable cause = unwrap(compensationFailure);
+                if (cause != persistenceFailure) {
+                    persistenceFailure.addSuppressed(cause);
+                }
+            }
+            return persistenceFailure;
+        }).thenCompose(CompletableFuture::failedFuture);
+    }
+
+    private CompletableFuture<Void> invokeEntityAction(
+            Supplier<? extends CompletableFuture<Void>> action
+    ) {
         try {
-            entityAction.run();
+            return Objects.requireNonNull(action.get(), "entity action future");
         } catch (Throwable failure) {
             return CompletableFuture.failedFuture(failure);
         }
-
-        return savePet(pet).exceptionallyCompose(failure -> {
-            Throwable cause = unwrap(failure);
-            try {
-                compensation.run();
-            } catch (Throwable compensationFailure) {
-                cause.addSuppressed(compensationFailure);
-            }
-            return CompletableFuture.failedFuture(cause);
-        });
     }
 
     private PetVariant chooseWeighted(List<PetVariant> candidates) {

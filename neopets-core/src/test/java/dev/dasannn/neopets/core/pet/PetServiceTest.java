@@ -36,6 +36,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -371,6 +372,39 @@ class PetServiceTest {
     }
 
     @Test
+    void summonComposesRepositoryAndGatewayWorkAcrossDifferentWorkerThreads() throws Exception {
+        var player = player(1201);
+        var inactive = pet(12010, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(inactive);
+        var petLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var ownerLookup = new CompletableFuture<List<OwnedPet>>();
+        var spawnCompletion = new CompletableFuture<Void>();
+        pets.nextFindById = petLookup;
+        pets.nextFindByOwner = ownerLookup;
+        entities.nextSpawn = spawnCompletion;
+
+        try (var repositoryWorker = Executors.newSingleThreadExecutor(
+                Thread.ofPlatform().name("repository-worker").factory());
+             var gatewayWorker = Executors.newSingleThreadExecutor(
+                     Thread.ofPlatform().name("gateway-worker").factory())) {
+            var result = service.summon(player, inactive.id());
+
+            repositoryWorker.submit(() -> {
+                petLookup.complete(Optional.of(inactive));
+                ownerLookup.complete(List.of(inactive));
+            }).get();
+
+            assertFalse(result.isDone());
+            assertEquals("repository-worker", entities.lastSpawnCallThread);
+
+            gatewayWorker.submit(() -> spawnCompletion.complete(null)).get();
+
+            assertInstanceOf(SummonResult.Summoned.class, result.join());
+            assertEquals("gateway-worker", pets.lastSaveCallThread);
+        }
+    }
+
+    @Test
     void concurrentSummonsCannotExceedTheRankLimit() {
         var player = player(121);
         var firstPet = pet(1210, player, LIGHT.id(), PetStatus.ALIVE, false);
@@ -417,6 +451,35 @@ class PetServiceTest {
         assertEquals(List.of(inactive.id()), entities.spawned);
         assertEquals(List.of(inactive.id()), entities.despawned);
         assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void failedPersistenceAwaitsCompensationCompletedOnAnotherWorkerThread() throws Exception {
+        var player = player(1231);
+        var inactive = pet(12310, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(inactive);
+        var saveCompletion = new CompletableFuture<Void>();
+        var compensationCompletion = new CompletableFuture<Void>();
+        pets.nextSave = saveCompletion;
+        entities.nextDespawn = compensationCompletion;
+
+        try (var repositoryWorker = Executors.newSingleThreadExecutor(
+                Thread.ofPlatform().name("repository-worker").factory());
+             var gatewayWorker = Executors.newSingleThreadExecutor(
+                     Thread.ofPlatform().name("gateway-worker").factory())) {
+            var result = service.summon(player, inactive.id());
+
+            repositoryWorker.submit(() -> saveCompletion.completeExceptionally(
+                    new IllegalStateException("save failed"))).get();
+
+            assertFalse(result.isDone());
+            assertEquals("repository-worker", entities.lastDespawnCallThread);
+
+            gatewayWorker.submit(() -> compensationCompletion.complete(null)).get();
+
+            assertThrows(CompletionException.class, result::join);
+            assertTrue(publishedEvents.isEmpty());
+        }
     }
 
     @Test
@@ -532,13 +595,21 @@ class PetServiceTest {
 
     private static final class FakePetRepository implements PetRepository {
         private final Map<PetId, OwnedPet> stored = new LinkedHashMap<>();
+        private CompletableFuture<Optional<OwnedPet>> nextFindById;
         private CompletableFuture<List<OwnedPet>> nextFindByOwner;
+        private CompletableFuture<Void> nextSave;
         private Throwable nextSaveFailure;
+        private String lastSaveCallThread;
         private int findByOwnerCalls;
         private int saveCalls;
 
         @Override
         public CompletableFuture<Optional<OwnedPet>> findById(PetId petId) {
+            if (nextFindById != null) {
+                var result = nextFindById;
+                nextFindById = null;
+                return result;
+            }
             return CompletableFuture.completedFuture(Optional.ofNullable(stored.get(petId)));
         }
 
@@ -558,6 +629,12 @@ class PetServiceTest {
         @Override
         public CompletableFuture<Void> save(OwnedPet pet) {
             saveCalls++;
+            lastSaveCallThread = Thread.currentThread().getName();
+            if (nextSave != null) {
+                var result = nextSave;
+                nextSave = null;
+                return result.thenRun(() -> stored.put(pet.id(), pet));
+            }
             if (nextSaveFailure != null) {
                 var failure = nextSaveFailure;
                 nextSaveFailure = null;
@@ -594,34 +671,46 @@ class PetServiceTest {
     private static final class RecordingEntityGateway implements PetEntityGateway {
         private final List<PetId> spawned = new ArrayList<>();
         private final List<PetId> despawned = new ArrayList<>();
+        private CompletableFuture<Void> nextSpawn;
+        private CompletableFuture<Void> nextDespawn;
         private Throwable spawnFailure;
         private Throwable despawnFailure;
+        private String lastSpawnCallThread;
+        private String lastDespawnCallThread;
 
         @Override
-        public void spawn(PetId petId) {
+        public CompletableFuture<Void> spawn(PetId petId) {
+            lastSpawnCallThread = Thread.currentThread().getName();
             if (spawnFailure != null) {
-                throw propagate(spawnFailure);
+                return CompletableFuture.failedFuture(spawnFailure);
             }
             spawned.add(petId);
+            if (nextSpawn != null) {
+                var result = nextSpawn;
+                nextSpawn = null;
+                return result;
+            }
+            return CompletableFuture.completedFuture(null);
         }
 
         @Override
-        public void despawn(PetId petId) {
+        public CompletableFuture<Void> despawn(PetId petId) {
+            lastDespawnCallThread = Thread.currentThread().getName();
             if (despawnFailure != null) {
-                throw propagate(despawnFailure);
+                return CompletableFuture.failedFuture(despawnFailure);
             }
             despawned.add(petId);
+            if (nextDespawn != null) {
+                var result = nextDespawn;
+                nextDespawn = null;
+                return result;
+            }
+            return CompletableFuture.completedFuture(null);
         }
 
         @Override
-        public void applyEffects(PetId petId) {
-        }
-
-        private static RuntimeException propagate(Throwable failure) {
-            if (failure instanceof RuntimeException runtimeException) {
-                return runtimeException;
-            }
-            return new RuntimeException(failure);
+        public CompletableFuture<Void> applyEffects(PetId petId) {
+            return CompletableFuture.completedFuture(null);
         }
     }
 }
