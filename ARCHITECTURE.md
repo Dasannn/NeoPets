@@ -1,6 +1,6 @@
 # NeoPets — Arquitectura
 
-> Estado: **BORRADOR — pendiente de aprobación**
+> Estado: **APROBADA** (2026-10-23)
 > Depende de: `docs/constitution.md`, `docs/spec.md`
 
 ## 1. Objetivos de diseño
