@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.storage.cache;
 
 import dev.dasannn.neopets.core.model.PetId;
+import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import java.util.Objects;
@@ -23,6 +24,11 @@ public final class CachingTreeProgressRepository implements TreeProgressReposito
         Objects.requireNonNull(petId, "petId");
         var cached = cache.findTreeProgress(petId);
         return cached.hit() ? CompletableFuture.completedFuture(cached.value()) : delegate.load(petId);
+    }
+
+    @Override
+    public CompletableFuture<Integer> resetForDeath(PlayerId owner, TreeProgress zeroed, int refund) {
+        return cache.resetForDeath(owner, zeroed, () -> delegate.resetForDeath(owner, zeroed, refund));
     }
 
     @Override

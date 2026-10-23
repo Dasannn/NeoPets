@@ -13,9 +13,12 @@ CREATE TABLE np_pet_death_work (
     owner CHAR(36) NOT NULL,
     keep_skills BOOLEAN NOT NULL,
     skills_handled BOOLEAN NOT NULL DEFAULT FALSE,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP(3) NOT NULL,
     CONSTRAINT pk_np_pet_death_work PRIMARY KEY (pet_id)
 );
 
 CREATE INDEX idx_np_pet_death_work_owner
     ON np_pet_death_work (owner);
+
+ALTER TABLE np_pending_soul_delivery ADD COLUMN claimed BOOLEAN NOT NULL DEFAULT FALSE;

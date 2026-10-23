@@ -15,6 +15,7 @@ import dev.dasannn.neopets.core.pet.SoulToken;
 import dev.dasannn.neopets.core.port.PetDeathWorkRepository;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.core.skilltree.ResetResult;
+import dev.dasannn.neopets.core.skilltree.AttributeLevelProgress;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import java.time.Clock;
 import java.time.Instant;
@@ -45,8 +46,10 @@ class PetDeathWorkflowTest {
         fixture.assignedPoints.set(4);
         fixture.balance.set(2);
 
+        TreeProgress before = fixture.progress;
         fixture.workflow.start(OWNER, PET_ID).join();
 
+        assertEquals(before, fixture.progress);
         assertEquals(PetStatus.DEAD, fixture.pets.pet.status());
         assertEquals(4, fixture.assignedPoints.get());
         assertEquals(2, fixture.balance.get());
@@ -65,6 +68,8 @@ class PetDeathWorkflowTest {
         fixture.workflow.reconcile(OWNER).join();
 
         assertEquals(0, fixture.assignedPoints.get());
+        assertEquals(0, fixture.progress.unlockedNodes());
+        assertEquals(0, fixture.progress.activeNodes());
         assertEquals(6, fixture.balance.get());
         assertEquals(1, fixture.resetCalls.get());
         assertTrue(fixture.work.entries.get(PET_ID).skillsHandled());
@@ -93,14 +98,82 @@ class PetDeathWorkflowTest {
         assertEquals(List.of(TOKEN_ID), fixture.deliveredTokens);
     }
 
+    @Test
+    void savedIntentSurvivesFailureBeforeTheDeadTransition() {
+        var fixture = new Fixture(false);
+        fixture.failFirstDeath.set(true);
+        org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class,
+                () -> fixture.workflow.start(OWNER, PET_ID).join());
+        assertEquals(PetStatus.ALIVE, fixture.pets.pet.status());
+        assertFalse(fixture.work.entries.get(PET_ID).completed());
+
+        fixture.keepSkills = true; // Recovery must use the policy persisted with the death intent.
+        fixture.newWorkflow().reconcile(OWNER).join();
+
+        assertEquals(1, fixture.resetCalls.get());
+        assertEquals(PetStatus.DEAD, fixture.pets.pet.status());
+        assertTrue(fixture.work.entries.get(PET_ID).completed());
+        assertEquals(List.of(TOKEN_ID), fixture.deliveredTokens);
+    }
+
+    @Test
+    void alreadyDeadRetryCompletesAfterSkillOrTokenFailure() {
+        for (boolean failReset : List.of(true, false)) {
+            var fixture = new Fixture(false);
+            fixture.assignedPoints.set(4);
+            fixture.balance.set(2);
+            (failReset ? fixture.failFirstReset : fixture.failFirstIssue).set(true);
+            org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class,
+                    () -> fixture.workflow.start(OWNER, PET_ID).join());
+            assertEquals(PetStatus.DEAD, fixture.pets.pet.status());
+
+            fixture.newWorkflow().start(OWNER, PET_ID).join();
+
+            assertEquals(6, fixture.balance.get());
+            assertEquals(0, fixture.assignedPoints.get());
+            assertTrue(fixture.work.entries.get(PET_ID).completed());
+            assertEquals(1, fixture.issuedTokens.size());
+        }
+    }
+
+    @Test
+    void completedWorkDoesNotKillARevivedPetButANewDeathGetsANewPolicy() {
+        var fixture = new Fixture(true);
+        fixture.workflow.start(OWNER, PET_ID).join();
+        fixture.pets.pet = alivePet();
+        fixture.newWorkflow().reconcile(OWNER).join();
+        assertEquals(PetStatus.ALIVE, fixture.pets.pet.status());
+
+        fixture.keepSkills = false;
+        fixture.assignedPoints.set(3);
+        fixture.balance.set(2);
+        fixture.workflow.start(OWNER, PET_ID).join();
+        assertEquals(5, fixture.balance.get());
+        assertFalse(fixture.work.entries.get(PET_ID).keepSkills());
+    }
+
+    @Test
+    void legacyDeadPetWithoutWorkIsReconciled() {
+        var fixture = new Fixture(true);
+        fixture.pets.pet = alivePet().withStatus(PetStatus.DEAD).withActive(false);
+        fixture.newWorkflow().reconcile(OWNER).join();
+        assertTrue(fixture.work.entries.get(PET_ID).completed());
+        assertEquals(List.of(TOKEN_ID), fixture.deliveredTokens);
+    }
+
     private static final class Fixture {
         private final FakePets pets = new FakePets(alivePet());
         private final FakeDeathWork work = new FakeDeathWork();
-        private final boolean keepSkills;
+        private boolean keepSkills;
         private final AtomicInteger assignedPoints = new AtomicInteger();
+        private TreeProgress progress = new TreeProgress(PET_ID,
+                Map.of("health", new AttributeLevelProgress(5, 4, 5)));
         private final AtomicInteger balance = new AtomicInteger();
         private final AtomicInteger resetCalls = new AtomicInteger();
         private final AtomicBoolean failFirstDelivery = new AtomicBoolean();
+        private final AtomicBoolean failFirstDeath = new AtomicBoolean();
+        private final AtomicBoolean failFirstReset = new AtomicBoolean();
+        private final AtomicBoolean failFirstIssue = new AtomicBoolean();
         private final Map<PetId, SoulToken> issuedTokens = new HashMap<>();
         private final List<UUID> deliveredTokens = new ArrayList<>();
         private final PetDeathWorkflow workflow;
@@ -115,18 +188,30 @@ class PetDeathWorkflowTest {
                     pets,
                     work,
                     (ownerId, petId) -> {
+                        if (failFirstDeath.compareAndSet(true, false)) {
+                            return CompletableFuture.failedFuture(new IllegalStateException("death write failed"));
+                        }
                         pets.pet = pets.pet.withStatus(PetStatus.DEAD).withActive(false);
                         return CompletableFuture.completedFuture(new DeathResult.Died(pets.pet));
                     },
                     (ownerId, petId) -> {
+                        if (failFirstReset.compareAndSet(true, false)) {
+                            return CompletableFuture.completedFuture(new ResetResult.Failed(
+                                    new IllegalStateException("reset write failed")));
+                        }
                         resetCalls.incrementAndGet();
                         int refund = assignedPoints.getAndSet(0);
                         balance.addAndGet(refund);
-                        return CompletableFuture.completedFuture(
-                                new ResetResult.Reset(new TreeProgress(petId, Map.of()), refund));
+                        progress = new TreeProgress(petId, Map.of("health", new AttributeLevelProgress(0, 0, 5)));
+                        return CompletableFuture.completedFuture(new ResetResult.Reset(progress, refund));
                     },
-                    (petId, ownerId) -> CompletableFuture.completedFuture(issuedTokens.computeIfAbsent(
-                            petId, ignored -> new SoulToken(TOKEN_ID, petId, ownerId, NOW))),
+                    (petId, ownerId) -> {
+                        if (failFirstIssue.compareAndSet(true, false)) {
+                            return CompletableFuture.failedFuture(new IllegalStateException("token write failed"));
+                        }
+                        return CompletableFuture.completedFuture(issuedTokens.computeIfAbsent(
+                                petId, ignored -> new SoulToken(TOKEN_ID, petId, ownerId, NOW)));
+                    },
                     token -> {
                         if (failFirstDelivery.compareAndSet(true, false)) {
                             return CompletableFuture.failedFuture(new IllegalStateException("delivery unavailable"));

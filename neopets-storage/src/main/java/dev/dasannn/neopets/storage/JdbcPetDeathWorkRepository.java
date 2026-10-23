@@ -18,20 +18,20 @@ public final class JdbcPetDeathWorkRepository extends JdbcRepository implements 
     private static final TimeZone UTC = TimeZone.getTimeZone("UTC");
     private static final String UPDATE = """
             UPDATE np_pet_death_work
-            SET owner = ?, keep_skills = ?, skills_handled = ?, created_at = ?
+            SET owner = ?, keep_skills = ?, skills_handled = ?, completed = ?, created_at = ?
             WHERE pet_id = ?
             """;
     private static final String INSERT = """
             INSERT INTO np_pet_death_work
-                (pet_id, owner, keep_skills, skills_handled, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (pet_id, owner, keep_skills, skills_handled, completed, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """;
     private static final String FIND_BY_PET = """
-            SELECT pet_id, owner, keep_skills, skills_handled, created_at
+            SELECT pet_id, owner, keep_skills, skills_handled, completed, created_at
             FROM np_pet_death_work WHERE pet_id = ?
             """;
     private static final String FIND_BY_OWNER = """
-            SELECT pet_id, owner, keep_skills, skills_handled, created_at
+            SELECT pet_id, owner, keep_skills, skills_handled, completed, created_at
             FROM np_pet_death_work WHERE owner = ? ORDER BY created_at, pet_id
             """;
 
@@ -49,15 +49,17 @@ public final class JdbcPetDeathWorkRepository extends JdbcRepository implements 
                 update.setString(1, work.ownerId().toString());
                 update.setBoolean(2, work.keepSkills());
                 update.setBoolean(3, work.skillsHandled());
-                update.setTimestamp(4, Timestamp.from(work.createdAt()), utcCalendar());
-                update.setString(5, work.petId().toString());
+                update.setBoolean(4, work.completed());
+                update.setTimestamp(5, Timestamp.from(work.createdAt()), utcCalendar());
+                update.setString(6, work.petId().toString());
                 if (update.executeUpdate() == 0) {
                     try (var insert = connection.prepareStatement(INSERT)) {
                         insert.setString(1, work.petId().toString());
                         insert.setString(2, work.ownerId().toString());
                         insert.setBoolean(3, work.keepSkills());
                         insert.setBoolean(4, work.skillsHandled());
-                        insert.setTimestamp(5, Timestamp.from(work.createdAt()), utcCalendar());
+                        insert.setBoolean(5, work.completed());
+                        insert.setTimestamp(6, Timestamp.from(work.createdAt()), utcCalendar());
                         insert.executeUpdate();
                     }
                 }
@@ -104,6 +106,7 @@ public final class JdbcPetDeathWorkRepository extends JdbcRepository implements 
                 new PlayerId(UUID.fromString(result.getString("owner"))),
                 result.getBoolean("keep_skills"),
                 result.getBoolean("skills_handled"),
+                result.getBoolean("completed"),
                 result.getTimestamp("created_at", utcCalendar()).toInstant());
     }
 

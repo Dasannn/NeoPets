@@ -13,7 +13,13 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 
-/** Serializes durable soul-item delivery from enqueue through acknowledgement for each owner. */
+/**
+ * Serializes durable soul-item delivery from enqueue through acknowledgement for each owner.
+ *
+ * <p>Unacknowledged claims are retried after interruption. A process crash between the platform
+ * inventory write and the SQL acknowledgement can repeat the physical item, with the same
+ * single-use token; those two systems cannot commit atomically.</p>
+ */
 final class PendingSoulDeliveryQueue<T> {
     @FunctionalInterface
     interface DeliveryAttempt<T> {
@@ -61,7 +67,8 @@ final class PendingSoulDeliveryQueue<T> {
     }
 
     private CompletableFuture<Void> deliverPendingUnsequenced(PlayerId ownerId) {
-        return pending.findByOwner(ownerId).thenCompose(queued -> deliverInOrder(queued, 0));
+        return pending.releaseClaims(ownerId).thenCompose(ignored -> pending.findByOwner(ownerId))
+                .thenCompose(queued -> deliverInOrder(queued, 0));
     }
 
     private CompletableFuture<Void> deliverInOrder(List<PendingSoulDelivery> queued, int index) {
@@ -83,16 +90,21 @@ final class PendingSoulDeliveryQueue<T> {
                 OwnedPet pet = found.orElseThrow(() -> new IllegalStateException(
                         "Missing pet for pending soul delivery " + queued.tokenId()));
                 T item = Objects.requireNonNull(itemFactory.apply(queued, pet), "soul item");
-                return delivery.deliverIfAvailable(queued.ownerId(), item, pet).thenCompose(wasDelivered -> {
-                    if (!wasDelivered) {
+                return pending.claim(queued.tokenId()).thenCompose(claimed -> {
+                    if (!claimed) {
                         return CompletableFuture.completedFuture(null);
                     }
-                    return souls.markDelivered(token).thenCompose(claimed -> {
-                        if (!claimed) {
-                            return CompletableFuture.failedFuture(new IllegalStateException(
-                                    "Soul delivery was concurrently acknowledged for " + queued.tokenId()));
+                    return delivery.deliverIfAvailable(queued.ownerId(), item, pet).thenCompose(wasDelivered -> {
+                        if (!wasDelivered) {
+                            return CompletableFuture.completedFuture(null);
                         }
-                        return pending.delete(queued.tokenId());
+                        return souls.markDelivered(token).thenCompose(acknowledged -> {
+                            if (!acknowledged) {
+                                return CompletableFuture.failedFuture(new IllegalStateException(
+                                        "Soul delivery was concurrently acknowledged for " + queued.tokenId()));
+                            }
+                            return pending.delete(queued.tokenId());
+                        });
                     });
                 });
             });

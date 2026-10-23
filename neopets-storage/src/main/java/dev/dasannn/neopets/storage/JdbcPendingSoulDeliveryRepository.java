@@ -86,6 +86,35 @@ public final class JdbcPendingSoulDeliveryRepository extends JdbcRepository
     }
 
     @Override
+    public CompletableFuture<Boolean> claim(UUID tokenId) {
+        Objects.requireNonNull(tokenId, "tokenId");
+        return submit(() -> {
+            try (var connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement("""
+                            UPDATE np_pending_soul_delivery SET claimed = TRUE
+                            WHERE token_id = ? AND claimed = FALSE
+                            """)) {
+                statement.setString(1, tokenId.toString());
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> releaseClaims(PlayerId ownerId) {
+        Objects.requireNonNull(ownerId, "ownerId");
+        return submit(() -> {
+            try (var connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement(
+                            "UPDATE np_pending_soul_delivery SET claimed = FALSE WHERE owner = ?")) {
+                statement.setString(1, ownerId.toString());
+                statement.executeUpdate();
+            }
+            return null;
+        });
+    }
+
+    @Override
     public CompletableFuture<Void> delete(UUID tokenId) {
         Objects.requireNonNull(tokenId, "tokenId");
         return submit(() -> {

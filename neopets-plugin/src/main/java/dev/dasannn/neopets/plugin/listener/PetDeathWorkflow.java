@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.plugin.listener;
 
+import dev.dasannn.neopets.core.concurrent.KeyedSequencer;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetStatus;
@@ -41,6 +42,7 @@ public final class PetDeathWorkflow {
         CompletableFuture<Void> enqueue(SoulToken token);
     }
 
+    private final KeyedSequencer<PlayerId> sequence = new KeyedSequencer<>();
     private final PetRepository pets;
     private final PetDeathWorkRepository work;
     private final DeathTransition deaths;
@@ -62,7 +64,7 @@ public final class PetDeathWorkflow {
             Clock clock
     ) {
         this(pets, work, petService::die,
-                (ownerId, petId) -> skillTrees.reset(ownerId, petId, true),
+                skillTrees::resetForDeath,
                 souls::issue, deliveries::enqueueAndDeliver, keepSkills, clock);
     }
 
@@ -90,39 +92,64 @@ public final class PetDeathWorkflow {
     public CompletableFuture<Void> start(PlayerId ownerId, PetId petId) {
         Objects.requireNonNull(ownerId, "ownerId");
         Objects.requireNonNull(petId, "petId");
+        return sequence.submit(ownerId, () -> startUnsequenced(ownerId, petId));
+    }
+
+    private CompletableFuture<Void> startUnsequenced(PlayerId ownerId, PetId petId) {
         return pets.findById(petId).thenCompose(found -> {
-            if (found.isEmpty() || !found.orElseThrow().owner().equals(ownerId)) {
+            if (found.isEmpty() || !found.orElseThrow().owner().equals(ownerId)
+                    || found.orElseThrow().status() == PetStatus.IN_TRANSIT) {
                 return CompletableFuture.completedFuture(null);
             }
             OwnedPet pet = found.orElseThrow();
-            if (pet.status() == PetStatus.DEAD) {
-                return ensureWork(pet).thenCompose(this::complete);
-            }
-            PetDeathWork started = new PetDeathWork(
-                    petId, ownerId, keepSkills.getAsBoolean(), false, clock.instant());
-            return work.save(started).thenCompose(ignored -> deaths.die(ownerId, petId))
-                    .thenCompose(result -> switch (result) {
-                        case DeathResult.Died ignored -> complete(started);
-                        case DeathResult.AlreadyDead ignored -> complete(started);
-                        case DeathResult.NotOwned ignored -> CompletableFuture.completedFuture(null);
-                        case DeathResult.InTransit ignored -> CompletableFuture.completedFuture(null);
-                    });
+            return work.findByPet(petId).thenCompose(existing -> {
+                if (pet.status() == PetStatus.DEAD) {
+                    return ensureWork(pet).thenCompose(this::complete);
+                }
+                if (existing.isPresent() && !existing.orElseThrow().completed()) {
+                    return transition(existing.orElseThrow());
+                }
+                PetDeathWork started = new PetDeathWork(
+                        petId, ownerId, keepSkills.getAsBoolean(), false, clock.instant());
+                return work.save(started).thenCompose(ignored -> transition(started));
+            });
         });
     }
 
-    /** Completes interrupted death workflows for every dead pet owned by a joining player. */
-    public CompletableFuture<Void> reconcile(PlayerId ownerId) {
-        Objects.requireNonNull(ownerId, "ownerId");
-        return pets.findByOwner(ownerId).thenCompose(owned -> reconcileInOrder(
-                owned.stream().filter(pet -> pet.status() == PetStatus.DEAD).toList(), 0));
+    private CompletableFuture<Void> transition(PetDeathWork started) {
+        return deaths.die(started.ownerId(), started.petId()).thenCompose(result -> switch (result) {
+            case DeathResult.Died ignored -> complete(started);
+            case DeathResult.AlreadyDead ignored -> complete(started);
+            case DeathResult.NotOwned ignored -> CompletableFuture.completedFuture(null);
+            case DeathResult.InTransit ignored -> CompletableFuture.completedFuture(null);
+        });
     }
 
-    private CompletableFuture<Void> reconcileInOrder(List<OwnedPet> deadPets, int index) {
-        if (index == deadPets.size()) {
+    /** Completes interrupted death workflows for dead pets and saved death intents before join respawning. */
+    public CompletableFuture<Void> reconcile(PlayerId ownerId) {
+        Objects.requireNonNull(ownerId, "ownerId");
+        return sequence.submit(ownerId, () -> pets.findByOwner(ownerId)
+                .thenCompose(owned -> reconcileInOrder(owned, 0)));
+    }
+
+    private CompletableFuture<Void> reconcileInOrder(List<OwnedPet> ownedPets, int index) {
+        if (index == ownedPets.size()) {
             return CompletableFuture.completedFuture(null);
         }
-        return ensureWork(deadPets.get(index)).thenCompose(this::complete)
-                .thenCompose(ignored -> reconcileInOrder(deadPets, index + 1));
+        OwnedPet pet = ownedPets.get(index);
+        CompletableFuture<Void> reconciled;
+        if (pet.status() == PetStatus.DEAD) {
+            reconciled = ensureWork(pet).thenCompose(this::complete);
+        } else {
+            reconciled = work.findByPet(pet.id()).thenCompose(existing -> {
+                if (pet.status() == PetStatus.ALIVE && existing.isPresent()
+                        && !existing.orElseThrow().completed()) {
+                    return transition(existing.orElseThrow());
+                }
+                return CompletableFuture.completedFuture(null);
+            });
+        }
+        return reconciled.thenCompose(ignored -> reconcileInOrder(ownedPets, index + 1));
     }
 
     private CompletableFuture<PetDeathWork> ensureWork(OwnedPet pet) {
@@ -156,7 +183,8 @@ public final class PetDeathWorkflow {
             });
         }
         return handled.thenCompose(current -> souls.issue(current.petId(), current.ownerId()))
-                .thenCompose(deliveries::enqueue);
+                .thenCompose(deliveries::enqueue)
+                .thenCompose(ignored -> work.save(deathWork.withSkillsHandled().withCompleted()));
     }
 
     private CompletableFuture<PetDeathWork> checkpointSkills(PetDeathWork deathWork) {

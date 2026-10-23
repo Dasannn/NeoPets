@@ -193,11 +193,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             economyPort.bind(EconomyProvider.resolve(plugin.getServer(), scheduler::runOnMain, plugin.getLogger()));
             rankPort.bind(RankLimitsResolverFactory.create(plugin, configuration));
 
-            var playerLifecycle = new PlayerLifecycleListener(
-                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
-                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work);
             var pluginManager = plugin.getServer().getPluginManager();
-            pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             var damagePolicy = new PetDamagePolicy(
                     () -> configuration.current().settings().features().death().enabled(),
@@ -213,6 +209,11 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     () -> configuration.current().settings().features().death().keepSkills(), clock);
             pluginManager.registerEvents(new PetDeathListener(
                     petDeathWorkflow, livePets, work, plugin.getLogger()), plugin);
+            var playerLifecycle = new PlayerLifecycleListener(
+                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
+                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work,
+                    petDeathWorkflow::reconcile);
+            pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());

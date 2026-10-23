@@ -74,6 +74,7 @@ class PendingSoulDeliveryQueueTest {
         var releaseDelivery = new CompletableFuture<Boolean>();
         var attempts = new AtomicInteger();
         var queue = fixture.queue((owner, item, pet) -> {
+            assertTrue(fixture.pending.claimed.contains(TOKEN.tokenId()), "claim must precede the inventory write");
             attempts.incrementAndGet();
             deliveryStarted.complete(null);
             return releaseDelivery;
@@ -91,6 +92,71 @@ class PendingSoulDeliveryQueueTest {
         enqueue.join();
         join.join();
 
+        assertEquals(1, attempts.get());
+        assertEquals(List.of(), fixture.pending.findByOwner(OWNER).join());
+    }
+
+    @Test
+    void deletionFailureAfterAcknowledgmentNeverHandsOutAnotherItem() {
+        var fixture = new Fixture();
+        fixture.pending.failDelete = true;
+        var attempts = new AtomicInteger();
+        var queue = fixture.queue((owner, item, pet) -> {
+            attempts.incrementAndGet();
+            return CompletableFuture.completedFuture(true);
+        });
+        org.junit.jupiter.api.Assertions.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> queue.enqueueAndDeliver(TOKEN).join());
+        assertTrue(fixture.tokens.wasDelivered(TOKEN.tokenId(), PET_ID, OWNER).join());
+
+        fixture.pending.failDelete = false;
+        fixture.queue((owner, item, pet) -> {
+            attempts.incrementAndGet();
+            return CompletableFuture.completedFuture(true);
+        }).deliverPending(OWNER).join();
+
+        assertEquals(1, attempts.get());
+        assertEquals(List.of(), fixture.pending.findByOwner(OWNER).join());
+    }
+
+    @Test
+    void restartRecoversAClaimLeftBeforeTheInventoryWrite() {
+        var fixture = new Fixture();
+        fixture.pending.save(PendingSoulDelivery.from(TOKEN)).join();
+        assertTrue(fixture.pending.claim(TOKEN.tokenId()).join());
+        var attempts = new AtomicInteger();
+
+        fixture.queue((owner, item, pet) -> {
+            assertTrue(fixture.pending.claimed.contains(TOKEN.tokenId()));
+            attempts.incrementAndGet();
+            return CompletableFuture.completedFuture(true);
+        }).deliverPending(OWNER).join();
+
+        assertEquals(1, attempts.get());
+        assertTrue(fixture.tokens.wasDelivered(TOKEN.tokenId(), PET_ID, OWNER).join());
+        assertEquals(List.of(), fixture.pending.findByOwner(OWNER).join());
+    }
+
+    @Test
+    void joinDeliveryOwnsTheSequenceUntilPendingDeletionCompletes() {
+        var fixture = new Fixture();
+        fixture.pending.save(PendingSoulDelivery.from(TOKEN)).join();
+        fixture.pending.delayedDelete = new CompletableFuture<>();
+        var attempts = new AtomicInteger();
+        var queue = fixture.queue((owner, item, pet) -> {
+            attempts.incrementAndGet();
+            return CompletableFuture.completedFuture(true);
+        });
+
+        var join = queue.deliverPending(OWNER);
+        var enqueue = queue.enqueueAndDeliver(TOKEN);
+        assertFalse(join.isDone());
+        assertFalse(enqueue.isDone());
+        assertEquals(1, attempts.get());
+
+        fixture.pending.delayedDelete.complete(null);
+        join.join();
+        enqueue.join();
         assertEquals(1, attempts.get());
         assertEquals(List.of(), fixture.pending.findByOwner(OWNER).join());
     }
@@ -116,6 +182,22 @@ class PendingSoulDeliveryQueueTest {
 
     private static final class FakePending implements PendingSoulDeliveryRepository {
         private final Map<UUID, PendingSoulDelivery> entries = new LinkedHashMap<>();
+        private boolean failDelete;
+        private CompletableFuture<Void> delayedDelete;
+        private final java.util.Set<UUID> claimed = new java.util.HashSet<>();
+
+        @Override
+        public CompletableFuture<Boolean> claim(UUID tokenId) {
+            return CompletableFuture.completedFuture(entries.containsKey(tokenId) && claimed.add(tokenId));
+        }
+
+        @Override
+        public CompletableFuture<Void> releaseClaims(PlayerId ownerId) {
+            entries.values().stream().filter(entry -> entry.ownerId().equals(ownerId))
+                    .forEach(entry -> claimed.remove(entry.tokenId()));
+            return CompletableFuture.completedFuture(null);
+        }
+
 
         @Override
         public CompletableFuture<Void> save(PendingSoulDelivery delivery) {
@@ -131,6 +213,12 @@ class PendingSoulDeliveryQueueTest {
 
         @Override
         public CompletableFuture<Void> delete(UUID tokenId) {
+            if (failDelete) {
+                return CompletableFuture.failedFuture(new IllegalStateException("delete unavailable"));
+            }
+            if (delayedDelete != null) {
+                return delayedDelete.thenRun(() -> entries.remove(tokenId));
+            }
             entries.remove(tokenId);
             return CompletableFuture.completedFuture(null);
         }

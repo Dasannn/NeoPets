@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.storage;
 
 import dev.dasannn.neopets.core.model.PetId;
+import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
@@ -46,6 +47,83 @@ public final class JdbcTreeProgressRepository extends JdbcRepository implements 
         return submit(() -> {
             saveAll(progress);
             return null;
+        });
+    }
+
+    @Override
+    public CompletableFuture<Integer> resetForDeath(PlayerId owner, TreeProgress zeroed, int refund) {
+        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(zeroed, "zeroed");
+        if (refund < 0 || zeroed.unlockedNodes() != 0 || zeroed.activeNodes() != 0) {
+            throw new IllegalArgumentException("death reset requires zeroed progress and a nonnegative refund");
+        }
+        return submit(() -> {
+            try (var connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try {
+                    int changed;
+                    try (var claim = connection.prepareStatement("""
+                            UPDATE np_pet_death_work SET skills_handled = TRUE
+                            WHERE pet_id = ? AND owner = ? AND keep_skills = FALSE AND skills_handled = FALSE
+                            """)) {
+                        claim.setString(1, zeroed.petId().toString());
+                        claim.setString(2, owner.toString());
+                        changed = claim.executeUpdate();
+                    }
+                    if (changed != 0) {
+                        try (var delete = connection.prepareStatement(DELETE)) {
+                            delete.setString(1, zeroed.petId().toString());
+                            delete.executeUpdate();
+                        }
+                        String sql = storageType == StorageType.MYSQL ? """
+                                INSERT INTO np_player (uuid, sp_balance) VALUES (?, ?)
+                                ON DUPLICATE KEY UPDATE sp_balance = sp_balance + VALUES(sp_balance)
+                                """ : """
+                                INSERT INTO np_player (uuid, sp_balance) VALUES (?, ?)
+                                ON CONFLICT(uuid) DO UPDATE SET sp_balance = sp_balance + excluded.sp_balance
+                                """;
+                        try (var credit = connection.prepareStatement(sql)) {
+                            credit.setString(1, owner.toString());
+                            credit.setInt(2, refund);
+                            credit.executeUpdate();
+                        }
+                    } else {
+                        try (var checkpoint = connection.prepareStatement("""
+                                SELECT 1 FROM np_pet_death_work
+                                WHERE pet_id = ? AND owner = ? AND keep_skills = FALSE AND skills_handled = TRUE
+                                """)) {
+                            checkpoint.setString(1, zeroed.petId().toString());
+                            checkpoint.setString(2, owner.toString());
+                            try (var result = checkpoint.executeQuery()) {
+                                if (!result.next()) {
+                                    throw new SQLException("Missing resettable death workflow");
+                                }
+                            }
+                        }
+                    }
+                    int balance;
+                    try (var select = connection.prepareStatement("SELECT sp_balance FROM np_player WHERE uuid = ?")) {
+                        select.setString(1, owner.toString());
+                        try (var result = select.executeQuery()) {
+                            balance = result.next() ? Math.toIntExact(result.getLong(1)) : 0;
+                            if (balance < 0) {
+                                throw new SQLException("Skill-point balance overflow");
+                            }
+                        }
+                    }
+                    connection.commit();
+                    return balance;
+                } catch (Throwable failure) {
+                    try {
+                        connection.rollback();
+                    } catch (SQLException rollbackFailure) {
+                        failure.addSuppressed(rollbackFailure);
+                    }
+                    throw failure;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+            }
         });
     }
 

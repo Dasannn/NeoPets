@@ -11,6 +11,7 @@ public record PetDeathWork(
         PlayerId ownerId,
         boolean keepSkills,
         boolean skillsHandled,
+        boolean completed,
         Instant createdAt
 ) {
     public PetDeathWork {
@@ -19,8 +20,18 @@ public record PetDeathWork(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
+    /** Creates an unfinished workflow. */
+    public PetDeathWork(PetId petId, PlayerId ownerId, boolean keepSkills, boolean skillsHandled, Instant createdAt) {
+        this(petId, ownerId, keepSkills, skillsHandled, false, createdAt);
+    }
+
+    /** Returns a copy recording durable soul enqueue completion. */
+    public PetDeathWork withCompleted() {
+        return new PetDeathWork(petId, ownerId, keepSkills, skillsHandled, true, createdAt);
+    }
+
     /** Returns a copy recording that retained or reset skill progress has been handled. */
     public PetDeathWork withSkillsHandled() {
-        return new PetDeathWork(petId, ownerId, keepSkills, true, createdAt);
+        return new PetDeathWork(petId, ownerId, keepSkills, true, completed, createdAt);
     }
 }

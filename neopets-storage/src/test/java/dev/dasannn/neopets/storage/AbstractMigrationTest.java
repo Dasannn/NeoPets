@@ -23,9 +23,9 @@ abstract class AbstractMigrationTest {
             "np_soul_token", Set.of("token_id", "pet_id", "owner", "issued_at", "consumed_at",
                     "delivered_at", "active_pet_id"),
             "np_pet_storage", Set.of("pet_id", "contents"),
-            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at"),
+            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at", "claimed"),
             "np_pet_death_work", Set.of(
-                    "pet_id", "owner", "keep_skills", "skills_handled", "created_at"));
+                    "pet_id", "owner", "keep_skills", "skills_handled", "completed", "created_at"));
 
     abstract StorageSettings settings();
 

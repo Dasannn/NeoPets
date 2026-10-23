@@ -188,6 +188,23 @@ public final class PlayerDataCache {
         }
     }
 
+    CompletableFuture<Integer> resetForDeath(
+            PlayerId owner, TreeProgress zeroed, Supplier<CompletableFuture<Integer>> durableReset
+    ) {
+        return operations.submit(owner, () -> durableReset.get().thenApply(balance -> {
+            synchronized (monitor) {
+                var current = players.get(owner);
+                if (current != null) {
+                    var progress = new LinkedHashMap<>(current.treeProgress());
+                    progress.put(zeroed.petId(), Optional.of(zeroed));
+                    replace(owner, current, current.withProfile(current.profile().withSkillPointBalance(balance))
+                            .withTreeProgress(progress));
+                }
+            }
+            return balance;
+        }));
+    }
+
     CompletableFuture<Void> saveProfile(PlayerProfile profile, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(profile, "profile");
         return operations.submit(profile.playerId(), () -> writeThrough(() -> {

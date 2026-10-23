@@ -259,6 +259,12 @@ abstract class AbstractJdbcRepositoryTest {
 
         assertEquals(List.of(first, second), await(pendingDeliveries.findByOwner(OWNER)));
         assertEquals(List.of(other), await(pendingDeliveries.findByOwner(OTHER_OWNER)));
+        assertTrue(await(pendingDeliveries.claim(firstToken)));
+        assertFalse(await(pendingDeliveries.claim(firstToken)));
+        await(pendingDeliveries.releaseClaims(OTHER_OWNER));
+        assertFalse(await(pendingDeliveries.claim(firstToken)));
+        await(pendingDeliveries.releaseClaims(OWNER));
+        assertTrue(await(pendingDeliveries.claim(firstToken)));
         await(pendingDeliveries.delete(firstToken));
         await(pendingDeliveries.delete(firstToken));
         assertEquals(List.of(second), await(pendingDeliveries.findByOwner(OWNER)));
@@ -272,7 +278,7 @@ abstract class AbstractJdbcRepositoryTest {
         assertEquals(Optional.of(started), await(deathWork.findByPet(PET_ID)));
         assertEquals(List.of(started), await(deathWork.findByOwner(OWNER)));
 
-        var handled = started.withSkillsHandled();
+        var handled = started.withSkillsHandled().withCompleted();
         await(deathWork.save(handled));
         assertEquals(Optional.of(handled), await(deathWork.findByPet(PET_ID)));
         assertEquals(List.of(), await(deathWork.findByOwner(OTHER_OWNER)));

@@ -4,6 +4,7 @@ import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.NodeActivated;
 import dev.dasannn.neopets.core.event.NodeUnlocked;
+import dev.dasannn.neopets.core.event.SkillPointsChanged;
 import dev.dasannn.neopets.core.event.TreeReset;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -91,6 +92,14 @@ public final class SkillTreeService {
         Objects.requireNonNull(petId, "petId");
         return operations.submit(playerId, () -> safely(
                 () -> resetUnsequenced(playerId, petId, refundSkillPoints), ResetResult.Failed::new));
+    }
+
+    /** Resets death progress with an atomic, repeatable durable refund and death checkpoint. */
+    public CompletableFuture<ResetResult> resetForDeath(PlayerId playerId, PetId petId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(petId, "petId");
+        return operations.submit(playerId, () -> safely(
+                () -> resetUnsequenced(playerId, petId, true, true), ResetResult.Failed::new));
     }
 
     private CompletableFuture<UnlockResult> unlockUnsequenced(
@@ -300,6 +309,12 @@ public final class SkillTreeService {
     private CompletableFuture<ResetResult> resetUnsequenced(
             PlayerId playerId, PetId petId, boolean refundSkillPoints
     ) {
+        return resetUnsequenced(playerId, petId, refundSkillPoints, false);
+    }
+
+    private CompletableFuture<ResetResult> resetUnsequenced(
+            PlayerId playerId, PetId petId, boolean refundSkillPoints, boolean death
+    ) {
         return petRepository.findById(petId).thenCompose(foundPet -> {
             if (foundPet.isEmpty() || !foundPet.orElseThrow().owner().equals(playerId)) {
                 return CompletableFuture.completedFuture(new ResetResult.NotOwned(petId));
@@ -312,6 +327,15 @@ public final class SkillTreeService {
                 TreeProgress current = progress(stored, petId, definition);
                 TreeProgress zeroed = TreeProgress.empty(petId, definition);
                 int refund = refundSkillPoints ? current.assignedSkillPoints(definition) : 0;
+                if (death) {
+                    return skillPointService.balanceUnsequenced(playerId).thenCompose(before ->
+                            progressRepository.resetForDeath(playerId, zeroed, refund).thenCompose(balance -> {
+                                if (before != balance) {
+                                    eventBus.publish(new SkillPointsChanged(playerId, before, balance));
+                                }
+                                return completedReset(zeroed, refund);
+                            }));
+                }
                 return saveReset(playerId, current, zeroed, refund);
             });
         });

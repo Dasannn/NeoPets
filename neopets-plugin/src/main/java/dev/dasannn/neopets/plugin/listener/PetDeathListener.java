@@ -13,7 +13,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 
 /** Converts tagged entity deaths into durable domain deaths and queued soul-item delivery. */
 public final class PetDeathListener implements Listener {
@@ -56,17 +55,6 @@ public final class PetDeathListener implements Listener {
                                 unwrap(failure));
                     }
                 });
-    }
-
-    /** Reconciles interrupted workflows whenever the owner returns. */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onJoin(PlayerJoinEvent event) {
-        PlayerId ownerId = new PlayerId(event.getPlayer().getUniqueId());
-        work.submit(() -> workflow.reconcile(ownerId)).whenComplete((ignored, failure) -> {
-            if (failure != null) {
-                logger.log(Level.SEVERE, "Could not reconcile pet deaths for " + ownerId, unwrap(failure));
-            }
-        });
     }
 
     private static Throwable unwrap(Throwable failure) {

@@ -74,7 +74,7 @@ public final class SoulDeliveryCoordinator implements Listener {
         return queue.deliverPending(ownerId);
     }
 
-    /** Starts pending delivery after the ordinary player-data join work has been admitted. */
+    /** Queues pending delivery in the same owner sequence used for newly issued souls. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -95,10 +95,14 @@ public final class SoulDeliveryCoordinator implements Listener {
                 return;
             }
             SoulItemDelivery.Result destination = delivery.deliver(item, SoulItemDelivery.player(player));
+            result.set(true);
             String message = destination == SoulItemDelivery.Result.INVENTORY
                     ? "pets.soul-delivered" : "pets.soul-dropped";
-            messages.send(player, new MessageSpec(message, java.util.Map.of("pet", items.petName(pet))));
-            result.set(true);
+            try {
+                messages.send(player, new MessageSpec(message, java.util.Map.of("pet", items.petName(pet))));
+            } catch (RuntimeException failure) {
+                logger.log(Level.WARNING, "Soul delivered but notification failed for " + ownerId, failure);
+            }
         }).thenApply(ignored -> result.get());
     }
 }
