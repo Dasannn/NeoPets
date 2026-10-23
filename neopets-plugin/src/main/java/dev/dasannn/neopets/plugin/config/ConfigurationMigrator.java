@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.plugin.config;
 
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
@@ -11,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 8;
+    public static final int CURRENT_VERSION = 9;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -135,6 +136,31 @@ public final class ConfigurationMigrator {
                 setIfMissing(configuration, "abilities.vigia.cooldown-seconds", 5);
                 setIfMissing(configuration, "abilities.vigia.radius", 16.0);
                 setIfMissing(configuration, "abilities.vigia.duration-seconds", 5);
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 8;
+            }
+
+            @Override
+            public int toVersion() {
+                return 9;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 9 adds Buscatesoros settings and its language message.
+                setIfMissing(configuration, "abilities.buscatesoros.cooldown-seconds", 30);
+                setIfMissing(configuration, "abilities.buscatesoros.base-radius", 16.0);
+                setIfMissing(configuration, "abilities.buscatesoros.duration-seconds", 5);
+                setIfMissing(configuration, "abilities.buscatesoros.max-targets", 32);
+                setIfMissing(configuration, "abilities.buscatesoros.max-scan-blocks", 8192);
+                setIfMissing(configuration, "abilities.buscatesoros.ore-materials",
+                        BuscatesorosAbility.defaultOreMaterials().stream()
+                                .map(Enum::name)
+                                .sorted()
+                                .toList());
             }
         }));
     }

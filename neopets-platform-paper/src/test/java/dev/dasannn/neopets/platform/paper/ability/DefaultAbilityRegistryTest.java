@@ -55,10 +55,15 @@ class DefaultAbilityRegistryTest {
         var registry = new DefaultAbilityRegistry(List.of(
                 new ZarpazoAbility(() -> new ZarpazoAbility.Settings(Duration.ofSeconds(10), 6, 4)),
                 new VigiaAbility(() -> new VigiaAbility.Settings(
-                        Duration.ofSeconds(5), 16, Duration.ofSeconds(5)))),
+                        Duration.ofSeconds(5), 16, Duration.ofSeconds(5))),
+                new BuscatesorosAbility(() -> new BuscatesorosAbility.Settings(
+                        Duration.ofSeconds(30), 16, Duration.ofSeconds(5), 32, 8192,
+                        Set.of(org.bukkit.Material.DIAMOND_ORE)), (owner, count) -> { }),
+                new FelineLandingAbility(new FelineLandingPolicy())),
                 new CooldownTracker(), Clock.systemUTC());
 
-        assertEquals(Set.of("claw_swipe", "lookout"), registry.registeredIds());
+        assertEquals(Set.of("claw_swipe", "lookout", "treasure_hunter", "feline_landing"),
+                registry.registeredIds());
     }
 
     private static DefaultAbilityRegistry registry(List<? extends Ability> abilities, Player owner) {

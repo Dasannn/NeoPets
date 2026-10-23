@@ -67,12 +67,30 @@ class ConfigurationMigratorTest {
 
         assertTrue(new ConfigurationMigrator().migrate(configuration, 7));
 
-        assertEquals(8, configuration.getInt("config-version"));
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, configuration.getInt("config-version"));
         assertEquals(9.5, configuration.getDouble("abilities.zarpazo.radius"));
         assertEquals(10, configuration.getInt("abilities.zarpazo.cooldown-seconds"));
         assertEquals(4.0, configuration.getDouble("abilities.zarpazo.damage"));
         assertEquals(5, configuration.getInt("abilities.vigia.cooldown-seconds"));
         assertEquals(16.0, configuration.getDouble("abilities.vigia.radius"));
         assertEquals(5, configuration.getInt("abilities.vigia.duration-seconds"));
+    }
+
+    @Test
+    void versionNineAddsTreasureDefaultsWithoutOverwritingCustomValues() {
+        var configuration = new YamlConfiguration();
+        configuration.set("config-version", 8);
+        configuration.set("abilities.buscatesoros.max-targets", 7);
+
+        assertTrue(new ConfigurationMigrator().migrate(configuration, 8));
+
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, configuration.getInt("config-version"));
+        assertEquals(30, configuration.getInt("abilities.buscatesoros.cooldown-seconds"));
+        assertEquals(16.0, configuration.getDouble("abilities.buscatesoros.base-radius"));
+        assertEquals(5, configuration.getInt("abilities.buscatesoros.duration-seconds"));
+        assertEquals(7, configuration.getInt("abilities.buscatesoros.max-targets"));
+        assertEquals(8192, configuration.getInt("abilities.buscatesoros.max-scan-blocks"));
+        assertTrue(configuration.getStringList("abilities.buscatesoros.ore-materials")
+                .contains("ANCIENT_DEBRIS"));
     }
 }
