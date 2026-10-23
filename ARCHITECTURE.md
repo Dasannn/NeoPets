@@ -106,7 +106,7 @@ Para soportar una nueva versión de Minecraft se toca este módulo; si un cambio
 | `np_soul_token` | token_id, pet_id, owner, issued_at, consumed_at |
 | `np_pet_storage` | pet_id, contents (blob serializado por la plataforma) |
 
-- **Threading:** todo acceso SQL en un `ExecutorService` propio; nunca en el hilo principal.
+- **Threading:** todo acceso SQL en un `ExecutorService` propio; nunca en el hilo principal durante el juego. Excepción deliberada: la conexión y las migraciones se ejecutan de forma síncrona en `onEnable`, antes de que el servidor acepte jugadores, para que el plugin arranque completo o no arranque.
 - **Caché:** perfil y mascotas cargados en `AsyncPlayerPreLoginEvent`, en memoria mientras el jugador está conectado; escrituras inmediatas asíncronas para operaciones críticas (SP, tokens, dinero) y flush periódico para el resto; descarga al salir.
 
 ## 7. `neopets-plugin`

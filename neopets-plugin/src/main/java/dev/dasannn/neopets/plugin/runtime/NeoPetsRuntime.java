@@ -13,6 +13,7 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.pet.PetService;
 import dev.dasannn.neopets.core.pet.VariantCatalog;
+import dev.dasannn.neopets.core.port.RankLimitsResolver;
 import dev.dasannn.neopets.core.skilltree.SkillPointService;
 import dev.dasannn.neopets.core.skilltree.SkillTreeRegistry;
 import dev.dasannn.neopets.core.skilltree.SkillTreeService;
@@ -26,6 +27,9 @@ import dev.dasannn.neopets.plugin.config.ConfigurationManager;
 import dev.dasannn.neopets.plugin.config.PluginSettings;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
 import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
+import dev.dasannn.neopets.plugin.gui.Menu;
+import dev.dasannn.neopets.plugin.gui.PetRenameListener;
+import dev.dasannn.neopets.plugin.gui.PetsMenu;
 import dev.dasannn.neopets.plugin.listener.OrphanCleanupListener;
 import dev.dasannn.neopets.plugin.listener.PlayerLifecycleListener;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
@@ -74,6 +78,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final SkillTreeService skillTrees;
     private final CachingPetRepository pets;
     private final PlayerLifecycleListener playerLifecycle;
+    private final PetsMenu petsMenu;
     private final PlayerDataCache cache;
     private final RuntimeWorkTracker work;
 
@@ -86,6 +91,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             SkillTreeService skillTrees,
             CachingPetRepository pets,
             PlayerLifecycleListener playerLifecycle,
+            PetsMenu petsMenu,
             PlayerDataCache cache,
             RuntimeWorkTracker work
     ) {
@@ -97,6 +103,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.skillTrees = skillTrees;
         this.pets = pets;
         this.playerLifecycle = playerLifecycle;
+        this.petsMenu = petsMenu;
         this.cache = cache;
         this.work = work;
     }
@@ -179,6 +186,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             pluginManager.registerEvents(new PetProtectionListener(), plugin);
             pluginManager.registerEvents(ticker, plugin);
+            var menu = new Menu(plugin, plugin.getLogger());
+            var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
+            var petsMenu = new PetsMenu(plugin, menu, configuration, messages, pets, trees, skillPoints,
+                    rankPort, petService, renames, plugin.getLogger());
+            pluginManager.registerEvents(menu, plugin);
+            pluginManager.registerEvents(renames, plugin);
 
             lifecycle.started(new RuntimeShutdown(
                     work,
@@ -193,7 +206,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
-                    skillPoints, skillTrees, pets, playerLifecycle, cache, work);
+                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, cache, work);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
             throw exception;
@@ -229,6 +242,10 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public PlayerLifecycleListener playerLifecycle() {
         return playerLifecycle;
+    }
+
+    public PetsMenu petsMenu() {
+        return petsMenu;
     }
 
     /** Starts work only while the runtime is accepting operations and tracks it through completion. */

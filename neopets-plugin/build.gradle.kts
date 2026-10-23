@@ -81,6 +81,7 @@ tasks.named<Test>("test") {
     inputs.file(pluginJar)
     inputs.files(bundledModules)
     systemProperty("neopets.test.version", project.version.toString())
+    systemProperty("neopets.preview.dir", layout.buildDirectory.dir("gui-previews").get().asFile.absolutePath)
     runtimeLibraryCoordinates.forEach { (name, coordinate) ->
         systemProperty("neopets.test.library.$name", coordinate)
     }
