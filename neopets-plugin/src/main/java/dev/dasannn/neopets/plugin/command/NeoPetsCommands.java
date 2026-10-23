@@ -27,7 +27,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.logging.Level;
-import net.kyori.adventure.text.event.ClickEvent;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -69,8 +68,7 @@ public final class NeoPetsCommands {
                 rt.messages().send(sender, MessageSpec.of("general.usage-neopets"));
                 return;
             }
-            PlayerId playerId = new PlayerId(player.getUniqueId());
-            complete(rt.pets().findByOwner(playerId), sender, owned -> showPets(rt, player, owned));
+            rt.petsMenu().open(player);
         }
 
         @Override
@@ -278,22 +276,6 @@ public final class NeoPetsCommands {
         } catch (IOException | ConfigurationLoadException exception) {
             plugin.getLogger().log(Level.WARNING, "NeoPets configuration reload failed: " + exception.getMessage());
             rt.messages().send(sender, MessageSpec.of("errors.config-invalid"));
-        }
-    }
-
-    private void showPets(NeoPetsRuntime rt, Player player, List<OwnedPet> owned) {
-        if (owned.isEmpty()) {
-            rt.messages().send(player, MessageSpec.of("pets.none-owned"));
-            return;
-        }
-        rt.messages().send(player, MessageSpec.of("pets.list-header"));
-        for (OwnedPet pet : owned) {
-            String action = rt.messages().plain(pet.active() ? "pets.action-dismiss" : "pets.action-summon");
-            var entry = rt.messages().render(new MessageSpec("pets.list-entry", Map.of(
-                    "pet", rt.petName(pet), "variant", pet.variant().value(), "action", action)));
-            String operation = pet.active() ? "dismiss" : "summon";
-            player.sendMessage(entry.clickEvent(ClickEvent.runCommand(
-                    "/neopet " + operation + " " + pet.id())));
         }
     }
 

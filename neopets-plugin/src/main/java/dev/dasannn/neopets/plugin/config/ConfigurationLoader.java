@@ -63,7 +63,24 @@ public final class ConfigurationLoader {
             "gui.previous-page", "gui.next-page", "gui.close", "gui.back", "gui.summoned",
             "gui.dismissed", "gui.dead", "gui.locked-node", "gui.unlocked-node", "gui.active-node",
             "gui.unavailable-node", "gui.rank-limits", "admin.feature-enabled", "admin.feature-disabled",
-            "admin.value-updated");
+            "admin.value-updated",
+            "gui.pets.blank", "gui.pets.header-name", "gui.pets.header-owned",
+            "gui.pets.header-active", "gui.pets.header-sp", "gui.pets.header-hint",
+            "gui.pets.empty-name", "gui.pets.empty-lore", "gui.pets.no-filter-matches-name",
+            "gui.pets.no-filter-matches-lore",
+            "gui.pets.pet-name", "gui.pets.pet-name-active", "gui.pets.pet-name-dead",
+            "gui.pets.pet-subtitle", "gui.pets.age-adult", "gui.pets.age-baby",
+            "gui.pets.state-active", "gui.pets.state-stored", "gui.pets.state-dead",
+            "gui.pets.progress", "gui.pets.revive-line-one", "gui.pets.revive-line-two",
+            "gui.pets.action-summon", "gui.pets.action-dismiss", "gui.pets.action-skills",
+            "gui.pets.action-rename", "gui.pets.filter-name", "gui.pets.filter-current",
+            "gui.pets.filter-action", "gui.pets.filter-all", "gui.pets.type-dog",
+            "gui.pets.type-cat", "gui.pets.type-parrot", "gui.pets.type-polar-bear",
+            "gui.pets.type-donkey", "gui.pets.previous-page", "gui.pets.next-page",
+            "gui.pets.page-number",
+            "gui.pets.close", "gui.pets.help-name", "gui.pets.help-lore", "gui.pets.help-message",
+            "gui.pets.coming-soon", "gui.pets.rename-prompt", "gui.pets.rename-cancel-word",
+            "gui.pets.rename-cancelled");
 
     private final Path dataDirectory;
     private final ClassLoader resources;
@@ -259,13 +276,16 @@ public final class ConfigurationLoader {
             boolean baby = valueOr(bool(yaml, file, base + ".baby", issues), false);
             double weight = valueOr(decimal(yaml, file, base + ".weight", false, issues), BigDecimal.ONE).doubleValue();
             String displayName = valueOr(string(yaml, file, base + ".display-name", issues), idText);
-            String icon = valueOr(string(yaml, file, base + ".icon", issues), "BARRIER");
-            Material iconMaterial = Material.matchMaterial(icon);
-            if (!icon.equals(icon.toUpperCase(Locale.ROOT))
-                    || iconMaterial == null
-                    || !isInventoryItem(iconMaterial)) {
-                issue(issues, file, base + ".icon",
-                        "must name a valid uppercase, non-air inventory item material");
+            String icon = null;
+            if (yaml.get(base + ".icon") != null) {
+                icon = string(yaml, file, base + ".icon", issues);
+                Material iconMaterial = icon == null ? null : Material.matchMaterial(icon);
+                if (icon != null && (!icon.equals(icon.toUpperCase(Locale.ROOT))
+                        || iconMaterial == null
+                        || !isInventoryItem(iconMaterial))) {
+                    issue(issues, file, base + ".icon",
+                            "must name a valid uppercase, non-air inventory item material");
+                }
             }
             VariantAppearance appearance = appearance(yaml, file, base + ".appearance", issues);
             List<String> appearanceFailures;
@@ -283,7 +303,9 @@ public final class ConfigurationLoader {
                 if (variants.putIfAbsent(id, variant) != null) {
                     issue(issues, file, base, "variant id is duplicated in another pet file");
                 } else {
-                    icons.put(id, icon);
+                    if (icon != null) {
+                        icons.put(id, icon);
+                    }
                 }
             } catch (IllegalArgumentException exception) {
                 issue(issues, file, base, exception.getMessage());

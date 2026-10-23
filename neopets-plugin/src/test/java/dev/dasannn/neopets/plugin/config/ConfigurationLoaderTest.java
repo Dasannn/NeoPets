@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.model.VariantId;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -148,10 +149,21 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void variantIconIsOptionalForMenuSpawnEggFallback() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("pets/dog.yml", "    icon: BONE\n", "");
+
+        ConfigurationSnapshot snapshot = loader.load();
+
+        assertFalse(snapshot.variantIcons().containsKey(new VariantId("dog_pale")));
+    }
+
+    @Test
     void everyShippedMessageIsRequired() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("lang/es.yml", "  pets-title: \"<dark_purple>Mis mascotas</dark_purple>\"\n", "");
+        replace("lang/es.yml", "  pets-title: \"Mis mascotas\"\n", "");
 
         ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
 
