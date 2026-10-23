@@ -1,6 +1,6 @@
 # NeoPets — Especificación funcional (MVP)
 
-> Estado: **APROBADA con cambios — revisión 2** (pendiente confirmar §10)
+> Estado: **APROBADA** — revisión 3 (2026-10-23)
 > Depende de: `docs/constitution.md`
 
 ## 1. Alcance del MVP
@@ -114,13 +114,13 @@ Mejorar un nodo tiene dos pasos:
 
 Reglas:
 - Los SP son **por jugador** y se obtienen con `/neopet sp give <jugador> <cantidad>` (CustomDungeons/LDActivities al abrir cofres, etc.).
-- `max-skill-points` por rango: tope de SP totales del jugador (disponibles + asignados). Usuario sin rango: **3**. Los SP que excedan el tope no se entregan (mensaje configurable).
+- `max-skill-points` por rango: tope de SP **asignados por mascota**. Usuario sin rango: **3** (es decir, como máximo 3 mejoras activas en cada mascota). El saldo de SP del jugador no tiene tope.
 - `max-nodes-per-pet` por rango: tope de nodos desbloqueados por mascota (usuario 10, borradores VIP 16 / 22).
 - Reset de árbol: comando admin; para jugadores, opcional y de pago (toggle). El reset devuelve los SP, no el dinero.
 
 ### 5.5 GUI del skill tree
 - Menú de cofre: una fila por atributo, un slot por nivel. Gris = bloqueado, amarillo = desbloqueado sin SP, verde = activo, rojo = no disponible (sin dinero/SP/límite).
-- Muestra SP disponibles/tope, nodos desbloqueados/máximo y coste del siguiente nodo.
+- Muestra SP disponibles del jugador, SP asignados/tope de la mascota, nodos desbloqueados/máximo y coste del siguiente nodo.
 
 ## 6. Rangos y límites
 
@@ -149,6 +149,3 @@ Se toma el valor más alto entre los rangos que tenga el jugador.
 | Kit starter (externo) | `neopet give <jugador> <ids>` |
 | CustomDungeons / LDActivities | `neopet give …`, `neopet sp give …` desde recompensas de cofres |
 | LDPotions | `neopets revive %player%` al beber la poción |
-
-## 10. Pendiente de confirmar
-1. Con `max-skill-points: 3` por jugador, un usuario sin rango puede tener **3 mejoras activas en total entre todas sus mascotas**. ¿Es correcto, o el tope de 3 debe ser **por mascota**?
