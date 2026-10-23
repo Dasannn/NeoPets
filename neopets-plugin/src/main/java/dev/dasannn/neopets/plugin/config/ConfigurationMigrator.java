@@ -12,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 10;
+    public static final int CURRENT_VERSION = 11;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -187,6 +187,21 @@ public final class ConfigurationMigrator {
                                 .map(Enum::name)
                                 .sorted()
                                 .toList());
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 10;
+            }
+
+            @Override
+            public int toVersion() {
+                return 11;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 11 adds administration-menu language keys only.
             }
         }));
     }

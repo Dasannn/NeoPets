@@ -6,12 +6,10 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.pet.GiveResult;
 import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
-import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -36,6 +34,7 @@ public final class NeoPetsCommands {
     private static final String USE = "neopets.use";
     private static final String GIVE = "neopets.admin.give";
     private static final String SP = "neopets.admin.sp";
+    private static final String ADMIN = "neopets.admin.gui";
     private static final String RELOAD = "neopets.admin.reload";
 
     private final NeoPetsPlugin plugin;
@@ -90,6 +89,7 @@ public final class NeoPetsCommands {
                 case "summon" -> summonOrDismiss(rt, source.getSender(), args, true);
                 case "dismiss" -> summonOrDismiss(rt, source.getSender(), args, false);
                 case "sp" -> skillPoints(rt, source.getSender(), args);
+                case "admin" -> admin(rt, source.getSender(), args);
                 case "reload" -> reload(rt, source.getSender(), args);
                 default -> rt.messages().send(source.getSender(), MessageSpec.of("general.usage-neopet"));
             }
@@ -107,6 +107,9 @@ public final class NeoPetsCommands {
                 }
                 if (source.getSender().hasPermission(SP)) {
                     choices.add("sp");
+                }
+                if (source.getSender().hasPermission(ADMIN)) {
+                    choices.add("admin");
                 }
                 if (source.getSender().hasPermission(RELOAD)) {
                     choices.add("reload");
@@ -267,13 +270,32 @@ public final class NeoPetsCommands {
             rt.messages().send(sender, MessageSpec.of("general.usage-neopet"));
             return;
         }
-        try {
-            rt.configuration().reload();
-            rt.messages().send(sender, MessageSpec.of("general.reloaded"));
-        } catch (IOException | ConfigurationLoadException exception) {
-            plugin.getLogger().log(Level.WARNING, "NeoPets configuration reload failed: " + exception.getMessage());
-            rt.messages().send(sender, MessageSpec.of("errors.config-invalid"));
+        rt.adminConfiguration().reload().whenComplete((ignored, failure) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (failure == null) {
+                        rt.messages().send(sender, MessageSpec.of("general.reloaded"));
+                        return;
+                    }
+                    Throwable cause = unwrap(failure);
+                    plugin.getLogger().log(Level.WARNING,
+                            "NeoPets configuration reload failed: " + cause.getMessage(), cause);
+                    rt.messages().send(sender, MessageSpec.of("errors.config-invalid"));
+                }));
+    }
+
+    private void admin(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, ADMIN, rt)) {
+            return;
         }
+        if (!(sender instanceof Player player)) {
+            rt.messages().send(sender, MessageSpec.of("errors.player-only"));
+            return;
+        }
+        if (args.length != 1) {
+            rt.messages().send(sender, MessageSpec.of("general.usage-neopet"));
+            return;
+        }
+        rt.adminMenu().open(player);
     }
 
     private boolean allowed(CommandSender sender, String permission, NeoPetsRuntime rt) {

@@ -25,6 +25,7 @@ import dev.dasannn.neopets.plugin.command.MessageSpec;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
+import dev.dasannn.neopets.plugin.config.AdminConfigurationService;
 import dev.dasannn.neopets.plugin.config.PluginSettings;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
 import dev.dasannn.neopets.plugin.integration.NeoPetsPlaceholders;
@@ -33,6 +34,7 @@ import dev.dasannn.neopets.plugin.integration.PlaceholderApiRegistration;
 import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
 import dev.dasannn.neopets.plugin.integration.RuntimePlaceholderDataSource;
 import dev.dasannn.neopets.plugin.gui.Menu;
+import dev.dasannn.neopets.plugin.gui.AdminMenu;
 import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
 import dev.dasannn.neopets.plugin.gui.SkillTreeMenu;
@@ -101,6 +103,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final CachingPetRepository pets;
     private final PlayerLifecycleListener playerLifecycle;
     private final PetsMenu petsMenu;
+    private final AdminMenu adminMenu;
+    private final AdminConfigurationService adminConfiguration;
     private final PlayerDataCache cache;
     private final RuntimeWorkTracker work;
 
@@ -114,6 +118,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             CachingPetRepository pets,
             PlayerLifecycleListener playerLifecycle,
             PetsMenu petsMenu,
+            AdminMenu adminMenu,
+            AdminConfigurationService adminConfiguration,
             PlayerDataCache cache,
             RuntimeWorkTracker work
     ) {
@@ -126,6 +132,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.pets = pets;
         this.playerLifecycle = playerLifecycle;
         this.petsMenu = petsMenu;
+        this.adminMenu = adminMenu;
+        this.adminConfiguration = adminConfiguration;
         this.cache = cache;
         this.work = work;
     }
@@ -136,9 +144,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
         var lifecycle = new RuntimeLifecycle();
         try {
             var spawner = new PetSpawner();
-            var configuration = new ConfigurationManager(new ConfigurationLoader(
+            var configurationLoader = new ConfigurationLoader(
                     plugin.getDataFolder().toPath(), spawner::validateAppearance,
-                    VanillaEffectCatalog.knownEffectIds()));
+                    VanillaEffectCatalog.knownEffectIds());
+            var configuration = new ConfigurationManager(configurationLoader);
+            var adminConfiguration = lifecycle.started(new AdminConfigurationService(
+                    plugin.getDataFolder().toPath(), configurationLoader, configuration));
             var messages = new LocalizedMessages(configuration);
 
             var storage = lifecycle.started(new StorageBootstrap(storageSettings(plugin, configuration)));
@@ -251,6 +262,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(new FelineLandingListener(felineLanding), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
+            var adminMenu = new AdminMenu(plugin, menu, configuration, adminConfiguration,
+                    messages, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
             var petsMenuReference = new AtomicReference<PetsMenu>();
             var skillTreeMenu = new SkillTreeMenu(plugin, menu, configuration, messages, pets, trees,
@@ -276,7 +289,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
-                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, cache, work);
+                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, adminMenu,
+                    adminConfiguration, cache, work);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
             throw exception;
@@ -316,6 +330,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public PetsMenu petsMenu() {
         return petsMenu;
+    }
+
+    public AdminMenu adminMenu() {
+        return adminMenu;
+    }
+
+    public AdminConfigurationService adminConfiguration() {
+        return adminConfiguration;
     }
 
     /** Starts work only while the runtime is accepting operations and tracks it through completion. */
