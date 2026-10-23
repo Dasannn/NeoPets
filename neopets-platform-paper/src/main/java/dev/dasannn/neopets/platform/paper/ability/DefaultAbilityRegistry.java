@@ -127,7 +127,6 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
         if (removed != null) {
             removed.values().forEach(DefaultAbilityRegistry::notifyDeactivated);
         }
-        cooldowns.clear(petId);
     }
 
     @Override
@@ -151,7 +150,6 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
         if (petAbilities.isEmpty()) {
             active.remove(petId);
         }
-        cooldowns.clear(petId, abilityId);
     }
 
     private static void notifyDeactivated(Activation activation) {
