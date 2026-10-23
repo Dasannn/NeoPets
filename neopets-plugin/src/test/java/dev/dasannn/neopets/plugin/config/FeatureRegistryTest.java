@@ -24,10 +24,13 @@ class FeatureRegistryTest {
         List<String> expectedPaths = List.of(
                 "death.enabled", "death.pvp", "death.keep-skills", "shop.enabled", "rename.enabled",
                 "reset.player-enabled", "reset.cost", "courier.request-timeout-seconds",
-                "courier.cooldown-seconds", "abilities.zarpazo.cooldown-seconds",
+                "courier.cooldown-seconds", "abilities.zarpazo.enabled", "abilities.zarpazo.cooldown-seconds",
                 "abilities.zarpazo.radius", "abilities.zarpazo.damage",
-                "abilities.vigia.cooldown-seconds", "abilities.vigia.radius",
-                "abilities.vigia.duration-seconds");
+                "abilities.vigia.enabled", "abilities.vigia.cooldown-seconds", "abilities.vigia.radius",
+                "abilities.vigia.duration-seconds", "abilities.buscatesoros.enabled",
+                "abilities.buscatesoros.cooldown-seconds", "abilities.buscatesoros.base-radius",
+                "abilities.buscatesoros.duration-seconds", "abilities.buscatesoros.max-targets",
+                "abilities.buscatesoros.max-scan-blocks", "abilities.aterrizaje-felino.enabled");
 
         assertEquals(expectedPaths, FeatureRegistry.features().stream()
                 .map(FeatureRegistry.Feature::path).toList());
@@ -83,6 +86,8 @@ class FeatureRegistryTest {
         assertEquals(330L, timeout.apply(300, new FeatureRegistry.Interaction(true, false)));
         assertEquals(1L, timeout.apply(10, new FeatureRegistry.Interaction(false, true)));
         assertEquals("30", timeout.format(BigDecimal.valueOf(30)));
+        assertEquals("100000000000000000000", timeout.format(new BigDecimal("1E20")));
+        assertEquals("0.000000001", timeout.format(new BigDecimal("1E-9")));
     }
 
     @Test

@@ -3,10 +3,13 @@ package dev.dasannn.neopets.plugin.gui;
 import dev.dasannn.neopets.plugin.config.FeatureRegistry;
 import dev.dasannn.neopets.plugin.config.LanguageCatalog;
 import dev.dasannn.neopets.plugin.config.PluginSettings;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
@@ -75,23 +78,60 @@ public final class AdminMenuLayoutFactory {
         var lore = new java.util.ArrayList<String>();
         lore.add(text(feature.descriptionKey()));
         lore.add("");
-        if (feature.type() instanceof FeatureRegistry.BooleanToggle) {
+        boolean toggle = feature.type() instanceof FeatureRegistry.BooleanToggle;
+        boolean enabled = toggle && Boolean.TRUE.equals(value);
+        if (toggle) {
             lore.add(text(Boolean.TRUE.equals(value)
                     ? "gui.admin.current-enabled" : "gui.admin.current-disabled"));
             lore.add("");
             lore.add(text("gui.admin.toggle-action"));
         } else if (feature.type() instanceof FeatureRegistry.BoundedNumber number && value instanceof Number current) {
-            lore.add(text("gui.admin.current-number", "value", number.format(current)));
+            lore.add(text("gui.admin.current-number", "value", formatValue(feature, number, current)));
             lore.add(text("gui.admin.range", Map.of(
-                    "minimum", (number.minimumInclusive() ? "" : "> ") + number.format(number.minimum()),
-                    "maximum", number.format(number.maximum()))));
+                    "minimum", (number.minimumInclusive() ? "" : "> ") + formatValue(feature, number, number.minimum()),
+                    "maximum", formatMaximum(feature, number))));
             lore.add("");
             lore.add(text("gui.admin.number-action", "step", number.format(number.step())));
         } else {
             throw new IllegalArgumentException("Value does not match feature type: " + feature.path());
         }
-        return MenuItem.action(feature.iconMaterial(), text(feature.nameKey()), lore, false,
+        String name = text(feature.nameKey());
+        if (toggle) {
+            var color = enabled ? NamedTextColor.GREEN : NamedTextColor.RED;
+            name = MINI_MESSAGE.serialize(withStateColor(MINI_MESSAGE.deserialize(name), color));
+        }
+        return MenuItem.action(feature.iconMaterial(), name, lore, enabled,
                 ACTION_FEATURE_PREFIX + feature.path());
+    }
+
+    private static Component withStateColor(Component component, NamedTextColor color) {
+        return component.color(color).children(component.children().stream()
+                .map(child -> withStateColor(child, color)).toList());
+    }
+
+    private String formatMaximum(FeatureRegistry.Feature feature, FeatureRegistry.BoundedNumber number) {
+        if (number.maximum().equals(FeatureRegistry.MAX_FINITE_DECIMAL)
+                || number.maximum().equals(FeatureRegistry.MAX_DURATION_SECONDS)) {
+            return text("gui.admin.unbounded");
+        }
+        return formatValue(feature, number, number.maximum());
+    }
+
+    private String formatValue(
+            FeatureRegistry.Feature feature, FeatureRegistry.BoundedNumber number, Number value
+    ) {
+        if (!feature.path().endsWith("-seconds")) {
+            return number.format(value);
+        }
+        BigDecimal seconds = new BigDecimal(value.toString());
+        for (var unit : List.of(Map.entry(86_400, "days"), Map.entry(3_600, "hours"),
+                Map.entry(60, "minutes"))) {
+            BigDecimal divisor = BigDecimal.valueOf(unit.getKey());
+            if (seconds.signum() > 0 && seconds.remainder(divisor).signum() == 0) {
+                return text("gui.admin.duration-" + unit.getValue(), "value", number.format(seconds.divide(divisor)));
+            }
+        }
+        return text("gui.admin.duration-seconds", "value", number.format(seconds));
     }
 
     private MenuItem previousItem(Paging.Page<?> page) {

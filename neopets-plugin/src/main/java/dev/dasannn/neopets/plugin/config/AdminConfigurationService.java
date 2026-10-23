@@ -46,7 +46,9 @@ public final class AdminConfigurationService implements AutoCloseable {
         this.writer = Objects.requireNonNull(writer, "writer");
     }
 
-    /** Queues one edit, validates the copied YAML, atomically replaces the file, and hot-reloads it. */
+    /**
+     * Queues a validated atomic edit and hot reload, restoring the original file if the full reload fails.
+     */
     public CompletableFuture<EditResult> edit(
             FeatureRegistry.Feature feature, FeatureRegistry.Interaction interaction
     ) {
@@ -54,14 +56,24 @@ public final class AdminConfigurationService implements AutoCloseable {
         Objects.requireNonNull(interaction, "interaction");
         return CompletableFuture.supplyAsync(() -> {
             try {
-                YamlConfiguration source = loadWithComments(configFile);
+                String original = Files.readString(configFile, StandardCharsets.UTF_8);
+                YamlConfiguration source = loadWithComments(original);
                 YamlConfiguration candidate = copy(source);
                 Object previous = candidate.get(feature.path());
                 Object replacement = feature.type().apply(previous, interaction);
                 candidate.set(feature.path(), replacement);
                 validator.validateConfig(candidate);
-                replaceAtomically(candidate);
-                reloadAction.reload();
+                replaceAtomically(candidate.saveToString());
+                try {
+                    reloadAction.reload();
+                } catch (IOException | ConfigurationLoadException | RuntimeException failure) {
+                    try {
+                        replaceAtomically(original);
+                    } catch (IOException rollbackFailure) {
+                        failure.addSuppressed(rollbackFailure);
+                    }
+                    throw failure;
+                }
                 return new EditResult(feature, previous, replacement);
             } catch (IOException | InvalidConfigurationException | ConfigurationLoadException exception) {
                 throw new CompletionException(exception);
@@ -80,11 +92,11 @@ public final class AdminConfigurationService implements AutoCloseable {
         }, writer);
     }
 
-    private static YamlConfiguration loadWithComments(Path path)
-            throws IOException, InvalidConfigurationException {
+    private static YamlConfiguration loadWithComments(String contents)
+            throws InvalidConfigurationException {
         var yaml = new YamlConfiguration();
         yaml.options().parseComments(true);
-        yaml.loadFromString(Files.readString(path, StandardCharsets.UTF_8));
+        yaml.loadFromString(contents);
         return yaml;
     }
 
@@ -95,12 +107,12 @@ public final class AdminConfigurationService implements AutoCloseable {
         return copy;
     }
 
-    private void replaceAtomically(YamlConfiguration candidate) throws IOException {
+    private void replaceAtomically(String contents) throws IOException {
         Path parent = Objects.requireNonNull(configFile.toAbsolutePath().getParent(), "config parent");
         Files.createDirectories(parent);
         Path temporary = Files.createTempFile(parent, ".neopets-config-", ".tmp");
         try {
-            Files.writeString(temporary, candidate.saveToString(), StandardCharsets.UTF_8);
+            Files.writeString(temporary, contents, StandardCharsets.UTF_8);
             try {
                 Files.move(temporary, configFile, StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);

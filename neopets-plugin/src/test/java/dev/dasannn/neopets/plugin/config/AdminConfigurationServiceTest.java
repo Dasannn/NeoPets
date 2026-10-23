@@ -140,6 +140,31 @@ class AdminConfigurationServiceTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"lang/es.yml", "pets/cat.yml", "skilltrees/cat.yml"})
+    void failedFullReloadRestoresExactFileAndLeavesLiveSnapshotUnchanged(String malformedFile) throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        var manager = new ConfigurationManager(loader);
+        var beforeSnapshot = manager.current();
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        String before = Files.readString(configFile);
+        Path otherFile = temporaryDirectory.resolve(malformedFile);
+        String validOther = Files.readString(otherFile);
+        Files.writeString(otherFile, "broken: [");
+
+        try (var service = new AdminConfigurationService(temporaryDirectory, loader, manager)) {
+            assertThrows(CompletionException.class, () -> service.edit(
+                    FeatureRegistry.find("death.enabled").orElseThrow(),
+                    new FeatureRegistry.Interaction(true, false)).join());
+            assertEquals(before, Files.readString(configFile));
+            org.junit.jupiter.api.Assertions.assertSame(beforeSnapshot, manager.current());
+            assertTrue(manager.current().settings().features().death().enabled());
+            Files.writeString(otherFile, validOther);
+            service.reload().join();
+            assertTrue(manager.current().settings().features().death().enabled());
+        }
+    }
+
     private static AdminConfigurationService service(
             Path configFile, ConfigurationLoader loader, AtomicInteger reloads
     ) {
