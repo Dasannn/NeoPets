@@ -5,6 +5,7 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.PlayerProfile;
+import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.core.port.PlayerRepository;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
@@ -36,6 +37,7 @@ public final class PlayerDataCache {
     private final Map<PlayerId, CachedPlayerData> players = new HashMap<>();
     private final Map<PetId, PlayerId> petOwners = new HashMap<>();
     private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
+    private final KeyedSequencer<PetId> petOperations = new KeyedSequencer<>();
     private final PlayerRepository playerDelegate;
     private final PetRepository petDelegate;
     private final TreeProgressRepository treeDelegate;
@@ -71,44 +73,29 @@ public final class PlayerDataCache {
     }
 
     /**
-     * Flushes the latest player snapshot and evicts it only after every write succeeds.
-     * An unloaded player is a successful no-op.
+     * Evicts a player after all previously submitted writes for that player have completed.
+     * An unloaded player is a successful no-op. The cache is strictly write-through, so eviction
+     * never performs persistence writes.
      */
     public CompletableFuture<Void> unload(PlayerId playerId) {
         Objects.requireNonNull(playerId, "playerId");
         return operations.submit(playerId, () -> {
-            CachedPlayerData snapshot;
             synchronized (monitor) {
-                snapshot = players.get(playerId);
+                var snapshot = players.get(playerId);
+                if (snapshot != null) {
+                    evict(playerId, snapshot);
+                }
             }
-            if (snapshot == null) {
-                return CompletableFuture.completedFuture(null);
-            }
-            return flush(snapshot).thenRun(() -> evict(playerId, snapshot));
+            return CompletableFuture.completedFuture(null);
         });
     }
 
     /**
-     * Flushes every currently loaded player without evicting them.
-     * Intended for the storage shutdown sequence.
+     * Completes immediately because all cache mutations are persisted by their write-through
+     * operation. Retained for shutdown callers that do not need to distinguish cache strategies.
      */
     public CompletableFuture<Void> flushAll() {
-        List<PlayerId> playerIds;
-        synchronized (monitor) {
-            playerIds = List.copyOf(players.keySet());
-        }
-        var flushes = playerIds.stream()
-                .map(playerId -> operations.submit(playerId, () -> {
-                    CachedPlayerData snapshot;
-                    synchronized (monitor) {
-                        snapshot = players.get(playerId);
-                    }
-                    return snapshot == null
-                            ? CompletableFuture.<Void>completedFuture(null)
-                            : flush(snapshot);
-                }))
-                .toArray(CompletableFuture<?>[]::new);
-        return CompletableFuture.allOf(flushes);
+        return CompletableFuture.completedFuture(null);
     }
 
     /** Returns whether the player's complete snapshot is currently cached. */
@@ -182,75 +169,31 @@ public final class PlayerDataCache {
 
     CompletableFuture<Void> savePet(OwnedPet pet, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(pet, "pet");
-        return writeThrough(pet.owner(), () -> {
-            var current = players.get(pet.owner());
-            if (current == null) {
-                return CacheChange.none();
+        return petOperations.submit(pet.id(), () -> resolveOwner(pet.id()).thenCompose(storedOwner -> {
+            if (storedOwner.isPresent() && !storedOwner.orElseThrow().equals(pet.owner())) {
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                        "cannot change owner of pet " + pet.id() + " from "
+                                + storedOwner.orElseThrow() + " to " + pet.owner()));
             }
-
-            var pets = new ArrayList<>(current.profile().ownedPets());
-            int existingIndex = indexOf(pets, pet.id());
-            if (existingIndex < 0) {
-                pets.add(pet);
-            } else {
-                pets.set(existingIndex, pet);
-            }
-            var profile = current.profile().withOwnedPets(pets);
-            var knownPetIds = new HashSet<>(current.knownPetIds());
-            knownPetIds.add(pet.id());
-            var progress = new LinkedHashMap<>(current.treeProgress());
-            progress.putIfAbsent(pet.id(), Optional.empty());
-            var changed = new CachedPlayerData(profile, knownPetIds, progress);
-            petOwners.put(pet.id(), pet.owner());
-            return replace(pet.owner(), current, changed);
-        }, durableWrite);
+            return writeThrough(pet.owner(), () -> addOrReplacePet(pet), durableWrite);
+        }));
     }
 
     CompletableFuture<Void> deletePet(PetId petId, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(petId, "petId");
-        PlayerId owner;
-        synchronized (monitor) {
-            owner = petOwners.get(petId);
-        }
-        if (owner == null) {
-            return invoke(durableWrite);
-        }
-        return writeThrough(owner, () -> {
-            var current = players.get(owner);
-            if (current == null || !current.knownPetIds().contains(petId)) {
-                return CacheChange.none();
-            }
-            var pets = current.profile().ownedPets().stream()
-                    .filter(pet -> !pet.id().equals(petId))
-                    .toList();
-            var progress = new LinkedHashMap<>(current.treeProgress());
-            progress.put(petId, Optional.empty());
-            var changed = new CachedPlayerData(
-                    current.profile().withOwnedPets(pets), current.knownPetIds(), progress);
-            return replace(owner, current, changed);
-        }, durableWrite);
+        return petOperations.submit(petId, () -> resolveOwner(petId).thenCompose(owner -> owner
+                .map(playerId -> writeThrough(playerId, () -> deletePet(playerId, petId), durableWrite))
+                .orElseGet(() -> invoke(durableWrite))));
     }
 
     CompletableFuture<Void> saveTreeProgress(
             TreeProgress progress, Supplier<CompletableFuture<Void>> durableWrite
     ) {
         Objects.requireNonNull(progress, "progress");
-        PlayerId owner;
-        synchronized (monitor) {
-            owner = petOwners.get(progress.petId());
-        }
-        if (owner == null) {
-            return invoke(durableWrite);
-        }
-        return writeThrough(owner, () -> {
-            var current = players.get(owner);
-            if (current == null || findPet(current.profile(), progress.petId()).isEmpty()) {
-                return CacheChange.none();
-            }
-            var treeProgress = new LinkedHashMap<>(current.treeProgress());
-            treeProgress.put(progress.petId(), Optional.of(progress));
-            return replace(owner, current, current.withTreeProgress(treeProgress));
-        }, durableWrite);
+        return petOperations.submit(progress.petId(), () -> resolveOwner(progress.petId()).thenCompose(owner -> owner
+                .map(playerId -> writeThrough(
+                        playerId, () -> saveTreeProgress(playerId, progress), durableWrite))
+                .orElseGet(() -> invoke(durableWrite))));
     }
 
     private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {
@@ -293,26 +236,76 @@ public final class PlayerDataCache {
         }
     }
 
-    private CompletableFuture<Void> flush(CachedPlayerData snapshot) {
-        var writes = new ArrayList<CompletableFuture<?>>();
-        writes.add(invoke(() -> playerDelegate.save(snapshot.profile())));
-        for (OwnedPet pet : snapshot.profile().ownedPets()) {
-            writes.add(invoke(() -> petDelegate.save(pet)));
-            snapshot.treeProgress().getOrDefault(pet.id(), Optional.empty())
-                    .ifPresent(progress -> writes.add(invoke(() -> treeDelegate.save(progress))));
+    private void evict(PlayerId playerId, CachedPlayerData snapshot) {
+        if (!players.remove(playerId, snapshot)) {
+            return;
         }
-        return CompletableFuture.allOf(writes.toArray(CompletableFuture<?>[]::new));
+        for (PetId petId : snapshot.knownPetIds()) {
+            petOwners.remove(petId, playerId);
+        }
     }
 
-    private void evict(PlayerId playerId, CachedPlayerData snapshot) {
+    private CompletableFuture<Optional<PlayerId>> resolveOwner(PetId petId) {
         synchronized (monitor) {
-            if (!players.remove(playerId, snapshot)) {
-                return;
-            }
-            for (PetId petId : snapshot.knownPetIds()) {
-                petOwners.remove(petId, playerId);
+            var cachedOwner = petOwners.get(petId);
+            if (cachedOwner != null) {
+                return CompletableFuture.completedFuture(Optional.of(cachedOwner));
             }
         }
+        return invoke(() -> petDelegate.findById(petId)).thenApply(storedPet -> storedPet.map(OwnedPet::owner));
+    }
+
+    private CacheChange addOrReplacePet(OwnedPet pet) {
+        var current = players.get(pet.owner());
+        if (current == null) {
+            return CacheChange.none();
+        }
+
+        var pets = new ArrayList<>(current.profile().ownedPets());
+        int existingIndex = indexOf(pets, pet.id());
+        boolean duplicateVariant = pets.stream()
+                .anyMatch(existing -> !existing.id().equals(pet.id()) && existing.variant().equals(pet.variant()));
+        if (duplicateVariant) {
+            throw new DuplicatePetVariantException(pet.owner(), pet.variant());
+        }
+        if (existingIndex < 0) {
+            pets.add(pet);
+        } else {
+            pets.set(existingIndex, pet);
+        }
+        var profile = current.profile().withOwnedPets(pets);
+        var knownPetIds = new HashSet<>(current.knownPetIds());
+        knownPetIds.add(pet.id());
+        var progress = new LinkedHashMap<>(current.treeProgress());
+        progress.putIfAbsent(pet.id(), Optional.empty());
+        var changed = new CachedPlayerData(profile, knownPetIds, progress);
+        petOwners.put(pet.id(), pet.owner());
+        return replace(pet.owner(), current, changed);
+    }
+
+    private CacheChange deletePet(PlayerId owner, PetId petId) {
+        var current = players.get(owner);
+        if (current == null || !current.knownPetIds().contains(petId)) {
+            return CacheChange.none();
+        }
+        var pets = current.profile().ownedPets().stream()
+                .filter(pet -> !pet.id().equals(petId))
+                .toList();
+        var progress = new LinkedHashMap<>(current.treeProgress());
+        progress.put(petId, Optional.empty());
+        var changed = new CachedPlayerData(
+                current.profile().withOwnedPets(pets), current.knownPetIds(), progress);
+        return replace(owner, current, changed);
+    }
+
+    private CacheChange saveTreeProgress(PlayerId owner, TreeProgress progress) {
+        var current = players.get(owner);
+        if (current == null || findPet(current.profile(), progress.petId()).isEmpty()) {
+            return CacheChange.none();
+        }
+        var treeProgress = new LinkedHashMap<>(current.treeProgress());
+        treeProgress.put(progress.petId(), Optional.of(progress));
+        return replace(owner, current, current.withTreeProgress(treeProgress));
     }
 
     private CompletableFuture<Void> writeThrough(

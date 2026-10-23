@@ -2,8 +2,8 @@ package dev.dasannn.neopets.storage.cache;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -11,6 +11,7 @@ import dev.dasannn.neopets.core.model.PetStatus;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.core.port.PlayerRepository;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
@@ -173,7 +174,7 @@ final class PlayerDataCacheTest {
     }
 
     @Test
-    void unloadFlushesThenEvictsAndFailedFlushKeepsTheSnapshot() throws Exception {
+    void unloadOnlyEvictsWithoutRepeatingDurableWrites() throws Exception {
         var ownedPet = pet(PET, PLAYER, "parrot_red");
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 5, List.of()));
         delegates.pets.put(PET, ownedPet);
@@ -181,17 +182,13 @@ final class PlayerDataCacheTest {
         await(cache.load(PLAYER));
         delegates.resetWriteCounts();
 
-        delegates.treeSave = ignored -> CompletableFuture.failedFuture(new IllegalStateException("flush failed"));
-        assertThrows(ExecutionException.class, () -> await(cache.unload(PLAYER)));
-        assertTrue(cache.isLoaded(PLAYER));
-
-        delegates.treeSave = delegates::storeProgress;
         await(cache.unload(PLAYER));
+
         assertFalse(cache.isLoaded(PLAYER));
         assertEquals(0, cache.loadedPlayerCount());
-        assertTrue(delegates.playerWrites.get() >= 2);
-        assertTrue(delegates.petWrites.get() >= 2);
-        assertTrue(delegates.treeWrites.get() >= 2);
+        assertEquals(0, delegates.playerWrites.get());
+        assertEquals(0, delegates.petWrites.get());
+        assertEquals(0, delegates.treeWrites.get());
 
         int reads = delegates.playerReads.get();
         await(players.findById(PLAYER));
@@ -199,7 +196,7 @@ final class PlayerDataCacheTest {
     }
 
     @Test
-    void flushAllPersistsEveryLoadedPlayerWithoutEvicting() throws Exception {
+    void flushAllIsANoOpForStrictlyWriteThroughSnapshots() throws Exception {
         delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 1, List.of()));
         delegates.players.put(OTHER_PLAYER, new PlayerProfile(OTHER_PLAYER, 2, List.of()));
         await(cache.load(PLAYER));
@@ -208,8 +205,105 @@ final class PlayerDataCacheTest {
 
         await(cache.flushAll());
 
-        assertEquals(2, delegates.playerWrites.get());
+        assertEquals(0, delegates.playerWrites.get());
+        assertEquals(0, delegates.petWrites.get());
+        assertEquals(0, delegates.treeWrites.get());
         assertEquals(2, cache.loadedPlayerCount());
+    }
+
+    @Test
+    void treeWriteWaitsForPendingLoadAndCannotBeReplacedByItsStaleSnapshot() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "dog_brown");
+        var original = progress(PET, 1, 0);
+        var changed = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        delegates.progress.put(PET, original);
+        var treeLoadGate = new CompletableFuture<Optional<TreeProgress>>();
+        delegates.treeLoad = ignored -> treeLoadGate;
+
+        var load = cache.load(PLAYER);
+        var save = trees.save(changed);
+
+        assertFalse(load.isDone());
+        assertFalse(save.isDone());
+        assertEquals(0, delegates.treeWrites.get());
+
+        treeLoadGate.complete(Optional.of(original));
+        await(load);
+        await(save);
+
+        assertEquals(Optional.of(changed), await(trees.load(PET)));
+        assertEquals(changed, delegates.progress.get(PET));
+        assertEquals(1, delegates.treeWrites.get());
+        await(cache.unload(PLAYER));
+        assertEquals(1, delegates.treeWrites.get());
+    }
+
+    @Test
+    void deleteWaitsForPendingLoadAndLeavesNoStaleCachedPet() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var original = progress(PET, 1, 0);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        delegates.progress.put(PET, original);
+        var treeLoadGate = new CompletableFuture<Optional<TreeProgress>>();
+        delegates.treeLoad = ignored -> treeLoadGate;
+
+        var load = cache.load(PLAYER);
+        var delete = pets.deleteById(PET);
+
+        assertFalse(load.isDone());
+        assertFalse(delete.isDone());
+        assertEquals(0, delegates.petDeletes.get());
+
+        treeLoadGate.complete(Optional.of(original));
+        await(load);
+        await(delete);
+
+        assertEquals(Optional.empty(), await(pets.findById(PET)));
+        assertEquals(List.of(), await(pets.findByOwner(PLAYER)));
+        assertFalse(delegates.pets.containsKey(PET));
+        assertEquals(1, delegates.petDeletes.get());
+    }
+
+    @Test
+    void replacingAPetWithADifferentOwnerIsRejectedAndUnloadCannotRestoreIt() throws Exception {
+        var original = pet(PET, PLAYER, "parrot_red");
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, original);
+        await(cache.load(PLAYER));
+        delegates.resetWriteCounts();
+
+        var replacement = pet(PET, OTHER_PLAYER, "parrot_red");
+        var failure = assertThrows(ExecutionException.class, () -> await(pets.save(replacement)));
+
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        assertEquals(Optional.of(original), await(pets.findById(PET)));
+        assertEquals(original, delegates.pets.get(PET));
+        assertEquals(0, delegates.petWrites.get());
+
+        await(cache.unload(PLAYER));
+        assertEquals(original, delegates.pets.get(PET));
+        assertEquals(0, delegates.petWrites.get());
+    }
+
+    @Test
+    void duplicateVariantForLoadedPlayerUsesRepositoryConflictType() throws Exception {
+        var original = pet(PET, PLAYER, "dog_brown");
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, original);
+        await(cache.load(PLAYER));
+        delegates.resetWriteCounts();
+
+        var duplicate = pet(OTHER_PET, PLAYER, "dog_brown");
+        var failure = assertThrows(ExecutionException.class, () -> await(pets.save(duplicate)));
+
+        var conflict = assertInstanceOf(DuplicatePetVariantException.class, failure.getCause());
+        assertEquals(PLAYER, conflict.ownerId());
+        assertEquals(original.variant(), conflict.variantId());
+        assertEquals(List.of(original), await(pets.findByOwner(PLAYER)));
+        assertEquals(0, delegates.petWrites.get());
     }
 
     @Test
@@ -288,6 +382,7 @@ final class PlayerDataCacheTest {
         private Function<PlayerProfile, CompletableFuture<Void>> playerSave = this::storePlayer;
         private Function<OwnedPet, CompletableFuture<Void>> petSave = this::storePet;
         private Function<PetId, CompletableFuture<Void>> petDelete = this::removePet;
+        private Function<PetId, CompletableFuture<Optional<TreeProgress>>> treeLoad = this::loadProgress;
         private Function<TreeProgress, CompletableFuture<Void>> treeSave = this::storeProgress;
 
         @Override
@@ -331,7 +426,7 @@ final class PlayerDataCacheTest {
         @Override
         public CompletableFuture<Optional<TreeProgress>> load(PetId petId) {
             treeReads.incrementAndGet();
-            return CompletableFuture.completedFuture(Optional.ofNullable(progress.get(petId)));
+            return treeLoad.apply(petId);
         }
 
         @Override
@@ -359,6 +454,10 @@ final class PlayerDataCacheTest {
         private CompletableFuture<Void> storeProgress(TreeProgress treeProgress) {
             progress.put(treeProgress.petId(), treeProgress);
             return CompletableFuture.completedFuture(null);
+        }
+
+        private CompletableFuture<Optional<TreeProgress>> loadProgress(PetId petId) {
+            return CompletableFuture.completedFuture(Optional.ofNullable(progress.get(petId)));
         }
 
         private void resetWriteCounts() {
