@@ -165,8 +165,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             pluginManager.registerEvents(new PetProtectionListener(), plugin);
             pluginManager.registerEvents(ticker, plugin);
-            var menu = new Menu(plugin.getServer(), plugin.getLogger());
-            var renames = new PetRenameListener(plugin, pets, configuration, messages, plugin.getLogger());
+            var menu = new Menu(plugin, plugin.getLogger());
+            var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
             var petsMenu = new PetsMenu(plugin, menu, configuration, messages, pets, trees, skillPoints,
                     rankPort, petService, renames, plugin.getLogger());
             pluginManager.registerEvents(menu, plugin);

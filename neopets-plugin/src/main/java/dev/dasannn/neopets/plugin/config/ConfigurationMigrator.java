@@ -9,7 +9,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 2;
+    public static final int CURRENT_VERSION = 3;
 
     private final int currentVersion;
     private final Map<Integer, ConfigMigration> bySource;
@@ -32,6 +32,21 @@ public final class ConfigurationMigrator {
                 if (!configuration.isSet("player-data.load-timeout-seconds")) {
                     configuration.set("player-data.load-timeout-seconds", 10);
                 }
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 2;
+            }
+
+            @Override
+            public int toVersion() {
+                return 3;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 3 adds language keys only; ConfigurationLoader merges those defaults.
             }
         }));
     }

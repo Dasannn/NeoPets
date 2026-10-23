@@ -212,6 +212,24 @@ public final class PetService {
         }));
     }
 
+    /** Renames an owned pet in the same per-player sequence as lifecycle operations. */
+    public CompletableFuture<RenameResult> rename(PlayerId playerId, PetId petId, String name) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(petId, "petId");
+        Objects.requireNonNull(name, "name");
+        int length = name.codePointCount(0, name.length());
+        if (name.isBlank() || length > 32 || name.indexOf('\n') >= 0 || name.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("name must contain 1 to 32 characters without line breaks");
+        }
+        return serialized(playerId, () -> petRepository.findById(petId).thenCompose(found -> {
+            if (found.isEmpty() || !found.orElseThrow().owner().equals(playerId)) {
+                return CompletableFuture.completedFuture(new RenameResult.NotOwned(petId));
+            }
+            OwnedPet renamed = found.orElseThrow().withCustomName(name);
+            return savePet(renamed).thenApply(ignored -> new RenameResult.Renamed(renamed));
+        }));
+    }
+
     private CompletableFuture<GiveResult> giveFromCandidates(PlayerId playerId, List<PetVariant> candidates) {
         return petRepository.findByOwner(playerId).thenCompose(pets -> {
             var unowned = candidates.stream()

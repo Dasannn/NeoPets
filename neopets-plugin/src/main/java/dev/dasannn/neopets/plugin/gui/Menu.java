@@ -1,6 +1,8 @@
 package dev.dasannn.neopets.plugin.gui;
 
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.kyori.adventure.text.Component;
@@ -18,6 +20,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
 
 /** Renders and protects all NeoPets inventories through one shared Bukkit listener. */
 public final class Menu implements Listener {
@@ -25,10 +28,27 @@ public final class Menu implements Listener {
 
     private final Server server;
     private final Logger logger;
+    private final Consumer<Runnable> nextTick;
+    private final Function<MenuItem, ItemStack> itemRenderer;
 
-    public Menu(Server server, Logger logger) {
+    public Menu(Plugin plugin, Logger logger) {
+        Objects.requireNonNull(plugin, "plugin");
+        this.server = plugin.getServer();
+        this.logger = Objects.requireNonNull(logger, "logger");
+        this.nextTick = task -> server.getScheduler().runTask(plugin, task);
+        this.itemRenderer = Menu::render;
+    }
+
+    Menu(
+            Server server,
+            Logger logger,
+            Consumer<Runnable> nextTick,
+            Function<MenuItem, ItemStack> itemRenderer
+    ) {
         this.server = Objects.requireNonNull(server, "server");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.nextTick = Objects.requireNonNull(nextTick, "nextTick");
+        this.itemRenderer = Objects.requireNonNull(itemRenderer, "itemRenderer");
     }
 
     /** Opens a new protected inventory and returns its live session. */
@@ -36,10 +56,10 @@ public final class Menu implements Listener {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(layout, "layout");
         Objects.requireNonNull(actionHandler, "actionHandler");
-        var holder = new MenuHolder(player, layout, actionHandler);
+        var holder = new MenuHolder(player, layout, actionHandler, nextTick, itemRenderer);
         Inventory inventory = server.createInventory(holder, layout.size(), component(layout.title()));
         holder.attach(inventory);
-        render(inventory, layout);
+        render(inventory, layout, itemRenderer);
         player.openInventory(inventory);
         return holder;
     }
@@ -77,9 +97,11 @@ public final class Menu implements Listener {
         }
     }
 
-    private static void render(Inventory inventory, MenuLayout layout) {
+    private static void render(
+            Inventory inventory, MenuLayout layout, Function<MenuItem, ItemStack> itemRenderer
+    ) {
         inventory.clear();
-        layout.items().forEach((slot, item) -> inventory.setItem(slot, render(item)));
+        layout.items().forEach((slot, item) -> inventory.setItem(slot, itemRenderer.apply(item)));
     }
 
     private static ItemStack render(MenuItem item) {
@@ -118,13 +140,23 @@ public final class Menu implements Listener {
     private static final class MenuHolder implements InventoryHolder, Session {
         private final Player player;
         private final ActionHandler actionHandler;
+        private final Consumer<Runnable> nextTick;
+        private final Function<MenuItem, ItemStack> itemRenderer;
         private MenuLayout layout;
         private Inventory inventory;
 
-        private MenuHolder(Player player, MenuLayout layout, ActionHandler actionHandler) {
+        private MenuHolder(
+                Player player,
+                MenuLayout layout,
+                ActionHandler actionHandler,
+                Consumer<Runnable> nextTick,
+                Function<MenuItem, ItemStack> itemRenderer
+        ) {
             this.player = player;
             this.layout = layout;
             this.actionHandler = actionHandler;
+            this.nextTick = nextTick;
+            this.itemRenderer = itemRenderer;
         }
 
         private void attach(Inventory inventory) {
@@ -161,14 +193,16 @@ public final class Menu implements Listener {
                 return;
             }
             layout = changedLayout;
-            render(inventory(), changedLayout);
+            render(inventory(), changedLayout, itemRenderer);
         }
 
         @Override
         public void close() {
-            if (player.getOpenInventory().getTopInventory() == inventory()) {
-                player.closeInventory();
-            }
+            nextTick.accept(() -> {
+                if (player.getOpenInventory().getTopInventory() == inventory()) {
+                    player.closeInventory();
+                }
+            });
         }
     }
 }

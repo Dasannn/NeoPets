@@ -146,6 +146,7 @@ gui:
     rename-prompt: "<yellow>Escribe el nuevo nombre en el chat o <white>cancelar</white>.</yellow>"
     rename-cancel-word: "cancelar"
     rename-cancelled: "<gray>Renombrado cancelado.</gray>"
+    rename-invalid: "<red>El nombre debe tener entre 1 y 32 caracteres visibles y no contener saltos de línea.</red>"
 
 admin:
   feature-enabled: "<green><feature> activada.</green>"

@@ -2,7 +2,8 @@ package dev.dasannn.neopets.plugin.gui;
 
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
-import dev.dasannn.neopets.core.port.PetRepository;
+import dev.dasannn.neopets.core.pet.PetService;
+import dev.dasannn.neopets.core.pet.RenameResult;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
 import dev.dasannn.neopets.plugin.command.MessageSpec;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
@@ -28,7 +29,7 @@ import org.bukkit.plugin.Plugin;
 public final class PetRenameListener implements Listener {
     private final Plugin plugin;
     private final Server server;
-    private final PetRepository pets;
+    private final PetService petService;
     private final ConfigurationManager configuration;
     private final LocalizedMessages messages;
     private final Logger logger;
@@ -36,14 +37,14 @@ public final class PetRenameListener implements Listener {
 
     public PetRenameListener(
             Plugin plugin,
-            PetRepository pets,
+            PetService petService,
             ConfigurationManager configuration,
             LocalizedMessages messages,
             Logger logger
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.server = plugin.getServer();
-        this.pets = Objects.requireNonNull(pets, "pets");
+        this.petService = Objects.requireNonNull(petService, "petService");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.logger = Objects.requireNonNull(logger, "logger");
@@ -58,7 +59,12 @@ public final class PetRenameListener implements Listener {
             return;
         }
         pending.put(player.getUniqueId(), petId);
-        player.closeInventory();
+        var openInventory = player.getOpenInventory().getTopInventory();
+        server.getScheduler().runTask(plugin, () -> {
+            if (player.getOpenInventory().getTopInventory() == openInventory) {
+                player.closeInventory();
+            }
+        });
         messages.send(player, MessageSpec.of("gui.pets.rename-prompt"));
     }
 
@@ -69,8 +75,8 @@ public final class PetRenameListener implements Listener {
             return;
         }
         event.setCancelled(true);
-        String name = PlainTextComponentSerializer.plainText().serialize(event.message()).strip();
-        server.getScheduler().runTask(plugin, () -> rename(event.getPlayer(), petId, name));
+        String input = PlainTextComponentSerializer.plainText().serialize(event.message());
+        server.getScheduler().runTask(plugin, () -> rename(event.getPlayer(), petId, input));
     }
 
     @EventHandler
@@ -78,29 +84,34 @@ public final class PetRenameListener implements Listener {
         pending.remove(event.getPlayer().getUniqueId());
     }
 
-    private void rename(Player player, PetId petId, String name) {
+    private void rename(Player player, PetId petId, String input) {
         if (!configuration.current().settings().features().renameEnabled()) {
             messages.send(player, MessageSpec.of("pets.rename-disabled"));
             return;
         }
+        var normalized = PetNameValidator.normalize(input);
+        if (normalized.isEmpty()) {
+            messages.send(player, MessageSpec.of("gui.pets.rename-invalid"));
+            return;
+        }
+        String name = normalized.orElseThrow();
         String cancelWord = messages.plain("gui.pets.rename-cancel-word");
-        if (name.isBlank() || name.equalsIgnoreCase(cancelWord)) {
+        if (name.equalsIgnoreCase(cancelWord)) {
             messages.send(player, MessageSpec.of("gui.pets.rename-cancelled"));
             return;
         }
         var owner = new PlayerId(player.getUniqueId());
-        pets.findById(petId).thenCompose(found -> {
-            var pet = found.filter(candidate -> candidate.owner().equals(owner))
-                    .orElseThrow(() -> new IllegalArgumentException("pet is not owned by player"));
-            return pets.save(pet.withCustomName(name));
-        }).whenComplete((ignored, failure) -> server.getScheduler().runTask(plugin, () -> {
-            if (failure == null) {
-                messages.send(player, new MessageSpec("pets.renamed", Map.of("name", name)));
-            } else {
-                logger.log(Level.WARNING, "Could not rename pet " + petId, unwrap(failure));
-                messages.send(player, MessageSpec.of("errors.internal"));
-            }
-        }));
+        petService.rename(owner, petId, name).whenComplete((result, failure) ->
+                server.getScheduler().runTask(plugin, () -> {
+                    if (failure != null) {
+                        logger.log(Level.WARNING, "Could not rename pet " + petId, unwrap(failure));
+                        messages.send(player, MessageSpec.of("errors.internal"));
+                    } else if (result instanceof RenameResult.Renamed) {
+                        messages.send(player, new MessageSpec("pets.renamed", Map.of("name", name)));
+                    } else {
+                        messages.send(player, MessageSpec.of("pets.not-owned"));
+                    }
+                }));
     }
 
     private static Throwable unwrap(Throwable failure) {
