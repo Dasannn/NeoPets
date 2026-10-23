@@ -911,7 +911,13 @@ public final class ConfigurationLoader {
             BigDecimal maximum,
             List<ConfigurationIssue> issues
     ) {
-        return boundedDecimal(root, file, path, FeatureRegistry.MIN_ABILITY_DECIMAL, maximum, issues);
+        // Any positive value stays valid for existing configs; the admin GUI only floors its own edits.
+        BigDecimal value = decimal(root, file, path, false, issues);
+        if (value != null && value.compareTo(maximum) > 0) {
+            issue(issues, file, path, "must be greater than zero and at most " + maximum.toPlainString());
+            return null;
+        }
+        return value;
     }
 
     private static BigDecimal boundedDecimal(

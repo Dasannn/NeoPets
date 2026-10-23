@@ -117,17 +117,17 @@ class FeatureRegistryTest {
     @org.junit.jupiter.params.provider.ValueSource(strings = {
             "abilities.zarpazo.radius", "abilities.zarpazo.damage",
             "abilities.vigia.radius", "abilities.buscatesoros.base-radius"})
-    void abilityDecimalsRejectValuesBelowTheEditableMinimum(String path) throws Exception {
+    void abilityDecimalsKeepAcceptingPositiveValuesBelowTheEditableMinimum(String path) throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
         var yaml = YamlConfiguration.loadConfiguration(temporaryDirectory.resolve("config.yml").toFile());
         var number = assertInstanceOf(FeatureRegistry.BoundedNumber.class,
                 FeatureRegistry.find(path).orElseThrow().type());
         assertEquals(0, BigDecimal.valueOf(0.5).compareTo(number.minimum()));
-        yaml.set(path, 0.49);
-        assertIssue(assertThrows(ConfigurationLoadException.class, () -> loader.validateConfig(yaml)), path);
-        yaml.set(path, number.apply(0.5, new FeatureRegistry.Interaction(false, true)));
+        yaml.set(path, 0.25);
         loader.validateConfig(yaml);
+        yaml.set(path, 0);
+        assertIssue(assertThrows(ConfigurationLoadException.class, () -> loader.validateConfig(yaml)), path);
     }
 
     @Test
