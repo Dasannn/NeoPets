@@ -8,7 +8,7 @@ CREATE TABLE np_pet (
     id CHAR(36) NOT NULL,
     owner CHAR(36) NOT NULL,
     variant_id VARCHAR(128) NOT NULL,
-    name VARCHAR(128) NOT NULL,
+    name VARCHAR(128),
     status VARCHAR(32) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP(3) NOT NULL,

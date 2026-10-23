@@ -17,4 +17,6 @@ dependencies {
     testImplementation(libs.sqlite.jdbc)
     testImplementation(libs.flyway)
     testImplementation(libs.flyway.mysql)
+    testImplementation(libs.testcontainers.junit.jupiter)
+    testImplementation(libs.testcontainers.mysql)
 }

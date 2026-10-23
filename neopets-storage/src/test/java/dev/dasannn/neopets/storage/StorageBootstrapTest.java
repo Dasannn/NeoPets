@@ -28,7 +28,8 @@ final class StorageBootstrapTest {
             try (var connection = bootstrap.dataSource().getConnection();
                     var statement = connection.createStatement();
                     var result = statement.executeQuery(
-                            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1")) {
+                            "SELECT COUNT(*) FROM np_flyway_schema_history "
+                                    + "WHERE version = '1' AND success = 1")) {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }

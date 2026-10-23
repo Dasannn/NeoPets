@@ -18,6 +18,7 @@ import org.flywaydb.core.Flyway;
 public final class StorageBootstrap implements AutoCloseable {
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
     private static final int DATABASE_QUEUE_CAPACITY = 1_024;
+    private static final String SCHEMA_HISTORY_TABLE = StorageSettings.TABLE_PREFIX + "flyway_schema_history";
 
     private final HikariDataSource dataSource;
     private final ExecutorService executor;
@@ -85,6 +86,9 @@ public final class StorageBootstrap implements AutoCloseable {
         Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
+                .table(SCHEMA_HISTORY_TABLE)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
                 .load()
                 .migrate();
     }
