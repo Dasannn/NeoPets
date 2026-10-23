@@ -4,7 +4,6 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.pet.GiveResult;
-import dev.dasannn.neopets.core.pet.PetService;
 import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
@@ -176,11 +175,10 @@ public final class NeoPetsCommands {
         }
 
         PlayerId playerId = new PlayerId(target.getUniqueId());
-        PetService service = target.isOnline() ? rt.petService() : rt.offlinePetService();
         CompletableFuture<GiveResult> result = rt.submit(() -> switch (selection) {
-            case GiveArgument.Specific specific -> service.giveSpecific(playerId, specific.variantId());
-            case GiveArgument.Candidates candidates -> service.give(playerId, candidates.variantIds());
-            case GiveArgument.Random random -> service.giveRandom(playerId, random.typeId());
+            case GiveArgument.Specific specific -> rt.petService().giveSpecific(playerId, specific.variantId());
+            case GiveArgument.Candidates candidates -> rt.petService().give(playerId, candidates.variantIds());
+            case GiveArgument.Random random -> rt.petService().giveRandom(playerId, random.typeId());
         });
         String targetName = Optional.ofNullable(target.getName()).orElse(args[1]);
         complete(result, sender, outcome -> {

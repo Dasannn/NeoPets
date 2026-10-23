@@ -285,6 +285,10 @@ class PetTickerTest {
         public boolean isMainThread() {
             return true;
         }
+
+        @Override
+        public void quiesce() {
+        }
     }
 
     private static final class RecordedTask implements TaskScheduler.RepeatingTask {

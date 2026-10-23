@@ -52,7 +52,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /** Owns the complete manually wired NeoPets runtime. */
@@ -63,7 +62,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final ConfigurationManager configuration;
     private final LocalizedMessages messages;
     private final PetService petService;
-    private final PetService offlinePetService;
     private final SkillPointService skillPoints;
     private final SkillTreeService skillTrees;
     private final CachingPetRepository pets;
@@ -76,7 +74,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
             ConfigurationManager configuration,
             LocalizedMessages messages,
             PetService petService,
-            PetService offlinePetService,
             SkillPointService skillPoints,
             SkillTreeService skillTrees,
             CachingPetRepository pets,
@@ -88,7 +85,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.configuration = configuration;
         this.messages = messages;
         this.petService = petService;
-        this.offlinePetService = offlinePetService;
         this.skillPoints = skillPoints;
         this.skillTrees = skillTrees;
         this.pets = pets;
@@ -133,8 +129,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
             SkillTreeRegistry treeRegistry = type -> configuration.current().skillTree(type);
             var petService = new PetService(variants, pets, entityPort, rankPort, events,
                     () -> ThreadLocalRandom.current().nextDouble(), Clock.systemUTC());
-            var offlinePetService = new PetService(variants, jdbcPets, entityPort, rankPort, events,
-                    () -> ThreadLocalRandom.current().nextDouble(), Clock.systemUTC());
             var skillPoints = new SkillPointService(players, events, operations);
             var skillTrees = new SkillTreeService(pets, trees, treeRegistry,
                     variantId -> variants.findById(variantId).map(PetVariant::type), economyPort,
@@ -143,7 +137,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var gateway = new PaperPetEntityGateway(plugin.getServer(), scheduler, spawner, livePets,
-                    petId -> spawnData(pets, petId),
+                    petId -> spawnData(cache, petId),
                     variantId -> variants.findById(variantId).orElseThrow(
                             () -> new IllegalStateException("Unknown variant: " + variantId)));
             entityPort.bind(gateway);
@@ -153,12 +147,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var orphanCleaner = new OrphanCleaner();
             orphanCleaner.cleanLoadedEntities(plugin.getServer(), livePets.snapshot().keySet());
 
-            java.util.concurrent.Executor mainThread = task -> scheduler.runOnMain(task);
-            economyPort.bind(EconomyProvider.resolve(plugin.getServer(), mainThread, plugin.getLogger()));
+            economyPort.bind(EconomyProvider.resolve(plugin.getServer(), scheduler::runOnMain, plugin.getLogger()));
             rankPort.bind(RankLimitsResolverFactory.create(plugin, configuration));
-
-            NeoPetsProvider.register(new NeoPetsApiImpl(pets, players, trees, cache, livePets, configuration));
-            lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             var playerLifecycle = new PlayerLifecycleListener(
                     cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
@@ -169,17 +159,19 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(new PetProtectionListener(), plugin);
             pluginManager.registerEvents(ticker, plugin);
 
-            lifecycle.started((AutoCloseable) () -> {
-                NeoPetsProvider.unregister();
-                awaitShutdown(work.stopAndDrain());
-                awaitShutdown(operations.stopAndDrain());
-                CompletableFuture<Void> despawns = CompletableFuture.allOf(livePets.snapshot().keySet().stream()
-                        .map(gateway::despawn).toArray(CompletableFuture[]::new));
-                awaitShutdown(despawns);
-                awaitShutdown(cache.flushAll());
-            });
+            lifecycle.started(new RuntimeShutdown(
+                    work,
+                    operations,
+                    scheduler,
+                    () -> CompletableFuture.allOf(livePets.snapshot().keySet().stream()
+                            .map(gateway::despawn).toArray(CompletableFuture[]::new)),
+                    cache::flushAll,
+                    SHUTDOWN_TIMEOUT));
 
-            return new NeoPetsRuntime(lifecycle, configuration, messages, petService, offlinePetService,
+            NeoPetsProvider.register(new NeoPetsApiImpl(pets, players, trees, cache, livePets, configuration));
+            lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
+
+            return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
                     skillPoints, skillTrees, pets, playerLifecycle, cache, work);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
@@ -200,10 +192,6 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public PetService petService() {
         return petService;
-    }
-
-    public PetService offlinePetService() {
-        return offlinePetService;
     }
 
     public SkillPointService skillPoints() {
@@ -264,8 +252,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
         };
     }
 
-    private static PetSpawnData spawnData(CachingPetRepository pets, PetId petId) {
-        OwnedPet pet = pets.findById(petId).join()
+    private static PetSpawnData spawnData(PlayerDataCache cache, PetId petId) {
+        OwnedPet pet = cache.loadedPet(petId)
                 .orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
         return new PetSpawnData(pet.owner().value(), pet.variant());
     }
@@ -288,9 +276,5 @@ public final class NeoPetsRuntime implements AutoCloseable {
         } catch (Exception closeFailure) {
             startupFailure.addSuppressed(closeFailure);
         }
-    }
-
-    private static void awaitShutdown(CompletableFuture<Void> operation) throws Exception {
-        operation.get(SHUTDOWN_TIMEOUT.toNanos(), TimeUnit.NANOSECONDS);
     }
 }

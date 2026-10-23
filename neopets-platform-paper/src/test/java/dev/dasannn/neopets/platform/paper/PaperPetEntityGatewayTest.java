@@ -267,6 +267,10 @@ class PaperPetEntityGatewayTest {
         public boolean isMainThread() {
             return true;
         }
+
+        @Override
+        public void quiesce() {
+        }
     }
 
     private static final class DeferredScheduler implements TaskScheduler {
@@ -288,6 +292,10 @@ class PaperPetEntityGatewayTest {
         @Override
         public boolean isMainThread() {
             return false;
+        }
+
+        @Override
+        public void quiesce() {
         }
 
         private void runDeferredTask() {

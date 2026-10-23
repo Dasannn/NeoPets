@@ -18,6 +18,12 @@ public interface TaskScheduler {
     /** Returns whether the caller is currently on the server thread. */
     boolean isMainThread();
 
+    /**
+     * Stops accepting off-thread submissions and cancels those that have not started yet.
+     * Calls made from the server thread may still run inline so shutdown cleanup can remove entities.
+     */
+    void quiesce();
+
     /** A cancellable repeating task without exposing Bukkit scheduler types. */
     interface RepeatingTask {
         /** Cancels future executions. */

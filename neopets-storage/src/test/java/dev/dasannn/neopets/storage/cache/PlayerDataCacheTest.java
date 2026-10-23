@@ -497,6 +497,28 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void petGrantQueuedDuringLoginLoadIsAddedToTheInstalledSnapshot() throws Exception {
+        var grantedPet = pet(PET, PLAYER, "dog_brown");
+        var petsAtLoadStart = new CompletableFuture<List<OwnedPet>>();
+        delegates.petFindByOwner = ignored -> petsAtLoadStart;
+
+        var load = cache.load(PLAYER);
+        var grant = pets.save(grantedPet);
+
+        assertFalse(load.isDone());
+        assertFalse(grant.isDone());
+        assertEquals(0, delegates.petWrites.get());
+
+        petsAtLoadStart.complete(List.of());
+        await(load);
+        await(grant);
+
+        assertEquals(List.of(grantedPet), cache.loadedPets(PLAYER).orElseThrow());
+        assertEquals(grantedPet, delegates.pets.get(PET));
+        assertEquals(1, delegates.petWrites.get());
+    }
+
+    @Test
     void deleteWaitsForPendingLoadAndLeavesNoStaleCachedPet() throws Exception {
         var ownedPet = pet(PET, PLAYER, "cat_black");
         var original = progress(PET, 1, 0);
@@ -690,6 +712,7 @@ final class PlayerDataCacheTest {
         private final AtomicInteger treeWrites = new AtomicInteger();
         private Function<PlayerProfile, CompletableFuture<Void>> playerSave = this::storePlayer;
         private Function<PetId, CompletableFuture<Optional<OwnedPet>>> petFind = this::findPet;
+        private Function<PlayerId, CompletableFuture<List<OwnedPet>>> petFindByOwner = this::findPetsByOwner;
         private Function<OwnedPet, CompletableFuture<Void>> petSave = this::storePet;
         private Function<PetId, CompletableFuture<Void>> petDelete = this::removePet;
         private Function<PetId, CompletableFuture<Optional<TreeProgress>>> treeLoad = this::loadProgress;
@@ -716,9 +739,7 @@ final class PlayerDataCacheTest {
         @Override
         public CompletableFuture<List<OwnedPet>> findByOwner(PlayerId ownerId) {
             petOwnerReads.incrementAndGet();
-            return CompletableFuture.completedFuture(pets.values().stream()
-                    .filter(pet -> pet.owner().equals(ownerId))
-                    .toList());
+            return petFindByOwner.apply(ownerId);
         }
 
         @Override
@@ -752,6 +773,12 @@ final class PlayerDataCacheTest {
 
         private CompletableFuture<Optional<OwnedPet>> findPet(PetId petId) {
             return CompletableFuture.completedFuture(Optional.ofNullable(pets.get(petId)));
+        }
+
+        private CompletableFuture<List<OwnedPet>> findPetsByOwner(PlayerId ownerId) {
+            return CompletableFuture.completedFuture(pets.values().stream()
+                    .filter(pet -> pet.owner().equals(ownerId))
+                    .toList());
         }
 
         private CompletableFuture<Void> storePet(OwnedPet pet) {
