@@ -31,6 +31,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -279,11 +280,11 @@ public final class PetService {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(petId, "petId");
         return serialized(playerId, () -> reviveUnsequenced(
-                playerId, petId, () -> CompletableFuture.completedFuture(true)));
+                playerId, petId, revived -> savePet(revived).thenApply(ignored -> true)));
     }
 
     /**
-     * Atomically claims a matching single-use soul token before reviving its dead pet.
+     * Atomically consumes a matching single-use soul token and revives its dead pet.
      * The token check and pet mutation share this service's per-player sequence.
      */
     public CompletableFuture<ReviveResult> revive(
@@ -304,14 +305,14 @@ public final class PetService {
         return serialized(playerId, () -> soulItems.isUsable(tokenId, petId, playerId)
                 .thenCompose(usable -> usable
                         ? reviveUnsequenced(playerId, petId,
-                                () -> soulItems.consume(tokenId, petId, playerId))
+                                revived -> petRepository.reviveWithSoul(revived, tokenId, clock.instant()))
                         : CompletableFuture.completedFuture(new ReviveResult.InvalidSoul(petId))));
     }
 
     private CompletableFuture<ReviveResult> reviveUnsequenced(
             PlayerId playerId,
             PetId petId,
-            Supplier<CompletableFuture<Boolean>> authorization
+            Function<OwnedPet, CompletableFuture<Boolean>> persist
     ) {
         return petRepository.findById(petId).thenCompose(found -> {
             if (found.isEmpty() || !found.orElseThrow().owner().equals(playerId)) {
@@ -324,15 +325,13 @@ public final class PetService {
             if (pet.status() == PetStatus.IN_TRANSIT) {
                 return CompletableFuture.completedFuture(new ReviveResult.InTransit(pet));
             }
-            return authorization.get().thenCompose(authorized -> {
+            OwnedPet revived = pet.withStatus(PetStatus.ALIVE).withActive(false);
+            return persist.apply(revived).thenApply(authorized -> {
                 if (!authorized) {
-                    return CompletableFuture.completedFuture(new ReviveResult.InvalidSoul(petId));
+                    return new ReviveResult.InvalidSoul(petId);
                 }
-                OwnedPet revived = pet.withStatus(PetStatus.ALIVE).withActive(false);
-                return savePet(revived).thenApply(ignored -> {
-                    eventBus.publish(new PetRevived(petId, playerId));
-                    return new ReviveResult.Revived(revived);
-                });
+                eventBus.publish(new PetRevived(petId, playerId));
+                return new ReviveResult.Revived(revived);
             });
         });
     }

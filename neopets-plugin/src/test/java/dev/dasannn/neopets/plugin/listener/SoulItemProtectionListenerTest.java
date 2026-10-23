@@ -39,6 +39,29 @@ class SoulItemProtectionListenerTest {
     }
 
     @Test
+    void blocksSoulUseOnAllEntitiesInEitherHandAndAllowsOrdinaryItems() {
+        for (var entityType : java.util.List.of(org.bukkit.entity.Cow.class,
+                org.bukkit.entity.Sheep.class, org.bukkit.entity.Wolf.class,
+                org.bukkit.entity.ItemFrame.class, org.bukkit.entity.ArmorStand.class)) {
+            for (var hand : new EquipmentSlot[] {EquipmentSlot.HAND, EquipmentSlot.OFF_HAND}) {
+                for (boolean marked : new boolean[] {true, false}) {
+                    var inventory = proxy(org.bukkit.inventory.PlayerInventory.class,
+                            (proxy, method, args) -> method.getName().equals("getItem")
+                                    && args[0] == hand ? (marked ? soul : null) : null);
+                    Player player = proxy(Player.class, (proxy, method, args) ->
+                            method.getName().equals("getInventory") ? inventory : null);
+                    var entity = proxy(entityType, (proxy, method, args) -> null);
+                    var event = new org.bukkit.event.player.PlayerInteractEntityEvent(player, entity, hand);
+
+                    listener.onEntityInteract(event);
+
+                    assertEquals(marked, event.isCancelled());
+                }
+            }
+        }
+    }
+
+    @Test
     void blocksBrewingFuelBeforeItIsConsumed() {
         Block block = proxy(Block.class, (proxy, method, args) -> null);
         var event = new BrewingStandFuelEvent(block, soul, 20);

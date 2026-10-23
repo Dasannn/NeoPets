@@ -4,8 +4,6 @@ import com.destroystokyo.paper.event.inventory.PrepareResultEvent;
 import java.util.Objects;
 import org.bukkit.Material;
 import org.bukkit.block.Crafter;
-import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -208,11 +206,10 @@ public final class SoulItemProtectionListener implements Listener {
         }
     }
 
-    /** Prevents putting souls into item frames or armor stands. */
+    /** Prevents consuming or applying soul items through any entity interaction. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityInteract(PlayerInteractEntityEvent event) {
-        if ((event.getRightClicked() instanceof ItemFrame || event.getRightClicked() instanceof ArmorStand)
-                && SoulItemIdentity.isSoul(event.getPlayer().getInventory().getItem(event.getHand()))) {
+        if (SoulItemIdentity.isSoul(event.getPlayer().getInventory().getItem(event.getHand()))) {
             event.setCancelled(true);
         }
     }

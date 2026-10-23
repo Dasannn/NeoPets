@@ -4,9 +4,11 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.port.PetRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /** A write-through {@link PetRepository} backed by the online-player cache. */
@@ -40,6 +42,11 @@ public final class CachingPetRepository implements PetRepository {
     public CompletableFuture<Void> save(OwnedPet pet) {
         Objects.requireNonNull(pet, "pet");
         return cache.savePet(pet, () -> delegate.save(pet));
+    }
+
+    @Override
+    public CompletableFuture<Boolean> reviveWithSoul(OwnedPet revived, UUID tokenId, Instant consumedAt) {
+        return cache.revivePet(revived, () -> delegate.reviveWithSoul(revived, tokenId, consumedAt));
     }
 
     @Override

@@ -81,6 +81,53 @@ public final class JdbcPetRepository extends JdbcRepository implements PetReposi
     }
 
     @Override
+    public CompletableFuture<Boolean> reviveWithSoul(OwnedPet revived, UUID tokenId, Instant consumedAt) {
+        Objects.requireNonNull(revived, "revived");
+        Objects.requireNonNull(tokenId, "tokenId");
+        Objects.requireNonNull(consumedAt, "consumedAt");
+        return submit(() -> {
+            try (var connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try {
+                    try (var token = connection.prepareStatement("""
+                            UPDATE np_soul_token SET consumed_at = ?, active_pet_id = NULL
+                            WHERE token_id = ? AND pet_id = ? AND owner = ? AND consumed_at IS NULL
+                            """)) {
+                        token.setTimestamp(1, Timestamp.from(consumedAt), utcCalendar());
+                        token.setString(2, tokenId.toString());
+                        token.setString(3, revived.id().toString());
+                        token.setString(4, revived.owner().toString());
+                        if (token.executeUpdate() != 1) {
+                            connection.rollback();
+                            return false;
+                        }
+                    }
+                    try (var pet = connection.prepareStatement("""
+                            UPDATE np_pet SET status = 'ALIVE', active = FALSE
+                            WHERE id = ? AND owner = ? AND status = 'DEAD'
+                            """)) {
+                        pet.setString(1, revived.id().toString());
+                        pet.setString(2, revived.owner().toString());
+                        if (pet.executeUpdate() != 1) {
+                            connection.rollback();
+                            return false;
+                        }
+                    }
+                    connection.commit();
+                    return true;
+                } catch (SQLException | RuntimeException failure) {
+                    try {
+                        connection.rollback();
+                    } catch (SQLException rollbackFailure) {
+                        failure.addSuppressed(rollbackFailure);
+                    }
+                    throw failure;
+                }
+            }
+        });
+    }
+
+    @Override
     public CompletableFuture<Void> deleteById(PetId petId) {
         Objects.requireNonNull(petId, "petId");
         return submit(() -> {

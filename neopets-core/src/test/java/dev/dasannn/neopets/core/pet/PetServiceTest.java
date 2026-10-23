@@ -672,6 +672,26 @@ class PetServiceTest {
     }
 
     @Test
+    void failedSoulRevivalCanBeRetriedWithTheSameToken() {
+        var player = player(164);
+        var dead = pet(1640, player, LIGHT.id(), PetStatus.DEAD, false);
+        var tokens = new FakeSoulTokens();
+        var souls = new SoulItemService(tokens, Clock.fixed(NOW, ZoneOffset.UTC));
+        pets.store(dead);
+        var token = souls.issue(dead.id(), player).join();
+        pets.nextSaveFailure = new IllegalStateException("database unavailable");
+
+        assertThrows(java.util.concurrent.CompletionException.class,
+                () -> service.revive(player, dead.id(), token.tokenId(), player, souls).join());
+        assertEquals(PetStatus.DEAD, pets.stored.get(dead.id()).status());
+        assertTrue(souls.isUsable(token.tokenId(), dead.id(), player).join());
+        assertTrue(publishedEvents.isEmpty());
+        assertInstanceOf(ReviveResult.Revived.class,
+                service.revive(player, dead.id(), token.tokenId(), player, souls).join());
+        assertEquals(1, tokens.consumptions);
+    }
+
+    @Test
     void soulReviveRejectsAnotherOwnerWithoutConsumingTheToken() {
         var player = player(165);
         var otherOwner = player(166);
@@ -721,7 +741,7 @@ class PetServiceTest {
 
         assertFalse(first.isDone());
         assertFalse(duplicate.isDone());
-        assertEquals(1, tokens.consumptions);
+        assertEquals(0, tokens.consumptions);
         saved.complete(null);
         assertInstanceOf(ReviveResult.Revived.class, first.join());
         assertInstanceOf(ReviveResult.InvalidSoul.class, duplicate.join());
@@ -818,6 +838,7 @@ class PetServiceTest {
         private CompletableFuture<List<OwnedPet>> nextFindByOwner;
         private CompletableFuture<Void> nextSave;
         private Throwable nextSaveFailure;
+        private FakeSoulTokens tokens;
         private String lastSaveCallThread;
         private int findByIdCalls;
         private int findByOwnerCalls;
@@ -879,6 +900,11 @@ class PetServiceTest {
             return CompletableFuture.completedFuture(null);
         }
 
+        @Override
+        public CompletableFuture<Boolean> reviveWithSoul(OwnedPet pet, UUID tokenId, Instant consumedAt) {
+            return save(pet).thenCompose(ignored -> tokens.consume(tokenId, pet.id(), pet.owner(), consumedAt));
+        }
+
         void store(OwnedPet pet) {
             stored.put(pet.id(), pet);
         }
@@ -935,7 +961,10 @@ class PetServiceTest {
         }
     }
 
-    private static final class FakeSoulTokens implements SoulTokenRepository {
+    private final class FakeSoulTokens implements SoulTokenRepository {
+        FakeSoulTokens() {
+            pets.tokens = this;
+        }
         private final Map<UUID, Soul> tokens = new LinkedHashMap<>();
         private final Set<UUID> delivered = new HashSet<>();
         private int consumptions;

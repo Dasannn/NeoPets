@@ -273,6 +273,15 @@ public final class PlayerDataCache {
         }));
     }
 
+    CompletableFuture<Boolean> revivePet(OwnedPet pet, Supplier<CompletableFuture<Boolean>> durableWrite) {
+        return operations.submit(pet.owner(), () -> durableWrite.get().thenApply(revived -> {
+            if (revived) {
+                addOrReplacePet(pet);
+            }
+            return revived;
+        }));
+    }
+
     CompletableFuture<Void> deletePet(PetId petId, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(petId, "petId");
         return submitForPetOwner(petId, owner -> () -> writeThrough(() -> deletePet(owner, petId), durableWrite),
