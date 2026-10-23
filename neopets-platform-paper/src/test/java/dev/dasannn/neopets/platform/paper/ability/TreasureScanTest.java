@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 class TreasureScanTest {
     @Test
-    void outwardTraversalCoversTheSphereOnceIncludingClippedWorldHeights() {
+    void chunkTraversalCoversTheSphereOnceIncludingClippedWorldHeights() {
         for (int originY : new int[] {-64, 64, 319}) {
             var fixture = new Fixture();
             fixture.minHeight = -64;
@@ -48,7 +48,7 @@ class TreasureScanTest {
     }
 
     @Test
-    void defaultBudgetFindsAdjacentTreasureAtNormalWorldHeightAcrossChunkBoundaries() {
+    void fullScanFindsAdjacentTreasureAtNormalWorldHeightAcrossChunkBoundaries() {
         var fixture = new Fixture();
         fixture.minHeight = -64;
         fixture.maxHeight = 320;
@@ -56,12 +56,33 @@ class TreasureScanTest {
                 new TreasureScan.Position(-1, 64, 0), new TreasureScan.Position(0, 64, -1),
                 new TreasureScan.Position(0, 65, 0), new TreasureScan.Position(0, 63, 0));
         expected.forEach(position -> fixture.blocks.put(position, new Facts(Material.CHEST, true)));
-        var scan = fixture.scan(0, 64, 0, 16, 0, 8192, 32);
+        var scan = fixture.scan(0, 64, 0, 16, 0, 40_000, 32);
 
         finish(scan);
 
         assertEquals(expected, Set.copyOf(scan.targets()));
-        assertEquals(8192, scan.scannedBlocks());
+        assertTrue(scan.scannedBlocks() < 40_000);
+    }
+
+    @Test
+    void chunkCenteredDefaultScanNeverRecapturesChunksAndFinishesPromptlyWithScent() {
+        for (double scent : new double[] {0, 4, 20}) {
+            var fixture = new Fixture();
+            fixture.minHeight = -64;
+            fixture.maxHeight = 320;
+            var treasure = new TreasureScan.Position(8, 64, 8);
+            fixture.blocks.put(treasure, new Facts(Material.DIAMOND_ORE, false));
+            var scan = fixture.scan(8, 64, 8, 16, scent, 8192, 32);
+            int calls = 0;
+            while (!scan.complete()) {
+                scan.advance(1024);
+                assertTrue(++calls <= 10, "default scan must finish within five seconds of shared ticks");
+            }
+            assertEquals(Set.of(treasure), Set.copyOf(scan.targets()));
+            assertEquals(8192, scan.scannedBlocks());
+            assertEquals(fixture.capturedChunks.size(), fixture.snapshots,
+                    "each chunk must be captured only once per activation");
+        }
     }
 
     @Test
@@ -90,9 +111,9 @@ class TreasureScanTest {
         fixture.defaultMaterial = Material.DIAMOND_ORE;
         var capped = fixture.scan(8, 0, 8, 1, 0, 3, 20);
         finish(capped);
-        // Snapshot acquisition, origin ore and a rejected diagonal each consume budget.
+        // Snapshot acquisition and two inspected positions each consume budget.
         assertEquals(3, capped.scannedBlocks());
-        assertEquals(1, capped.targets().size());
+        assertEquals(2, capped.targets().size());
 
         var targetCapped = fixture.scan(8, 0, 8, 1, 0, 100, 2);
         finish(targetCapped);
@@ -211,6 +232,7 @@ class TreasureScanTest {
         private int minHeight;
         private int maxHeight = 1;
         private int snapshots;
+        private final Set<TreasureScan.Position> capturedChunks = new HashSet<>();
         private int states;
         private int blockReads;
         private int chunkProbes;
@@ -241,6 +263,7 @@ class TreasureScanTest {
                     throw new AssertionError("No eager tile enumeration allowed: " + method);
                 }
                 snapshots++;
+                capturedChunks.add(new TreasureScan.Position(chunkX, 0, chunkZ));
                 return proxy(ChunkSnapshot.class, (snapshot, snapshotMethod, coordinates) -> {
                     if (!snapshotMethod.getName().equals("getBlockType")) {
                         throw new AssertionError("Unexpected snapshot call: " + snapshotMethod);
