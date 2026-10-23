@@ -12,6 +12,7 @@ public record PluginSettings(
         Storage storage,
         Features features,
         double followTeleportDistance,
+        Abilities abilities,
         Map<String, RankLimits> ranks,
         Duration bukkitRankRefreshInterval,
         Courier courier,
@@ -26,6 +27,7 @@ public record PluginSettings(
         if (!Double.isFinite(followTeleportDistance) || followTeleportDistance <= 0) {
             throw new IllegalArgumentException("followTeleportDistance must be finite and positive");
         }
+        Objects.requireNonNull(abilities, "abilities");
         Objects.requireNonNull(ranks, "ranks");
         ranks = Map.copyOf(ranks);
         if (!ranks.containsKey("default")) {
@@ -98,6 +100,32 @@ public record PluginSettings(
         }
     }
 
+    /** Settings for custom pet abilities. */
+    public record Abilities(Zarpazo zarpazo, Vigia vigia) {
+        public Abilities {
+            Objects.requireNonNull(zarpazo, "zarpazo");
+            Objects.requireNonNull(vigia, "vigia");
+        }
+    }
+
+    /** Polar-bear Zarpazo settings. */
+    public record Zarpazo(Duration cooldown, double radius, double damage) {
+        public Zarpazo {
+            requirePositive(cooldown, "zarpazo cooldown");
+            requirePositiveFinite(radius, "zarpazo radius");
+            requirePositiveFinite(damage, "zarpazo damage");
+        }
+    }
+
+    /** Parrot Vigía settings. */
+    public record Vigia(Duration cooldown, double radius, Duration duration) {
+        public Vigia {
+            requirePositive(cooldown, "vigia cooldown");
+            requirePositiveFinite(radius, "vigia radius");
+            requirePositive(duration, "vigia duration");
+        }
+    }
+
     /** Donkey courier timing settings. */
     public record Courier(Duration requestTimeout, Duration cooldown) {
         public Courier {
@@ -106,6 +134,19 @@ public record PluginSettings(
             if (requestTimeout.isZero() || requestTimeout.isNegative() || cooldown.isNegative()) {
                 throw new IllegalArgumentException("requestTimeout must be positive and cooldown non-negative");
             }
+        }
+    }
+
+    private static void requirePositive(Duration value, String name) {
+        Objects.requireNonNull(value, name);
+        if (value.isZero() || value.isNegative()) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+    }
+
+    private static void requirePositiveFinite(double value, String name) {
+        if (!Double.isFinite(value) || value <= 0) {
+            throw new IllegalArgumentException(name + " must be finite and positive");
         }
     }
 }

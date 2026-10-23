@@ -11,7 +11,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 7;
+    public static final int CURRENT_VERSION = 8;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -115,7 +115,34 @@ public final class ConfigurationMigrator {
                     configuration.set("rank-resolution.bukkit-refresh-interval-seconds", 30);
                 }
             }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 7;
+            }
+
+            @Override
+            public int toVersion() {
+                return 8;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 8 adds the unique ability settings.
+                setIfMissing(configuration, "abilities.zarpazo.cooldown-seconds", 10);
+                setIfMissing(configuration, "abilities.zarpazo.radius", 6.0);
+                setIfMissing(configuration, "abilities.zarpazo.damage", 4.0);
+                setIfMissing(configuration, "abilities.vigia.cooldown-seconds", 5);
+                setIfMissing(configuration, "abilities.vigia.radius", 16.0);
+                setIfMissing(configuration, "abilities.vigia.duration-seconds", 5);
+            }
         }));
+    }
+
+    private static void setIfMissing(YamlConfiguration configuration, String path, Object value) {
+        if (!configuration.isSet(path)) {
+            configuration.set(path, value);
+        }
     }
 
     public ConfigurationMigrator(int currentVersion, List<ConfigMigration> migrations) {
