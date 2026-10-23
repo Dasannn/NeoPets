@@ -1,7 +1,9 @@
 package dev.dasannn.neopets.platform.paper.ability;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.bukkit.ChunkSnapshot;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -17,23 +19,15 @@ final class TreasureScan {
     private final BuscatesorosAbility.Settings settings;
     private final int minY;
     private final int maxY;
-    private final int minChunkX;
-    private final int maxChunkX;
-    private final int minChunkZ;
-    private final int maxChunkZ;
-    private final int maxRing;
+    private final int maxShell;
+    // Null entries remember unavailable chunks, so a chunk is never captured twice.
+    // Only chunks intersecting the bounded scan cube can enter this cache.
+    private final Map<ChunkPosition, ChunkSnapshot> snapshots = new HashMap<>();
     private final List<Position> targets = new ArrayList<>();
-    private ChunkSnapshot snapshot;
-    private int ring;
-    private int chunkOffsetX;
-    private int chunkOffsetZ;
-    private int minX;
-    private int maxX;
-    private int minZ;
-    private int maxZ;
-    private int xIndex;
-    private int yIndex;
-    private int zIndex;
+    private int shell;
+    private int dx;
+    private int dy;
+    private int dz;
     private int scanned;
     private boolean exhausted;
 
@@ -47,67 +41,82 @@ final class TreasureScan {
         this.settings = settings;
         minY = (int) Math.max(world.getMinHeight(), Math.ceil(originY - radius));
         maxY = (int) Math.min(world.getMaxHeight() - 1, Math.floor(originY + radius));
-        minChunkX = ((int) Math.ceil(originX - radius)) >> 4;
-        maxChunkX = ((int) Math.floor(originX + radius)) >> 4;
-        minChunkZ = ((int) Math.ceil(originZ - radius)) >> 4;
-        maxChunkZ = ((int) Math.floor(originZ + radius)) >> 4;
-        maxRing = Math.max(Math.max((originX >> 4) - minChunkX, maxChunkX - (originX >> 4)),
-                Math.max((originZ >> 4) - minChunkZ, maxChunkZ - (originZ >> 4)));
-        exhausted = minY > maxY;
+        maxShell = (int) Math.floor(radius);
+        shell = Math.max(0, Math.max(minY - originY, originY - maxY));
+        startShell();
+        exhausted = minY > maxY || shell > maxShell;
     }
 
-    /** Takes at most one snapshot per call and finishes each chunk before visiting the next ring entry. */
+    /** Visits Chebyshev distance shells, with at most one new chunk snapshot per call. */
     void advance(int workLimit) {
         int work = 0;
         boolean captured = false;
         while (work < workLimit && !complete()) {
-            int chunkX = (originX >> 4) + chunkOffsetX;
-            int chunkZ = (originZ >> 4) + chunkOffsetZ;
-            if (snapshot == null && captured) {
-                return;
+            int blockX = originX + dx;
+            int blockY = originY + dy;
+            int blockZ = originZ + dz;
+            var chunk = new ChunkPosition(blockX >> 4, blockZ >> 4);
+            if (!snapshots.containsKey(chunk)) {
+                if (captured) {
+                    return;
+                }
+                work++;
+                scanned++;
+                ChunkSnapshot snapshot = null;
+                if (world.isChunkLoaded(chunk.x(), chunk.z())) {
+                    // The main-thread loaded check prevents getChunkAt from loading a chunk.
+                    snapshot = world.getChunkAt(chunk.x(), chunk.z())
+                            .getChunkSnapshot(false, false, false, false);
+                    captured = true;
+                }
+                snapshots.put(chunk, snapshot);
+                continue;
             }
             work++;
             scanned++;
-            if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                nextChunk();
-                continue;
+            ChunkSnapshot snapshot = snapshots.get(chunk);
+            if (snapshot != null) {
+                if (!world.isChunkLoaded(chunk.x(), chunk.z())) {
+                    snapshots.put(chunk, null);
+                } else if (TreasureTargetSelector.withinRadius(blockX, blockY, blockZ,
+                        originX, originY, originZ, radius)) {
+                    inspect(new Position(blockX, blockY, blockZ), snapshot);
+                }
             }
-            if (snapshot == null) {
-                // The main-thread loaded check prevents getChunkAt from loading a chunk.
-                snapshot = world.getChunkAt(chunkX, chunkZ).getChunkSnapshot(false, false, false, false);
-                captured = true;
-                minX = Math.max(chunkX << 4, (int) Math.ceil(originX - radius));
-                maxX = Math.min((chunkX << 4) + 15, (int) Math.floor(originX + radius));
-                minZ = Math.max(chunkZ << 4, (int) Math.ceil(originZ - radius));
-                maxZ = Math.min((chunkZ << 4) + 15, (int) Math.floor(originZ + radius));
-                continue;
-            }
-            int blockX = coordinate(xIndex, minX, maxX, originX);
-            int blockY = coordinate(yIndex, minY, maxY, originY);
-            int blockZ = coordinate(zIndex, minZ, maxZ, originZ);
-            if (TreasureTargetSelector.withinRadius(blockX, blockY, blockZ,
-                    originX, originY, originZ, radius)) {
-                inspect(new Position(blockX, blockY, blockZ), snapshot);
-            }
-            if (++yIndex > maxY - minY) {
-                yIndex = 0;
-                if (++xIndex > maxX - minX) {
-                    xIndex = 0;
-                    if (++zIndex > maxZ - minZ) {
-                        nextChunk();
+            nextPosition();
+        }
+        if (complete()) {
+            snapshots.clear();
+        }
+    }
+
+    private void startShell() {
+        dx = -shell;
+        dy = Math.max(-shell, minY - originY);
+        dz = -shell;
+    }
+
+    private void nextPosition() {
+        // On interior rows only the two Z faces belong to this shell.
+        // Jump across the interior instead of doing unbudgeted cube traversal.
+        if (Math.abs(dx) < shell && Math.abs(dy) < shell && dz == -shell) {
+            dz = shell;
+        } else {
+            dz++;
+        }
+        if (dz > shell) {
+            dz = -shell;
+            if (++dy > Math.min(shell, maxY - originY)) {
+                dy = Math.max(-shell, minY - originY);
+                if (++dx > shell) {
+                    if (++shell > maxShell) {
+                        exhausted = true;
+                    } else {
+                        startShell();
                     }
                 }
             }
         }
-        if (complete()) {
-            snapshot = null;
-        }
-    }
-
-    // Start at the closest coordinate, then visit the lower and upper sides without allocating positions.
-    private static int coordinate(int index, int min, int max, int origin) {
-        int start = Math.clamp(origin, min, max);
-        return index <= start - min ? start - index : min + index;
     }
 
     private void inspect(Position position, ChunkSnapshot snapshot) {
@@ -128,32 +137,6 @@ final class TreasureScan {
         }
     }
 
-    private void nextChunk() {
-        snapshot = null;
-        xIndex = 0;
-        yIndex = 0;
-        zIndex = 0;
-        do {
-            // Enumerate only the perimeter of each chunk ring, nearest rings first.
-            if (Math.abs(chunkOffsetZ) < ring && chunkOffsetX == -ring) {
-                chunkOffsetX = ring;
-            } else if (++chunkOffsetX > ring) {
-                chunkOffsetX = -ring;
-                if (++chunkOffsetZ > ring) {
-                    if (++ring > maxRing) {
-                        exhausted = true;
-                        return;
-                    }
-                    chunkOffsetX = -ring;
-                    chunkOffsetZ = -ring;
-                }
-            }
-        } while ((originX >> 4) + chunkOffsetX < minChunkX
-                || (originX >> 4) + chunkOffsetX > maxChunkX
-                || (originZ >> 4) + chunkOffsetZ < minChunkZ
-                || (originZ >> 4) + chunkOffsetZ > maxChunkZ);
-    }
-
     boolean complete() {
         return exhausted || scanned >= settings.maxScanBlocks() || targets.size() >= settings.maxTargets();
     }
@@ -164,6 +147,9 @@ final class TreasureScan {
 
     List<Position> targets() {
         return List.copyOf(targets);
+    }
+
+    private record ChunkPosition(int x, int z) {
     }
 
     record Position(int x, int y, int z) {
