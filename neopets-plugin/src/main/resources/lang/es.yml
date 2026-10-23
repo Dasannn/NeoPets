@@ -147,6 +147,113 @@ gui:
     rename-cancel-word: "cancelar"
     rename-cancelled: "<gray>Renombrado cancelado.</gray>"
     rename-invalid: "<red>El nombre debe tener entre 1 y 32 caracteres visibles y no contener saltos de línea.</red>"
+  skill-tree:
+    title: "<dark_aqua>Árbol de <pet></dark_aqua>"
+    header-name: "<gold><bold><pet></bold></gold>"
+    header-subtitle: "<dark_gray><type> · <age></dark_gray>"
+    header-available-sp: "<gray>SP disponibles: <aqua><points></aqua></gray>"
+    header-assigned-sp: "<gray>SP asignados: <white><assigned></white><dark_gray>/<maximum></dark_gray></gray>"
+    header-nodes: "<gray>Nodos: <white><nodes></white><dark_gray>/<maximum></dark_gray></gray>"
+    page-number: "<gray>Página <white><page></white>/<pages></gray>"
+    next-hint: "<dark_gray>Siguiente: <attribute> Nv. <level> · <cost></dark_gray>"
+    next-limit: "<red>Límite de nodos alcanzado</red>"
+    next-complete: "<green>Árbol completamente desbloqueado</green>"
+    category-vanilla: "<dark_gray>Vanilla</dark_gray>"
+    category-custom: "<dark_gray>Habilidad única</dark_gray>"
+    node-active-name: "<green>Nivel <level> ✔</green>"
+    node-unlocked-name: "<yellow>Nivel <level></yellow>"
+    node-next-name: "<gold>Nivel <level></gold>"
+    node-locked-name: "<dark_gray>Nivel <level></dark_gray>"
+    node-unavailable-name: "<red>Nivel <level></red>"
+    node-sp-cost: "<gray>Coste: <aqua><cost> SP</aqua></gray>"
+    node-money-cost: "<gray>Coste: <gold><cost></gold></gray>"
+    action-activate: "<yellow>Clic <dark_gray>» <gray>Activar</gray></dark_gray></yellow>"
+    action-unlock: "<yellow>Clic <dark_gray>» <gray>Desbloquear</gray></dark_gray></yellow>"
+    reason-previous: "<dark_gray>Desbloquea el nivel anterior</dark_gray>"
+    reason-node-limit: "<red>Límite de rango: <limit> nodos</red>"
+    reason-sp-limit: "<red>Límite de rango: <limit> SP</red>"
+    reason-no-sp: "<red>No tienes SP disponibles</red>"
+    reason-no-money: "<red>No tienes suficiente dinero</red>"
+    reason-no-economy: "<red>Economía no disponible</red>"
+    previous-page: "<white>Página anterior</white>"
+    next-page: "<white>Página siguiente</white>"
+    back: "<white>Volver</white>"
+    help-name: "<aqua>Cómo mejorar</aqua>"
+    help-lore: |-
+      <gray>Desbloquea nodos con dinero.</gray>
+      <gray>Actívalos después usando SP.</gray>
+    help-message: "<gray>Primero desbloquea nodos con dinero y después actívalos usando SP.</gray>"
+    reset-name: "<yellow>Reiniciar árbol</yellow>"
+    reset-cost: "<gray>Coste: <gold><cost></gold></gray>"
+    reset-refund: "<gray>Recuperarás todos los SP asignados.</gray>"
+    reset-action: "<yellow>Clic <dark_gray>» <gray>Pedir confirmación</gray></dark_gray></yellow>"
+    reset-confirm-name: "<red><bold>¿Confirmar reinicio?</bold></red>"
+    reset-confirm-action: "<red>Clic otra vez para confirmar</red>"
+    attributes:
+      health:
+        name: "<red>Vida</red>"
+        description: "<gray>Aumenta la vida máxima de la mascota.</gray>"
+        effect: "<gray>Vida máxima: <white><value></white></gray>"
+      regeneration:
+        name: "<gold>Regeneración</gold>"
+        description: "<gray>Recupera vida de forma gradual.</gray>"
+        effect: "<gray>Regeneración: <white><value></white></gray>"
+      fire_resistance:
+        name: "<gold>Resistencia al fuego</gold>"
+        description: "<gray>Protege a la mascota del fuego.</gray>"
+        effect: "<gray>Inmunidad al fuego</gray>"
+      strength:
+        name: "<red>Fuerza</red>"
+        description: "<gray>Aumenta el daño de sus ataques.</gray>"
+        effect: "<gray>Daño de ataque: <white><value></white></gray>"
+      speed:
+        name: "<aqua>Velocidad</aqua>"
+        description: "<gray>Aumenta su velocidad de movimiento.</gray>"
+        effect: "<gray>Velocidad: <white><value></white></gray>"
+      scent:
+        name: "<aqua>Olfato</aqua>"
+        description: "<gray>Amplía su radio de detección.</gray>"
+        effect: "<gray>Radio: <white><value> bloques</white></gray>"
+      agility:
+        name: "<aqua>Agilidad</aqua>"
+        description: "<gray>Mejora sus movimientos ágiles.</gray>"
+        effect: "<gray>Velocidad: <white><value></white></gray>"
+      armor:
+        name: "<gray>Armadura</gray>"
+        description: "<gray>Reduce el daño que recibe.</gray>"
+        effect: "<gray>Armadura: <white><value></white></gray>"
+      flight_speed:
+        name: "<aqua>Velocidad de vuelo</aqua>"
+        description: "<gray>Aumenta su velocidad en el aire.</gray>"
+        effect: "<gray>Velocidad de vuelo: <white><value></white></gray>"
+      alert_range:
+        name: "<yellow>Alcance de alerta</yellow>"
+        description: "<gray>Detecta amenazas desde más lejos.</gray>"
+        effect: "<gray>Radio: <white><value> bloques</white></gray>"
+      knockback_resistance:
+        name: "<gray>Resistencia al empuje</gray>"
+        description: "<gray>Evita que los golpes la desplacen.</gray>"
+        effect: "<gray>Resistencia: <white><value></white></gray>"
+      claw_swipe:
+        name: "<light_purple>Zarpazo</light_purple>"
+        description: "<gray>Daña a enemigos cercanos en área.</gray>"
+        effect: "<gray>Desbloquea Zarpazo</gray>"
+      treasure_hunter:
+        name: "<light_purple>Buscatesoros</light_purple>"
+        description: "<gray>Señala tesoros y menas cercanas.</gray>"
+        effect: "<gray>Desbloquea Buscatesoros</gray>"
+      feline_landing:
+        name: "<light_purple>Aterrizaje felino</light_purple>"
+        description: "<gray>Protege al dueño del daño por caída.</gray>"
+        effect: "<gray>Desbloquea Aterrizaje felino</gray>"
+      lookout:
+        name: "<light_purple>Vigía</light_purple>"
+        description: "<gray>Avisa y marca enemigos cercanos.</gray>"
+        effect: "<gray>Desbloquea Vigía</gray>"
+      courier_saddlebags:
+        name: "<light_purple>Alforjas mensajeras</light_purple>"
+        description: "<gray>Envía objetos a otro jugador.</gray>"
+        effect: "<gray>Desbloquea Alforjas mensajeras</gray>"
 
 admin:
   feature-enabled: "<green><feature> activada.</green>"

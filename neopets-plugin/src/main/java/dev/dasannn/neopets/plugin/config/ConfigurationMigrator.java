@@ -9,7 +9,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     private final int currentVersion;
     private final Map<Integer, ConfigMigration> bySource;
@@ -47,6 +47,21 @@ public final class ConfigurationMigrator {
             @Override
             public void apply(YamlConfiguration configuration) {
                 // Version 3 adds language keys only; ConfigurationLoader merges those defaults.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 3;
+            }
+
+            @Override
+            public int toVersion() {
+                return 4;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 4 adds skill-tree GUI language keys only.
             }
         }));
     }

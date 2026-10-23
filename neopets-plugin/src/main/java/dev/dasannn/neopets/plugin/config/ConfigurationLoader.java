@@ -61,7 +61,60 @@ public final class ConfigurationLoader {
             "gui.pets.help-name", "gui.pets.help-lore", "gui.pets.help-message",
             "gui.pets.coming-soon", "gui.pets.rename-prompt", "gui.pets.rename-cancel-word",
             "gui.pets.rename-cancelled", "gui.pets.rename-invalid");
-    private static final Set<String> REQUIRED_MESSAGES = Set.of(
+    private static final Set<String> VERSION_4_MESSAGES = Set.of(
+            "gui.skill-tree.title", "gui.skill-tree.header-name", "gui.skill-tree.header-subtitle",
+            "gui.skill-tree.header-available-sp", "gui.skill-tree.header-assigned-sp",
+            "gui.skill-tree.header-nodes", "gui.skill-tree.page-number", "gui.skill-tree.next-hint",
+            "gui.skill-tree.next-limit", "gui.skill-tree.next-complete",
+            "gui.skill-tree.category-vanilla", "gui.skill-tree.category-custom",
+            "gui.skill-tree.node-active-name", "gui.skill-tree.node-unlocked-name",
+            "gui.skill-tree.node-next-name", "gui.skill-tree.node-locked-name",
+            "gui.skill-tree.node-unavailable-name", "gui.skill-tree.node-sp-cost",
+            "gui.skill-tree.node-money-cost", "gui.skill-tree.action-activate",
+            "gui.skill-tree.action-unlock", "gui.skill-tree.reason-previous",
+            "gui.skill-tree.reason-node-limit", "gui.skill-tree.reason-sp-limit",
+            "gui.skill-tree.reason-no-sp", "gui.skill-tree.reason-no-money",
+            "gui.skill-tree.reason-no-economy", "gui.skill-tree.previous-page",
+            "gui.skill-tree.next-page", "gui.skill-tree.back", "gui.skill-tree.help-name",
+            "gui.skill-tree.help-lore", "gui.skill-tree.help-message", "gui.skill-tree.reset-name",
+            "gui.skill-tree.reset-cost", "gui.skill-tree.reset-refund", "gui.skill-tree.reset-action",
+            "gui.skill-tree.reset-confirm-name", "gui.skill-tree.reset-confirm-action",
+            "gui.skill-tree.attributes.health.name", "gui.skill-tree.attributes.health.description",
+            "gui.skill-tree.attributes.health.effect", "gui.skill-tree.attributes.regeneration.name",
+            "gui.skill-tree.attributes.regeneration.description",
+            "gui.skill-tree.attributes.regeneration.effect",
+            "gui.skill-tree.attributes.fire_resistance.name",
+            "gui.skill-tree.attributes.fire_resistance.description",
+            "gui.skill-tree.attributes.fire_resistance.effect",
+            "gui.skill-tree.attributes.strength.name", "gui.skill-tree.attributes.strength.description",
+            "gui.skill-tree.attributes.strength.effect", "gui.skill-tree.attributes.speed.name",
+            "gui.skill-tree.attributes.speed.description", "gui.skill-tree.attributes.speed.effect",
+            "gui.skill-tree.attributes.scent.name", "gui.skill-tree.attributes.scent.description",
+            "gui.skill-tree.attributes.scent.effect", "gui.skill-tree.attributes.agility.name",
+            "gui.skill-tree.attributes.agility.description", "gui.skill-tree.attributes.agility.effect",
+            "gui.skill-tree.attributes.armor.name", "gui.skill-tree.attributes.armor.description",
+            "gui.skill-tree.attributes.armor.effect", "gui.skill-tree.attributes.flight_speed.name",
+            "gui.skill-tree.attributes.flight_speed.description",
+            "gui.skill-tree.attributes.flight_speed.effect", "gui.skill-tree.attributes.alert_range.name",
+            "gui.skill-tree.attributes.alert_range.description",
+            "gui.skill-tree.attributes.alert_range.effect",
+            "gui.skill-tree.attributes.knockback_resistance.name",
+            "gui.skill-tree.attributes.knockback_resistance.description",
+            "gui.skill-tree.attributes.knockback_resistance.effect",
+            "gui.skill-tree.attributes.claw_swipe.name",
+            "gui.skill-tree.attributes.claw_swipe.description",
+            "gui.skill-tree.attributes.claw_swipe.effect",
+            "gui.skill-tree.attributes.treasure_hunter.name",
+            "gui.skill-tree.attributes.treasure_hunter.description",
+            "gui.skill-tree.attributes.treasure_hunter.effect",
+            "gui.skill-tree.attributes.feline_landing.name",
+            "gui.skill-tree.attributes.feline_landing.description",
+            "gui.skill-tree.attributes.feline_landing.effect", "gui.skill-tree.attributes.lookout.name",
+            "gui.skill-tree.attributes.lookout.description", "gui.skill-tree.attributes.lookout.effect",
+            "gui.skill-tree.attributes.courier_saddlebags.name",
+            "gui.skill-tree.attributes.courier_saddlebags.description",
+            "gui.skill-tree.attributes.courier_saddlebags.effect");
+    private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
             "general.reloaded",
@@ -104,6 +157,13 @@ public final class ConfigurationLoader {
             "gui.pets.close", "gui.pets.help-name", "gui.pets.help-lore", "gui.pets.help-message",
             "gui.pets.coming-soon", "gui.pets.rename-prompt", "gui.pets.rename-cancel-word",
             "gui.pets.rename-cancelled", "gui.pets.rename-invalid");
+    private static final Set<String> REQUIRED_MESSAGES = requiredMessages();
+
+    private static Set<String> requiredMessages() {
+        var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
+        required.addAll(VERSION_4_MESSAGES);
+        return Set.copyOf(required);
+    }
 
     private final Path dataDirectory;
     private final ClassLoader resources;
@@ -230,6 +290,9 @@ public final class ConfigurationLoader {
         boolean changed = sourceVersion < 2 && mergeMissing(language, defaults, VERSION_2_MESSAGES);
         if (sourceVersion < 3) {
             changed |= mergeMissing(language, defaults, VERSION_3_MESSAGES);
+        }
+        if (sourceVersion < 4) {
+            changed |= mergeMissing(language, defaults, VERSION_4_MESSAGES);
         }
         return changed;
     }

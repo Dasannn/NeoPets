@@ -31,7 +31,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(3, snapshot.settings().configVersion());
+        assertEquals(4, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -105,7 +105,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 3", "config-version: 99");
+        replace("config.yml", "config-version: 4", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -208,7 +208,7 @@ class ConfigurationLoaderTest {
     void oldInstallBackfillsConfigAndLanguageWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 1");
+        replace("config.yml", "config-version: 4", "config-version: 1");
         replace("config.yml", "  load-timeout-seconds: 10\n", "");
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
@@ -219,14 +219,14 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertEquals(37.0, upgraded.settings().followTeleportDistance());
         assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
         assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
         assertEquals("cierre personalizado", upgraded.language().find("gui.pets.close").orElseThrow());
         assertTrue(upgraded.language().find("errors.profile-load").isPresent());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
-        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 3"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 4"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("header-name:"));
     }
@@ -235,7 +235,7 @@ class ConfigurationLoaderTest {
     void versionTwoInstallReceivesEveryPetsMenuMessageAndStillLoads() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 3", "config-version: 2");
+        replace("config.yml", "config-version: 4", "config-version: 2");
         String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
         int petsSection = language.indexOf("  pets:\n", language.indexOf("gui:\n"));
         int adminSection = language.indexOf("\nadmin:\n", petsSection);
@@ -244,9 +244,27 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(3, upgraded.settings().configVersion());
+        assertEquals(4, upgraded.settings().configVersion());
         assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
         assertTrue(upgraded.language().find("gui.pets.rename-invalid").isPresent());
+    }
+
+    @Test
+    void versionThreeInstallReceivesSkillTreeMenuMessagesAndStillLoads() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 4", "config-version: 3");
+        String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
+        int skillTreeSection = language.indexOf("  skill-tree:\n", language.indexOf("gui:\n"));
+        int adminSection = language.indexOf("\nadmin:\n", skillTreeSection);
+        Files.writeString(temporaryDirectory.resolve("lang/es.yml"),
+                language.substring(0, skillTreeSection) + language.substring(adminSection + 1));
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(4, upgraded.settings().configVersion());
+        assertTrue(upgraded.language().find("gui.skill-tree.header-name").isPresent());
+        assertTrue(upgraded.language().find("gui.skill-tree.attributes.claw_swipe.effect").isPresent());
     }
 
     private void replace(String relativePath, String target, String replacement) throws IOException {
