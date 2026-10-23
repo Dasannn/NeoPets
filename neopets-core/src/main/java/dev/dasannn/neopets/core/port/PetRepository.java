@@ -14,20 +14,21 @@ import java.util.concurrent.CompletableFuture;
  * {@code (owner, variant)} so separate service instances cannot grant one variant twice.</p>
  */
 public interface PetRepository {
-    /** Finds a pet by its instance identifier. */
+    /** Returns the stored pet, or an empty optional when the identifier is unknown. */
     CompletableFuture<Optional<OwnedPet>> findById(PetId petId);
 
-    /** Finds all pets owned by a player. */
+    /** Returns a snapshot of all pets owned by the player. */
     CompletableFuture<List<OwnedPet>> findByOwner(PlayerId ownerId);
 
     /**
-     * Inserts or updates a pet.
+     * Inserts or replaces a pet by its identifier.
      *
-     * @return a future that fails with {@link DuplicatePetVariantException} when a different pet
-     *         already has the same owner and variant
+     * @return a future completed after the change is durable; it fails with
+     *         {@link DuplicatePetVariantException} when a different pet already has the same owner
+     *         and variant, or exceptionally on any other failure
      */
     CompletableFuture<Void> save(OwnedPet pet);
 
-    /** Deletes a pet by its instance identifier. */
+    /** Deletes the pet if present; deleting an unknown identifier succeeds without changing data. */
     CompletableFuture<Void> deleteById(PetId petId);
 }

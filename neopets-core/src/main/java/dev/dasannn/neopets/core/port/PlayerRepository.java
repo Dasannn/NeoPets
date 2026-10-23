@@ -12,9 +12,16 @@ import java.util.concurrent.CompletableFuture;
  * {@link PlayerProfile} is an assembled domain view and must not be persisted by this port.</p>
  */
 public interface PlayerRepository {
-    /** Finds the stored player data; implementations need only populate the skill-point balance. */
+    /**
+     * Returns the stored player data, or an empty optional when the player is unknown.
+     * Implementations need only populate the skill-point balance.
+     */
     CompletableFuture<Optional<PlayerProfile>> findById(PlayerId playerId);
 
-    /** Saves only the profile's skill-point balance, never its owned-pet list. */
+    /**
+     * Inserts or replaces the player's skill-point balance; the owned-pet list is never persisted.
+     *
+     * @return a future completed after the change is durable, or completed exceptionally on failure
+     */
     CompletableFuture<Void> save(PlayerProfile profile);
 }

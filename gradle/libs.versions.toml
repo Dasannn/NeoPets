@@ -8,6 +8,8 @@ flyway = "13.11.1"
 vault-api = "1.7.1"
 luckperms-api = "5.5"
 placeholderapi = "2.12.3"
+archunit = "1.5.1"
+testcontainers = "2.0.5"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper-api" }
@@ -18,6 +20,10 @@ hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
 mysql-connector-j = { module = "com.mysql:mysql-connector-j", version.ref = "mysql-connector-j" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 flyway = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-mysql = { module = "org.flywaydb:flyway-mysql", version.ref = "flyway" }
 vault-api = { module = "com.github.MilkBowl:VaultAPI", version.ref = "vault-api" }
 luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms-api" }
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
+archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:testcontainers-junit-jupiter", version.ref = "testcontainers" }
+testcontainers-mysql = { module = "org.testcontainers:testcontainers-mysql", version.ref = "testcontainers" }

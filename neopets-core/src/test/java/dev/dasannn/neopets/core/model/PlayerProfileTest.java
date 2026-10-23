@@ -19,6 +19,8 @@ class PlayerProfileTest {
     void requiresNonNegativeBalanceAndNonNullFields() {
         assertThrows(NullPointerException.class, () -> new PlayerProfile(null, 0, List.of()));
         assertThrows(NullPointerException.class, () -> new PlayerProfile(playerId, 0, null));
+        assertThrows(NullPointerException.class,
+                () -> new PlayerProfile(playerId, 0, java.util.Collections.singletonList(null)));
         assertThrows(IllegalArgumentException.class, () -> new PlayerProfile(playerId, -1, List.of()));
     }
 
