@@ -66,6 +66,7 @@ final class PlayerDataCacheTest {
         delegates.pets.put(PET, ownedPet);
         delegates.progress.put(PET, progress);
 
+        assertEquals(Optional.empty(), cache.loadedProfile(PLAYER));
         assertEquals(7, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
         assertEquals(List.of(ownedPet), await(pets.findByOwner(PLAYER)));
         assertEquals(Optional.of(progress), await(trees.load(PET)));
@@ -75,6 +76,7 @@ final class PlayerDataCacheTest {
 
         var loaded = await(cache.load(PLAYER));
         assertEquals(new PlayerProfile(PLAYER, 7, List.of(ownedPet)), loaded);
+        assertEquals(Optional.of(loaded), cache.loadedProfile(PLAYER));
         int playerReadsAfterLoad = delegates.playerReads.get();
         int ownerReadsAfterLoad = delegates.petOwnerReads.get();
         int petReadsAfterLoad = delegates.petReads.get();

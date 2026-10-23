@@ -1,5 +1,8 @@
 prefix: "<gradient:#57d6ff:#b56cff><bold>NeoPets</bold></gradient> <dark_gray>»</dark_gray>"
 
+placeholders:
+  active-pet-empty: "-"
+
 errors:
   no-permission: "<red>No tienes permiso para hacer eso.</red>"
   player-only: "<red>Este comando solo puede usarlo un jugador.</red>"

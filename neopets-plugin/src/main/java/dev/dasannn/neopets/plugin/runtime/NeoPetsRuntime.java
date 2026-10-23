@@ -26,7 +26,11 @@ import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
 import dev.dasannn.neopets.plugin.config.PluginSettings;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
+import dev.dasannn.neopets.plugin.integration.NeoPetsPlaceholders;
+import dev.dasannn.neopets.plugin.integration.PlaceholderApiIntegration;
+import dev.dasannn.neopets.plugin.integration.PlaceholderApiRegistration;
 import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
+import dev.dasannn.neopets.plugin.integration.RuntimePlaceholderDataSource;
 import dev.dasannn.neopets.plugin.gui.Menu;
 import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
@@ -203,6 +207,21 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
                     plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work);
             var pluginManager = plugin.getServer().getPluginManager();
+            var placeholderData = new RuntimePlaceholderDataSource(
+                    cache, livePets, rankPort, configuration,
+                    plugin.getServer().getOnlinePlayers().stream().map(player -> player.getUniqueId()).toList());
+            pluginManager.registerEvents(placeholderData, plugin);
+            var placeholders = new NeoPetsPlaceholders(
+                    placeholderData,
+                    () -> configuration.current().language()
+                            .find("placeholders.active-pet-empty").orElse("-"));
+            var placeholderRegistration = PlaceholderApiRegistration.registerIfPresent(
+                    pluginManager.isPluginEnabled("PlaceholderAPI"),
+                    () -> registerPlaceholderApi(plugin, placeholders));
+            placeholderRegistration.ifPresent(lifecycle::started);
+            if (placeholderRegistration.isEmpty()) {
+                plugin.getLogger().info("PlaceholderAPI is unavailable; placeholders are disabled");
+            }
             pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             var damagePolicy = new PetDamagePolicy(
@@ -368,6 +387,13 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private static VigiaAbility.Settings vigiaSettings(ConfigurationManager configuration) {
         PluginSettings.Vigia settings = configuration.current().settings().abilities().vigia();
         return new VigiaAbility.Settings(settings.cooldown(), settings.radius(), settings.duration());
+    }
+
+    private static AutoCloseable registerPlaceholderApi(
+            NeoPetsPlugin plugin,
+            NeoPetsPlaceholders placeholders
+    ) {
+        return PlaceholderApiIntegration.register(plugin, placeholders);
     }
 
     private static void closeAfterFailure(RuntimeLifecycle lifecycle, Throwable startupFailure) {
