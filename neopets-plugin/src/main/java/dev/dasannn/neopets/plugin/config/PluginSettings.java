@@ -3,6 +3,7 @@ package dev.dasannn.neopets.plugin.config;
 import dev.dasannn.neopets.core.model.RankLimits;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -80,7 +81,31 @@ public record PluginSettings(
     }
 
     /** Pet-death feature flags. */
-    public record Death(boolean enabled, boolean pvp, boolean keepSkills) {
+    public record Death(boolean enabled, boolean pvp, boolean keepSkills, SoulItem soulItem) {
+        public Death {
+            Objects.requireNonNull(soulItem, "soulItem");
+        }
+
+        /** Creates death settings with the bundled soul-item presentation. */
+        public Death(boolean enabled, boolean pvp, boolean keepSkills) {
+            this(enabled, pvp, keepSkills, new SoulItem(
+                    "ECHO_SHARD", "<light_purple>Alma de <pet></light_purple>", List.of(
+                            "<gray>Tipo: <type></gray>",
+                            "<gray>Úsala con una poción de revivir</gray>")));
+        }
+    }
+
+    /** Configurable Bukkit representation of an issued soul token. */
+    public record SoulItem(String material, String name, List<String> lore) {
+        public SoulItem {
+            Objects.requireNonNull(material, "material");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(lore, "lore");
+            if (material.isBlank() || name.isBlank()) {
+                throw new IllegalArgumentException("soul item material and name must not be blank");
+            }
+            lore = List.copyOf(lore);
+        }
     }
 
     /** Player skill-tree reset settings. */

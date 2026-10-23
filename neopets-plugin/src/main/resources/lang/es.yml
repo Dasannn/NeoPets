@@ -45,7 +45,9 @@ pets:
   soul-required: "<red>Debes sostener el alma válida de la mascota en la mano principal.</red>"
   soul-invalid: "<red>Esta alma no es válida o ya fue utilizada.</red>"
   soul-item-name: "<light_purple>Alma de <pet></light_purple>"
-  soul-item-lore: "<gray>Usa una poción de resurrección con este objeto en la mano.</gray>"
+  soul-item-lore: "<gray>Úsala con una poción de revivir.</gray>"
+  soul-delivered: "<red><pet> ha muerto.</red> <light_purple>Su alma está en tu inventario.</light_purple>"
+  soul-dropped: "<red><pet> ha muerto.</red> <light_purple>Su alma cayó a tus pies porque tu inventario está lleno.</light_purple>"
   shop-disabled: "<yellow>La compra de mascotas está desactivada.</yellow>"
 
 skills:

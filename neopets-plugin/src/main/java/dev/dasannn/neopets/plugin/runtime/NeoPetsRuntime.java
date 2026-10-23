@@ -10,7 +10,9 @@ import dev.dasannn.neopets.core.model.PetVariant;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.pet.PetService;
+import dev.dasannn.neopets.core.pet.SoulItemService;
 import dev.dasannn.neopets.core.pet.VariantCatalog;
+import dev.dasannn.neopets.core.port.PetIdGenerator;
 import dev.dasannn.neopets.core.port.RankLimitsResolver;
 import dev.dasannn.neopets.core.skilltree.SkillPointService;
 import dev.dasannn.neopets.core.skilltree.SkillTreeRegistry;
@@ -30,12 +32,17 @@ import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
 import dev.dasannn.neopets.plugin.gui.SkillTreeMenu;
 import dev.dasannn.neopets.plugin.listener.OrphanCleanupListener;
+import dev.dasannn.neopets.plugin.listener.PetDeathListener;
 import dev.dasannn.neopets.plugin.listener.PlayerLifecycleListener;
+import dev.dasannn.neopets.plugin.listener.SoulDeliveryCoordinator;
+import dev.dasannn.neopets.plugin.listener.SoulItemDelivery;
+import dev.dasannn.neopets.plugin.listener.SoulItemFactory;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
 import dev.dasannn.neopets.platform.paper.OrphanCleaner;
 import dev.dasannn.neopets.platform.paper.PaperPetEntityGateway;
 import dev.dasannn.neopets.platform.paper.PaperTaskScheduler;
 import dev.dasannn.neopets.platform.paper.PetBrain;
+import dev.dasannn.neopets.platform.paper.PetDamagePolicy;
 import dev.dasannn.neopets.platform.paper.PetProtectionListener;
 import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
@@ -46,7 +53,9 @@ import dev.dasannn.neopets.platform.paper.effect.PetSkillTreeState;
 import dev.dasannn.neopets.platform.paper.effect.SkillTreePetEffectApplier;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import dev.dasannn.neopets.storage.JdbcPetRepository;
+import dev.dasannn.neopets.storage.JdbcPendingSoulDeliveryRepository;
 import dev.dasannn.neopets.storage.JdbcPlayerRepository;
+import dev.dasannn.neopets.storage.JdbcSoulTokenRepository;
 import dev.dasannn.neopets.storage.JdbcTreeProgressRepository;
 import dev.dasannn.neopets.storage.StorageBootstrap;
 import dev.dasannn.neopets.storage.StorageSettings;
@@ -122,6 +131,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var storage = lifecycle.started(new StorageBootstrap(storageSettings(plugin, configuration)));
             var jdbcPlayers = new JdbcPlayerRepository(storage);
             var jdbcPets = new JdbcPetRepository(storage);
+            var jdbcSoulTokens = new JdbcSoulTokenRepository(storage);
+            var pendingSoulDeliveries = new JdbcPendingSoulDeliveryRepository(storage);
             var jdbcTrees = new JdbcTreeProgressRepository(storage, petId -> jdbcPets.findById(petId).thenApply(pet -> {
                 OwnedPet owned = pet.orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
                 PetVariant variant = configuration.current().variants().findById(owned.variant())
@@ -143,12 +154,15 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var work = new RuntimeWorkTracker();
             VariantCatalog variants = liveVariants(configuration);
             SkillTreeRegistry treeRegistry = type -> configuration.current().skillTree(type);
+            var clock = Clock.systemUTC();
             var petService = new PetService(variants, pets, entityPort, rankPort, events,
-                    () -> ThreadLocalRandom.current().nextDouble(), Clock.systemUTC());
+                    () -> ThreadLocalRandom.current().nextDouble(), clock,
+                    PetIdGenerator.randomUuid(), operations);
             var skillPoints = new SkillPointService(players, events, operations);
             var skillTrees = new SkillTreeService(pets, trees, treeRegistry,
                     variantId -> variants.findById(variantId).map(PetVariant::type), economyPort,
                     skillPoints, rankPort, events, operations);
+            var soulItems = new SoulItemService(jdbcSoulTokens, clock);
 
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
@@ -183,7 +197,18 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var pluginManager = plugin.getServer().getPluginManager();
             pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
-            pluginManager.registerEvents(new PetProtectionListener(), plugin);
+            var damagePolicy = new PetDamagePolicy(
+                    () -> configuration.current().settings().features().death().enabled(),
+                    () -> configuration.current().settings().features().death().pvp());
+            pluginManager.registerEvents(new PetProtectionListener(damagePolicy), plugin);
+            var soulDeliveries = new SoulDeliveryCoordinator(
+                    plugin.getServer(), scheduler, pendingSoulDeliveries, pets,
+                    new SoulItemFactory(configuration, messages), new SoulItemDelivery<>(), messages,
+                    work, plugin.getLogger());
+            pluginManager.registerEvents(soulDeliveries, plugin);
+            pluginManager.registerEvents(new PetDeathListener(
+                    petService, skillTrees, soulItems, soulDeliveries, livePets,
+                    configuration, work, plugin.getLogger()), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());

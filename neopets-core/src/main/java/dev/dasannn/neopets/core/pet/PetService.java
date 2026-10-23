@@ -1,9 +1,11 @@
 package dev.dasannn.neopets.core.pet;
 
-import dev.dasannn.neopets.core.concurrent.KeyedSequencer;
+import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
+import dev.dasannn.neopets.core.event.PetDied;
 import dev.dasannn.neopets.core.event.PetDismissed;
 import dev.dasannn.neopets.core.event.PetGiven;
+import dev.dasannn.neopets.core.event.PetRevived;
 import dev.dasannn.neopets.core.event.PetSummoned;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -46,7 +48,7 @@ public final class PetService {
     private final RandomSource randomSource;
     private final Clock clock;
     private final PetIdGenerator petIdGenerator;
-    private final KeyedSequencer<PlayerId> operationSequencer = new KeyedSequencer<>();
+    private final PlayerOperationQueue operations;
 
     /**
      * Creates a pet service with all persistence and external effects supplied as ports.
@@ -69,7 +71,8 @@ public final class PetService {
                 eventBus,
                 randomSource,
                 clock,
-                PetIdGenerator.randomUuid()
+                PetIdGenerator.randomUuid(),
+                new PlayerOperationQueue()
         );
     }
 
@@ -84,6 +87,22 @@ public final class PetService {
             Clock clock,
             PetIdGenerator petIdGenerator
     ) {
+        this(variantCatalog, petRepository, entityGateway, rankLimitsResolver, eventBus,
+                randomSource, clock, petIdGenerator, new PlayerOperationQueue());
+    }
+
+    /** Creates a service sharing the supplied player operation queue with other stateful services. */
+    public PetService(
+            VariantCatalog variantCatalog,
+            PetRepository petRepository,
+            PetEntityGateway entityGateway,
+            RankLimitsResolver rankLimitsResolver,
+            DomainEventBus eventBus,
+            RandomSource randomSource,
+            Clock clock,
+            PetIdGenerator petIdGenerator,
+            PlayerOperationQueue operations
+    ) {
         this.variantCatalog = Objects.requireNonNull(variantCatalog, "variantCatalog");
         this.petRepository = Objects.requireNonNull(petRepository, "petRepository");
         this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
@@ -92,6 +111,7 @@ public final class PetService {
         this.randomSource = Objects.requireNonNull(randomSource, "randomSource");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.petIdGenerator = Objects.requireNonNull(petIdGenerator, "petIdGenerator");
+        this.operations = Objects.requireNonNull(operations, "operations");
     }
 
     /**
@@ -230,6 +250,52 @@ public final class PetService {
         }));
     }
 
+    /** Marks an alive owned pet dead and inactive in the per-player operation sequence. */
+    public CompletableFuture<DeathResult> die(PlayerId playerId, PetId petId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(petId, "petId");
+        return serialized(playerId, () -> petRepository.findById(petId).thenCompose(found -> {
+            if (found.isEmpty() || !found.orElseThrow().owner().equals(playerId)) {
+                return CompletableFuture.completedFuture(new DeathResult.NotOwned(petId));
+            }
+            OwnedPet pet = found.orElseThrow();
+            if (pet.status() == PetStatus.DEAD) {
+                return CompletableFuture.completedFuture(new DeathResult.AlreadyDead(pet));
+            }
+            if (pet.status() == PetStatus.IN_TRANSIT) {
+                return CompletableFuture.completedFuture(new DeathResult.InTransit(pet));
+            }
+            OwnedPet dead = pet.withStatus(PetStatus.DEAD).withActive(false);
+            return savePet(dead).thenApply(ignored -> {
+                eventBus.publish(new PetDied(petId, playerId));
+                return new DeathResult.Died(dead);
+            });
+        }));
+    }
+
+    /** Revives a dead owned pet as alive and inactive in the per-player operation sequence. */
+    public CompletableFuture<ReviveResult> revive(PlayerId playerId, PetId petId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(petId, "petId");
+        return serialized(playerId, () -> petRepository.findById(petId).thenCompose(found -> {
+            if (found.isEmpty() || !found.orElseThrow().owner().equals(playerId)) {
+                return CompletableFuture.completedFuture(new ReviveResult.NotOwned(petId));
+            }
+            OwnedPet pet = found.orElseThrow();
+            if (pet.status() == PetStatus.ALIVE) {
+                return CompletableFuture.completedFuture(new ReviveResult.AlreadyAlive(pet));
+            }
+            if (pet.status() == PetStatus.IN_TRANSIT) {
+                return CompletableFuture.completedFuture(new ReviveResult.InTransit(pet));
+            }
+            OwnedPet revived = pet.withStatus(PetStatus.ALIVE).withActive(false);
+            return savePet(revived).thenApply(ignored -> {
+                eventBus.publish(new PetRevived(petId, playerId));
+                return new ReviveResult.Revived(revived);
+            });
+        }));
+    }
+
     private CompletableFuture<GiveResult> giveFromCandidates(PlayerId playerId, List<PetVariant> candidates) {
         return petRepository.findByOwner(playerId).thenCompose(pets -> {
             var unowned = candidates.stream()
@@ -362,7 +428,7 @@ public final class PetService {
     }
 
     private <T> CompletableFuture<T> serialized(PlayerId playerId, Supplier<CompletableFuture<T>> action) {
-        return operationSequencer.submit(playerId, action);
+        return operations.submit(playerId, action);
     }
 
     private static Throwable unwrap(Throwable failure) {

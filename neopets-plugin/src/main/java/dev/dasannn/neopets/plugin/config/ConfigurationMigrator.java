@@ -11,7 +11,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 6;
+    public static final int CURRENT_VERSION = 7;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -96,6 +96,31 @@ public final class ConfigurationMigrator {
             @Override
             public void apply(YamlConfiguration configuration) {
                 // Version 6 adds skill-tree GUI language keys only.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 6;
+            }
+
+            @Override
+            public int toVersion() {
+                return 7;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                if (!configuration.isSet("death.soul-item.material")) {
+                    configuration.set("death.soul-item.material", "ECHO_SHARD");
+                }
+                if (!configuration.isSet("death.soul-item.name")) {
+                    configuration.set("death.soul-item.name", "<light_purple>Alma de <pet></light_purple>");
+                }
+                if (!configuration.isSet("death.soul-item.lore")) {
+                    configuration.set("death.soul-item.lore", List.of(
+                            "<gray>Tipo: <type></gray>",
+                            "<gray>Úsala con una poción de revivir</gray>"));
+                }
             }
         }));
     }

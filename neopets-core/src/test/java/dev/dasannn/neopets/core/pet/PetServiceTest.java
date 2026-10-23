@@ -10,7 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.dasannn.neopets.core.event.DomainEvent;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.PetDismissed;
+import dev.dasannn.neopets.core.event.PetDied;
 import dev.dasannn.neopets.core.event.PetGiven;
+import dev.dasannn.neopets.core.event.PetRevived;
 import dev.dasannn.neopets.core.event.PetSummoned;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
@@ -62,6 +64,8 @@ class PetServiceTest {
         events.subscribe(PetGiven.class, publishedEvents::add);
         events.subscribe(PetSummoned.class, publishedEvents::add);
         events.subscribe(PetDismissed.class, publishedEvents::add);
+        events.subscribe(PetDied.class, publishedEvents::add);
+        events.subscribe(PetRevived.class, publishedEvents::add);
         service = service(new InMemoryVariantCatalog(List.of(LIGHT, HEAVY, CAT_BLACK)), () -> randomValue);
     }
 
@@ -595,6 +599,73 @@ class PetServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), " "));
         assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), "a".repeat(33)));
         assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), "line\nbreak"));
+    }
+
+    @Test
+    void deathPersistsAnInactiveDeadPetOnceAndPublishesItsTransition() {
+        var player = player(160);
+        var active = pet(1600, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+
+        var result = assertInstanceOf(DeathResult.Died.class, service.die(player, active.id()).join());
+
+        assertEquals(PetStatus.DEAD, result.pet().status());
+        assertFalse(result.pet().active());
+        assertEquals(result.pet(), pets.stored.get(active.id()));
+        assertEquals(List.of(new PetDied(active.id(), player)), publishedEvents);
+        assertInstanceOf(DeathResult.AlreadyDead.class, service.die(player, active.id()).join());
+        assertEquals(1, publishedEvents.size());
+    }
+
+    @Test
+    void deathRejectsMissingForeignAndInTransitPets() {
+        var player = player(161);
+        var missing = petId(1610);
+        assertEquals(new DeathResult.NotOwned(missing), service.die(player, missing).join());
+
+        var foreign = pet(1611, player(999), LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(foreign);
+        assertEquals(new DeathResult.NotOwned(foreign.id()), service.die(player, foreign.id()).join());
+
+        var inTransit = pet(1612, player, LIGHT.id(), PetStatus.IN_TRANSIT, false);
+        pets.clearAndStore(inTransit);
+        assertEquals(new DeathResult.InTransit(inTransit), service.die(player, inTransit.id()).join());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void reviveOnlyTransitionsADeadOwnedPetAndLeavesItInactive() {
+        var player = player(162);
+        var dead = pet(1620, player, LIGHT.id(), PetStatus.DEAD, true);
+        pets.store(dead);
+
+        var result = assertInstanceOf(ReviveResult.Revived.class, service.revive(player, dead.id()).join());
+
+        assertEquals(PetStatus.ALIVE, result.pet().status());
+        assertFalse(result.pet().active());
+        assertEquals(List.of(new PetRevived(dead.id(), player)), publishedEvents);
+        assertInstanceOf(ReviveResult.AlreadyAlive.class, service.revive(player, dead.id()).join());
+        assertEquals(1, publishedEvents.size());
+    }
+
+    @Test
+    void concurrentDeathAndSummonAreSequencedWithoutResurrectingThePet() {
+        var player = player(163);
+        var active = pet(1630, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+        var delayedDeathSave = new CompletableFuture<Void>();
+        pets.nextSave = delayedDeathSave;
+
+        var death = service.die(player, active.id());
+        var summon = service.summon(player, active.id());
+        assertFalse(death.isDone());
+        assertFalse(summon.isDone());
+
+        delayedDeathSave.complete(null);
+
+        assertInstanceOf(DeathResult.Died.class, death.join());
+        assertInstanceOf(SummonResult.Dead.class, summon.join());
+        assertEquals(PetStatus.DEAD, pets.stored.get(active.id()).status());
     }
 
     private PetService service(VariantCatalog catalog, dev.dasannn.neopets.core.port.RandomSource random) {

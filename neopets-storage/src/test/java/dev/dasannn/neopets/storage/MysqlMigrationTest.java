@@ -22,6 +22,7 @@ final class MysqlMigrationTest extends AbstractMigrationTest {
             execute(connection, "DROP TABLE IF EXISTS np_pet_attribute");
             execute(connection, "DROP TABLE IF EXISTS np_pet_storage");
             execute(connection, "DROP TABLE IF EXISTS np_soul_token");
+            execute(connection, "DROP TABLE IF EXISTS np_pending_soul_delivery");
             execute(connection, "DROP TABLE IF EXISTS np_pet");
             execute(connection, "DROP TABLE IF EXISTS np_player");
             execute(connection, "DROP TABLE IF EXISTS np_flyway_schema_history");
