@@ -319,6 +319,20 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void installAlreadyMigratedToVersionSixReceivesPreviousActivationReason() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 9", "config-version: 6");
+        String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
+        Files.writeString(temporaryDirectory.resolve("lang/es.yml"),
+                language.replaceFirst("(?m)^    reason-previous-activation:.*\\R", ""));
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertTrue(upgraded.language().find("gui.skill-tree.reason-previous-activation").isPresent());
+    }
+
+    @Test
     void variantIconIsOptionalForMenuSpawnEggFallback() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();

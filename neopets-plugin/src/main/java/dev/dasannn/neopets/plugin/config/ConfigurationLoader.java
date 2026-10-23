@@ -116,7 +116,7 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.description",
             "gui.skill-tree.attributes.courier_saddlebags.effect");
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
-            "pets.soul-delivered", "pets.soul-dropped");
+            "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
