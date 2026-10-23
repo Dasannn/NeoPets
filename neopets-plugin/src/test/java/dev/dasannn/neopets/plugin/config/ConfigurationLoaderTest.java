@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.platform.paper.PetSpawner;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,6 +49,36 @@ class ConfigurationLoaderTest {
         String usage = snapshot.language().find("general.usage-give").orElseThrow();
         assertEquals("Uso: /neopet give <jugador> <id|ids|random> [tipo]",
                 PlainTextComponentSerializer.plainText().serialize(MiniMessage.miniMessage().deserialize(usage)));
+    }
+
+    @Test
+    void everyShippedPetAppearancePassesTheRealPlatformAppliers() throws Exception {
+        var spawner = new PetSpawner();
+        ConfigurationSnapshot snapshot = new ConfigurationLoader(
+                temporaryDirectory, spawner::validateAppearance).load();
+
+        var issues = snapshot.variants().findAll().stream()
+                .flatMap(variant -> spawner.validateAppearance(variant.type(), variant.appearance()).stream()
+                        .map(reason -> variant.id() + ": " + reason))
+                .toList();
+
+        assertEquals(List.of(), issues);
+        assertTrue(snapshot.variants().findByType(new PetTypeId("parrot")).stream()
+                .noneMatch(variant -> variant.baby()));
+    }
+
+    @Test
+    void invalidPlatformAppearanceReloadKeepsPreviousSnapshotActive() throws Exception {
+        var spawner = new PetSpawner();
+        var manager = new ConfigurationManager(new ConfigurationLoader(
+                temporaryDirectory, spawner::validateAppearance));
+        ConfigurationSnapshot original = manager.current();
+        replace("pets/cat.yml", "appearance: { type: tabby }", "appearance: { variant: tabby }");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, manager::reload);
+
+        assertIssue(failure, "pets/cat.yml", "variants.cat_tabby.appearance");
+        assertSame(original, manager.current());
     }
 
     @Test
@@ -112,8 +143,9 @@ class ConfigurationLoaderTest {
     @Test
     void platformAppearanceValidatorContributesFailuresWithoutStoppingOtherValidation() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory,
-                (type, appearance) -> appearance.properties().containsKey("variant")
-                        ? List.of("unsupported test appearance") : List.of());
+                (type, appearance) -> appearance.properties().isEmpty()
+                        ? List.of()
+                        : List.of("unsupported test appearance"));
 
         ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
 

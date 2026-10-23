@@ -3,6 +3,8 @@ package dev.dasannn.neopets.platform.paper;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.model.PetVariant;
+import dev.dasannn.neopets.core.model.VariantAppearance;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -36,6 +38,17 @@ public final class PetSpawner {
         this.appliers = Map.copyOf(appliers);
     }
 
+    /** Validates an appearance with the applier that will spawn the given pet type. */
+    public List<String> validateAppearance(PetTypeId petType, VariantAppearance appearance) {
+        Objects.requireNonNull(petType, "petType");
+        Objects.requireNonNull(appearance, "appearance");
+        var applier = appliers.get(petType);
+        if (applier == null) {
+            return List.of("unsupported pet type '" + petType + "'");
+        }
+        return applier.validate(appearance);
+    }
+
     /**
      * Spawns one pet and applies its appearance, permanent baby state, ownership, and PDC tags.
      *
@@ -49,12 +62,9 @@ public final class PetSpawner {
         Objects.requireNonNull(petId, "petId");
         Objects.requireNonNull(variant, "variant");
 
-        var applier = appliers.get(variant.type());
-        if (applier == null) {
-            throw new IllegalArgumentException("Unsupported pet type: " + variant.type());
-        }
-        var errors = applier.validate(variant.appearance());
+        var errors = validateAppearance(variant.type(), variant.appearance());
         AppearanceRules.requireValid(variant.type().toString(), errors);
+        var applier = appliers.get(variant.type());
 
         var world = Objects.requireNonNull(location.getWorld(), "location world");
         return spawnWithApplier(world, location, ownerUuid, petId, variant, applier);

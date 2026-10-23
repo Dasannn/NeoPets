@@ -102,7 +102,9 @@ public final class NeoPetsRuntime implements AutoCloseable {
         Objects.requireNonNull(plugin, "plugin");
         var lifecycle = new RuntimeLifecycle();
         try {
-            var configuration = new ConfigurationManager(new ConfigurationLoader(plugin.getDataFolder().toPath()));
+            var spawner = new PetSpawner();
+            var configuration = new ConfigurationManager(new ConfigurationLoader(
+                    plugin.getDataFolder().toPath(), spawner::validateAppearance));
             var messages = new LocalizedMessages(configuration);
 
             var storage = lifecycle.started(new StorageBootstrap(storageSettings(plugin, configuration)));
@@ -140,7 +142,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
-            var gateway = new PaperPetEntityGateway(plugin.getServer(), scheduler, new PetSpawner(), livePets,
+            var gateway = new PaperPetEntityGateway(plugin.getServer(), scheduler, spawner, livePets,
                     petId -> spawnData(pets, petId),
                     variantId -> variants.findById(variantId).orElseThrow(
                             () -> new IllegalStateException("Unknown variant: " + variantId)));
