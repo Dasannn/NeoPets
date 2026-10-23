@@ -3,6 +3,9 @@ package dev.dasannn.neopets.platform.paper.ability;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.platform.paper.PetKeys;
 import dev.dasannn.neopets.platform.paper.effect.AbilityRegistry;
+import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import java.time.Clock;
 import java.util.Collection;
 import java.util.HashMap;
@@ -14,6 +17,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.ToDoubleFunction;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
@@ -25,10 +30,12 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
     private final CooldownTracker cooldowns;
     private final Clock clock;
     private final Function<LivingEntity, Optional<Player>> ownerLookup;
+    private final ToDoubleFunction<LivingEntity> detectionRadiusBonusLookup;
 
     /** Creates a registry that resolves owners from the standard NeoPets entity metadata. */
     public DefaultAbilityRegistry(Collection<? extends Ability> abilities, CooldownTracker cooldowns, Clock clock) {
-        this(abilities, cooldowns, clock, DefaultAbilityRegistry::ownerFromMetadata);
+        this(abilities, cooldowns, clock, DefaultAbilityRegistry::ownerFromMetadata,
+                DefaultAbilityRegistry::detectionRadiusBonus);
     }
 
     /** Creates a registry with an injectable owner lookup for isolated tests. */
@@ -37,6 +44,17 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
             CooldownTracker cooldowns,
             Clock clock,
             Function<LivingEntity, Optional<Player>> ownerLookup
+    ) {
+        this(abilities, cooldowns, clock, ownerLookup, ignored -> 0.0);
+    }
+
+    /** Creates a registry with injectable owner and vanilla-effect lookups for isolated tests. */
+    public DefaultAbilityRegistry(
+            Collection<? extends Ability> abilities,
+            CooldownTracker cooldowns,
+            Clock clock,
+            Function<LivingEntity, Optional<Player>> ownerLookup,
+            ToDoubleFunction<LivingEntity> detectionRadiusBonusLookup
     ) {
         Objects.requireNonNull(abilities, "abilities");
         var indexed = new LinkedHashMap<String, Ability>();
@@ -54,6 +72,8 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
         this.cooldowns = Objects.requireNonNull(cooldowns, "cooldowns");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ownerLookup = Objects.requireNonNull(ownerLookup, "ownerLookup");
+        this.detectionRadiusBonusLookup = Objects.requireNonNull(
+                detectionRadiusBonusLookup, "detectionRadiusBonusLookup");
     }
 
     /** Returns the immutable set of registered custom effect identifiers. */
@@ -116,7 +136,8 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
                 continue;
             }
             activation.ability().tick(new AbilityContext(
-                    petId, entity, owner, activation.level(), clock.instant(), cooldowns, entry.getKey()));
+                    petId, entity, owner, activation.level(), clock.instant(), cooldowns,
+                    detectionRadiusBonusLookup.applyAsDouble(entity), entry.getKey()));
         }
     }
 
@@ -167,6 +188,17 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
         } catch (IllegalArgumentException ignored) {
             return Optional.empty();
         }
+    }
+
+    private static double detectionRadiusBonus(LivingEntity entity) {
+        var attribute = RegistryAccess.registryAccess().getRegistry(RegistryKey.ATTRIBUTE)
+                .getOrThrow(NamespacedKey.minecraft("follow_range"));
+        var instance = entity.getAttribute(attribute);
+        if (instance == null) {
+            return 0.0;
+        }
+        var modifier = instance.getModifier(AttributeEffectAdapter.modifierKey("scent"));
+        return modifier == null ? 0.0 : Math.max(0.0, modifier.getAmount());
     }
 
     private record Activation(Ability ability, LivingEntity pet, Player owner, int level) {

@@ -11,6 +11,7 @@ import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
+import org.bukkit.block.BlockType;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -117,6 +119,7 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.effect");
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
+    private static final Set<String> VERSION_10_MESSAGES = Set.of("abilities.buscatesoros.found");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -166,6 +169,7 @@ public final class ConfigurationLoader {
         var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
         required.addAll(VERSION_6_MESSAGES);
         required.addAll(VERSION_9_MESSAGES);
+        required.addAll(VERSION_10_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -343,6 +347,9 @@ public final class ConfigurationLoader {
         if (sourceVersion < 9) {
             changed |= mergeMissing(language, defaults, VERSION_9_MESSAGES);
         }
+        if (sourceVersion < 10) {
+            changed |= mergeMissing(language, defaults, VERSION_10_MESSAGES);
+        }
         return changed;
     }
 
@@ -421,6 +428,20 @@ public final class ConfigurationLoader {
                 BigDecimal.valueOf(16)).doubleValue();
         int vigiaDuration = valueOr(integer(
                 root, file, "abilities.vigia.duration-seconds", 1, 3_600, issues), 5);
+        int buscatesorosCooldown = valueOr(integer(
+                root, file, "abilities.buscatesoros.cooldown-seconds", 1, 86_400, issues), 30);
+        double buscatesorosRadius = valueOr(boundedDecimal(
+                root, file, "abilities.buscatesoros.base-radius", BigDecimal.valueOf(128), issues),
+                BigDecimal.valueOf(16)).doubleValue();
+        int buscatesorosDuration = valueOr(integer(
+                root, file, "abilities.buscatesoros.duration-seconds", 1, 3_600, issues), 5);
+        int buscatesorosMaxTargets = valueOr(integer(
+                root, file, "abilities.buscatesoros.max-targets", 1, 512, issues), 32);
+        int buscatesorosMaxScanBlocks = valueOr(integer(
+                root, file, "abilities.buscatesoros.max-scan-blocks", 1, 262_144, issues), 8192);
+        Set<Material> buscatesorosOres = valueOr(blockMaterialSet(
+                        root, file, "abilities.buscatesoros.ore-materials", issues),
+                BuscatesorosAbility.defaultOreMaterials());
 
         var ranks = parseRanks(root, file, issues);
         int rankRefreshSeconds = valueOr(integer(
@@ -440,7 +461,11 @@ public final class ConfigurationLoader {
                 new PluginSettings.Zarpazo(
                         Duration.ofSeconds(zarpazoCooldown), zarpazoRadius, zarpazoDamage),
                 new PluginSettings.Vigia(
-                        Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)));
+                        Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)),
+                new PluginSettings.Buscatesoros(
+                        Duration.ofSeconds(buscatesorosCooldown), buscatesorosRadius,
+                        Duration.ofSeconds(buscatesorosDuration), buscatesorosMaxTargets,
+                        buscatesorosMaxScanBlocks, buscatesorosOres));
         return new PluginSettings(version, storage, features, teleportDistance, abilities, ranks,
                 Duration.ofSeconds(rankRefreshSeconds),
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
@@ -900,6 +925,41 @@ public final class ConfigurationLoader {
         return valid ? parsed : null;
     }
 
+    private static Set<Material> blockMaterialSet(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof List<?> values)) {
+            issue(issues, file, path, raw == null ? "required material list is missing" : "must be a material list");
+            return null;
+        }
+        if (values.isEmpty()) {
+            issue(issues, file, path, "must contain at least one material");
+            return null;
+        }
+        boolean valid = true;
+        var materials = new java.util.LinkedHashSet<Material>();
+        for (int index = 0; index < values.size(); index++) {
+            Object value = values.get(index);
+            if (!(value instanceof String name)) {
+                issue(issues, file, path + "[" + index + "]", "must be an uppercase material name");
+                valid = false;
+                continue;
+            }
+            Material material = Material.matchMaterial(name);
+            if (material == null || !material.name().equals(name) || !isBlockMaterial(material)) {
+                issue(issues, file, path + "[" + index + "]", "must name a valid uppercase block material");
+                valid = false;
+            } else {
+                materials.add(material);
+            }
+        }
+        return valid ? Set.copyOf(materials) : null;
+    }
+
     private record SkillPointCostSpec(List<Integer> perLevel, Integer uniform) {
         private List<Integer> forLevels(int levels) {
             return perLevel == null ? java.util.Collections.nCopies(levels, uniform) : perLevel;
@@ -936,6 +996,15 @@ public final class ConfigurationLoader {
         }
         try {
             ItemType.class.getField(material.name());
+            return true;
+        } catch (NoSuchFieldException exception) {
+            return false;
+        }
+    }
+
+    private static boolean isBlockMaterial(Material material) {
+        try {
+            BlockType.class.getField(material.name());
             return true;
         } catch (NoSuchFieldException exception) {
             return false;

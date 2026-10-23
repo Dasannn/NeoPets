@@ -68,6 +68,10 @@ skills:
   already-unlocked: "<yellow>Ese nodo ya está desbloqueado.</yellow>"
   already-active: "<yellow>Ese nodo ya está activo.</yellow>"
 
+abilities:
+  buscatesoros:
+    found: "<gold>Buscatesoros encontró <count> tesoros cercanos.</gold>"
+
 courier:
   request-sent: "<green>Solicitud de mensajería enviada a <player>.</green>"
   request-received: "<yellow><owner> quiere enviarte su burro. Usa <white><accept_command></white> para aceptar.</yellow>"

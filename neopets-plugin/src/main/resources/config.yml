@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 9
+config-version: 10
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -55,6 +55,33 @@ abilities:
     radius: 16.0
     # Paper 26.3 has no supported per-player glow API; this vanilla glow is visible to everyone nearby.
     duration-seconds: 5
+  buscatesoros:
+    cooldown-seconds: 30
+    base-radius: 16.0
+    duration-seconds: 5
+    max-targets: 32
+    # Total container states plus block positions inspected per activation.
+    max-scan-blocks: 8192
+    ore-materials:
+      - ANCIENT_DEBRIS
+      - COAL_ORE
+      - COPPER_ORE
+      - DEEPSLATE_COAL_ORE
+      - DEEPSLATE_COPPER_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - DEEPSLATE_IRON_ORE
+      - DEEPSLATE_LAPIS_ORE
+      - DEEPSLATE_REDSTONE_ORE
+      - DIAMOND_ORE
+      - EMERALD_ORE
+      - GOLD_ORE
+      - IRON_ORE
+      - LAPIS_ORE
+      - NETHER_GOLD_ORE
+      - NETHER_QUARTZ_ORE
+      - REDSTONE_ORE
 
 ranks:
   default:

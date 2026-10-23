@@ -7,7 +7,12 @@ import java.util.Objects;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
-/** Immutable context supplied to an ability by the shared pet ticker. */
+/**
+ * Immutable context supplied to an ability by the shared pet ticker.
+ *
+ * <p>The detection-radius bonus is the current additive modifier applied by the dog's {@code scent} branch. It is
+ * exposed explicitly because custom abilities must not rediscover skill-tree state or duplicate effect rules.</p>
+ */
 public record AbilityContext(
         PetId petId,
         LivingEntity pet,
@@ -15,6 +20,7 @@ public record AbilityContext(
         int level,
         Instant now,
         CooldownTracker cooldowns,
+        double detectionRadiusBonus,
         String abilityId
 ) {
     public AbilityContext {
@@ -26,6 +32,9 @@ public record AbilityContext(
         Objects.requireNonNull(abilityId, "abilityId");
         if (level < 1) {
             throw new IllegalArgumentException("level must be positive");
+        }
+        if (!Double.isFinite(detectionRadiusBonus) || detectionRadiusBonus < 0) {
+            throw new IllegalArgumentException("detectionRadiusBonus must be finite and non-negative");
         }
     }
 

@@ -89,4 +89,22 @@ class ConfigurationMigratorTest {
         assertEquals("<light_purple>Alma de <pet></light_purple>", configuration.getString("death.soul-item.name"));
         assertEquals(2, configuration.getStringList("death.soul-item.lore").size());
     }
+
+    @Test
+    void versionTenAddsTreasureDefaultsWithoutOverwritingCustomValues() {
+        var configuration = new YamlConfiguration();
+        configuration.set("config-version", 9);
+        configuration.set("abilities.buscatesoros.max-targets", 7);
+
+        assertTrue(new ConfigurationMigrator().migrate(configuration, 9));
+
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, configuration.getInt("config-version"));
+        assertEquals(30, configuration.getInt("abilities.buscatesoros.cooldown-seconds"));
+        assertEquals(16.0, configuration.getDouble("abilities.buscatesoros.base-radius"));
+        assertEquals(5, configuration.getInt("abilities.buscatesoros.duration-seconds"));
+        assertEquals(7, configuration.getInt("abilities.buscatesoros.max-targets"));
+        assertEquals(8192, configuration.getInt("abilities.buscatesoros.max-scan-blocks"));
+        assertTrue(configuration.getStringList("abilities.buscatesoros.ore-materials")
+                .contains("ANCIENT_DEBRIS"));
+    }
 }

@@ -21,6 +21,7 @@ import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.api.NeoPetsApiImpl;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
+import dev.dasannn.neopets.plugin.command.MessageSpec;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
@@ -47,8 +48,12 @@ import dev.dasannn.neopets.platform.paper.PetProtectionListener;
 import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import dev.dasannn.neopets.platform.paper.PetTicker;
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
 import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingAbility;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingListener;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingPolicy;
 import dev.dasannn.neopets.platform.paper.ability.VigiaAbility;
 import dev.dasannn.neopets.platform.paper.ability.ZarpazoAbility;
 import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
@@ -71,6 +76,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -170,9 +176,15 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var effectCatalog = new VanillaEffectCatalog();
+            var felineLanding = new FelineLandingPolicy();
             var abilityRegistry = new DefaultAbilityRegistry(List.of(
                     new ZarpazoAbility(() -> zarpazoSettings(configuration)),
-                    new VigiaAbility(() -> vigiaSettings(configuration))),
+                    new VigiaAbility(() -> vigiaSettings(configuration)),
+                    new BuscatesorosAbility(
+                            () -> buscatesorosSettings(configuration),
+                            (owner, count) -> owner.sendActionBar(messages.render(new MessageSpec(
+                                    "abilities.buscatesoros.found", Map.of("count", Integer.toString(count)))))),
+                    new FelineLandingAbility(felineLanding)),
                     new CooldownTracker(), Clock.systemUTC());
             var effectApplier = new SkillTreePetEffectApplier(
                     petId -> effectState(cache, configuration, petId),
@@ -217,6 +229,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(new PetDeathListener(
                     petService, skillTrees, soulItems, soulDeliveries, livePets,
                     configuration, work, plugin.getLogger()), plugin);
+            pluginManager.registerEvents(new FelineLandingListener(felineLanding), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
@@ -368,6 +381,13 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private static VigiaAbility.Settings vigiaSettings(ConfigurationManager configuration) {
         PluginSettings.Vigia settings = configuration.current().settings().abilities().vigia();
         return new VigiaAbility.Settings(settings.cooldown(), settings.radius(), settings.duration());
+    }
+
+    private static BuscatesorosAbility.Settings buscatesorosSettings(ConfigurationManager configuration) {
+        PluginSettings.Buscatesoros settings = configuration.current().settings().abilities().buscatesoros();
+        return new BuscatesorosAbility.Settings(
+                settings.cooldown(), settings.baseRadius(), settings.duration(),
+                settings.maxTargets(), settings.maxScanBlocks(), settings.oreMaterials());
     }
 
     private static void closeAfterFailure(RuntimeLifecycle lifecycle, Throwable startupFailure) {
