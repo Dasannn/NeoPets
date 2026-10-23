@@ -22,6 +22,7 @@ public final class StorageBootstrap implements AutoCloseable {
 
     private final HikariDataSource dataSource;
     private final ExecutorService executor;
+    private final StorageType storageType;
 
     /**
      * Creates the connection pool, migrates its schema, and starts the database executor.
@@ -30,6 +31,7 @@ public final class StorageBootstrap implements AutoCloseable {
      */
     public StorageBootstrap(StorageSettings settings) {
         Objects.requireNonNull(settings, "settings");
+        storageType = settings.type();
         dataSource = DataSourceFactory.create(settings);
         try {
             migrate(dataSource);
@@ -64,6 +66,15 @@ public final class StorageBootstrap implements AutoCloseable {
      */
     public ExecutorService executor() {
         return executor;
+    }
+
+    /**
+     * Returns the database dialect selected for this storage instance.
+     *
+     * @return the configured storage type
+     */
+    public StorageType storageType() {
+        return storageType;
     }
 
     @Override
