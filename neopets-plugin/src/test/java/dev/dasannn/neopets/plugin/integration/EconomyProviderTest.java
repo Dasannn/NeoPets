@@ -8,6 +8,7 @@ import dev.dasannn.neopets.core.port.Economy;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -23,7 +24,7 @@ class EconomyProviderTest {
         var log = new RecordingLog();
         Server server = server(false, servicesManager());
 
-        Economy economy = EconomyProvider.resolve(server, Runnable::run, log.logger);
+        Economy economy = EconomyProvider.resolve(server, EconomyProviderTest::runDirectly, log.logger);
 
         assertInstanceOf(DisabledEconomy.class, economy);
         assertEquals(1, log.records.size());
@@ -36,7 +37,7 @@ class EconomyProviderTest {
         var log = new RecordingLog();
         Server server = server(true, servicesManager());
 
-        Economy economy = EconomyProvider.resolve(server, Runnable::run, log.logger);
+        Economy economy = EconomyProvider.resolve(server, EconomyProviderTest::runDirectly, log.logger);
 
         assertInstanceOf(DisabledEconomy.class, economy);
         assertEquals(1, log.records.size());
@@ -64,6 +65,11 @@ class EconomyProviderTest {
             }
             throw new UnsupportedOperationException(methodName);
         });
+    }
+
+    private static CompletableFuture<Void> runDirectly(Runnable task) {
+        task.run();
+        return CompletableFuture.completedFuture(null);
     }
 
     private static <T> T proxy(Class<T> type, Invocation invocation) {

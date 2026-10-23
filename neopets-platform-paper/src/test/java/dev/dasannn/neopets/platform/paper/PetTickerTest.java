@@ -4,17 +4,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.destroystokyo.paper.entity.ai.Goal;
+import com.destroystokyo.paper.entity.ai.GoalKey;
+import com.destroystokyo.paper.entity.ai.GoalType;
+import com.destroystokyo.paper.entity.ai.MobGoals;
+import com.destroystokyo.paper.entity.ai.VanillaGoal;
+import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
+import org.bukkit.World;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Mob;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.Test;
@@ -115,6 +125,20 @@ class PetTickerTest {
         assertEquals(entityId, registry.entityId(petId).orElseThrow());
     }
 
+    @Test
+    void destinationWorldAddReappliesGoalSuppressionAfterPortalTransfer() {
+        var follow = goal(VanillaGoal.FOLLOW_OWNER.getNamespacedKey());
+        var removed = new ArrayList<Goal<Mob>>();
+        var mobGoals = mobGoals(List.of(follow), removed);
+        var pet = taggedMob(new PetId(UUID.randomUUID()), mobGoals);
+        var world = world();
+        var ticker = ticker(new RecordingScheduler(), new LivePetRegistry(), new RecordingGateway(null, null));
+
+        ticker.onEntityAddedToWorld(new EntityAddToWorldEvent(pet, world));
+
+        assertEquals(List.of(follow), removed);
+    }
+
     private static PetTicker ticker(
             RecordingScheduler scheduler,
             LivePetRegistry registry,
@@ -171,6 +195,75 @@ class PetTickerTest {
                 });
     }
 
+    private static Mob taggedMob(PetId petId, MobGoals mobGoals) {
+        var entity = taggedEntity(petId, UUID.randomUUID());
+        var server = (Server) Proxy.newProxyInstance(
+                PetTickerTest.class.getClassLoader(),
+                new Class<?>[] {Server.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getMobGoals" -> mobGoals;
+                    case "toString" -> "pet server";
+                    default -> throw new AssertionError("Unexpected pet server call: " + method);
+                });
+        return (Mob) Proxy.newProxyInstance(
+                PetTickerTest.class.getClassLoader(),
+                new Class<?>[] {Mob.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getPersistentDataContainer" -> entity.getPersistentDataContainer();
+                    case "getServer" -> server;
+                    case "toString" -> "transferred pet";
+                    default -> throw new AssertionError("Unexpected transferred pet call: " + method);
+                });
+    }
+
+    private static Goal<Mob> goal(NamespacedKey key) {
+        return new Goal<>() {
+            @Override
+            public boolean shouldActivate() {
+                return false;
+            }
+
+            @Override
+            public GoalKey<Mob> getKey() {
+                return GoalKey.of(Mob.class, key);
+            }
+
+            @Override
+            public EnumSet<GoalType> getTypes() {
+                return EnumSet.of(GoalType.MOVE);
+            }
+        };
+    }
+
+    private static MobGoals mobGoals(List<Goal<Mob>> goals, List<Goal<Mob>> removed) {
+        return (MobGoals) Proxy.newProxyInstance(
+                PetTickerTest.class.getClassLoader(),
+                new Class<?>[] {MobGoals.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getAllGoals" -> goals;
+                    case "removeGoal" -> {
+                        @SuppressWarnings("unchecked")
+                        var goal = (Goal<Mob>) arguments[1];
+                        removed.add(goal);
+                        yield null;
+                    }
+                    case "toString" -> "test mob goals";
+                    default -> throw new AssertionError("Unexpected MobGoals call: " + method);
+                });
+    }
+
+    private static World world() {
+        return (World) Proxy.newProxyInstance(
+                PetTickerTest.class.getClassLoader(),
+                new Class<?>[] {World.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("toString")) {
+                        return "destination world";
+                    }
+                    throw new AssertionError("Unexpected world call: " + method);
+                });
+    }
+
     private static final class RecordingScheduler implements TaskScheduler {
         private int scheduledCount;
         private RecordedTask task;
@@ -191,6 +284,10 @@ class PetTickerTest {
         @Override
         public boolean isMainThread() {
             return true;
+        }
+
+        @Override
+        public void quiesce() {
         }
     }
 

@@ -12,6 +12,7 @@ import dev.dasannn.neopets.core.port.PlayerRepository;
 import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
+import dev.dasannn.neopets.storage.cache.PlayerDataCache;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,6 +24,7 @@ public final class NeoPetsApiImpl implements NeoPetsApi {
     private final PetRepository pets;
     private final PlayerRepository players;
     private final TreeProgressRepository trees;
+    private final PlayerDataCache cache;
     private final LivePetRegistry livePets;
     private final ConfigurationManager configuration;
 
@@ -30,12 +32,14 @@ public final class NeoPetsApiImpl implements NeoPetsApi {
             PetRepository pets,
             PlayerRepository players,
             TreeProgressRepository trees,
+            PlayerDataCache cache,
             LivePetRegistry livePets,
             ConfigurationManager configuration
     ) {
         this.pets = Objects.requireNonNull(pets, "pets");
         this.players = Objects.requireNonNull(players, "players");
         this.trees = Objects.requireNonNull(trees, "trees");
+        this.cache = Objects.requireNonNull(cache, "cache");
         this.livePets = Objects.requireNonNull(livePets, "livePets");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
     }
@@ -44,13 +48,13 @@ public final class NeoPetsApiImpl implements NeoPetsApi {
     public Optional<PetView> findLoadedPet(UUID petId) {
         Objects.requireNonNull(petId, "petId");
         PetId id = new PetId(petId);
-        return pets.findById(id).getNow(Optional.empty()).map(this::view);
+        return cache.loadedPet(id).map(this::view);
     }
 
     @Override
     public List<PetView> activePets(UUID ownerId) {
         Objects.requireNonNull(ownerId, "ownerId");
-        return pets.findByOwner(new PlayerId(ownerId)).getNow(List.of()).stream()
+        return cache.loadedPets(new PlayerId(ownerId)).orElseGet(List::of).stream()
                 .filter(pet -> livePets.entityId(pet.id()).isPresent())
                 .map(this::view).toList();
     }

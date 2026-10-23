@@ -4,7 +4,7 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.pet.GiveResult;
-import dev.dasannn.neopets.core.pet.PetService;
+import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
@@ -173,12 +173,11 @@ public final class NeoPetsCommands {
         }
 
         PlayerId playerId = new PlayerId(target.getUniqueId());
-        PetService service = target.isOnline() ? rt.petService() : rt.offlinePetService();
-        CompletableFuture<GiveResult> result = switch (selection) {
-            case GiveArgument.Specific specific -> service.giveSpecific(playerId, specific.variantId());
-            case GiveArgument.Candidates candidates -> service.give(playerId, candidates.variantIds());
-            case GiveArgument.Random random -> service.giveRandom(playerId, random.typeId());
-        };
+        CompletableFuture<GiveResult> result = rt.submit(() -> switch (selection) {
+            case GiveArgument.Specific specific -> rt.petService().giveSpecific(playerId, specific.variantId());
+            case GiveArgument.Candidates candidates -> rt.petService().give(playerId, candidates.variantIds());
+            case GiveArgument.Random random -> rt.petService().giveRandom(playerId, random.typeId());
+        });
         String targetName = Optional.ofNullable(target.getName()).orElse(args[1]);
         complete(result, sender, outcome -> {
             rt.messages().send(sender, PetResultMessages.give(outcome, targetName, rt::petName));
@@ -202,20 +201,18 @@ public final class NeoPetsCommands {
             return;
         }
         PlayerId playerId = new PlayerId(player.getUniqueId());
-        complete(rt.pets().findByOwner(playerId), sender, owned -> {
-            Optional<OwnedPet> selected = findPet(owned, args[1]);
-            if (selected.isEmpty()) {
-                rt.messages().send(sender, MessageSpec.of("pets.not-owned"));
-                return;
-            }
-            if (summon) {
-                complete(rt.petService().summon(playerId, selected.orElseThrow().id()), sender,
-                        result -> rt.messages().send(sender, PetResultMessages.summon(result, rt::petName)));
-            } else {
-                complete(rt.petService().dismiss(playerId, selected.orElseThrow().id()), sender,
-                        result -> rt.messages().send(sender, PetResultMessages.dismiss(result, rt::petName)));
-            }
-        });
+        Optional<OwnedPet> selected = findPet(rt.loadedPets(playerId), args[1]);
+        if (selected.isEmpty()) {
+            rt.messages().send(sender, MessageSpec.of("pets.not-owned"));
+            return;
+        }
+        if (summon) {
+            complete(rt.submit(() -> rt.petService().summon(playerId, selected.orElseThrow().id())), sender,
+                    result -> rt.messages().send(sender, PetResultMessages.summon(result, rt::petName)));
+        } else {
+            complete(rt.submit(() -> rt.petService().dismiss(playerId, selected.orElseThrow().id())), sender,
+                    result -> rt.messages().send(sender, PetResultMessages.dismiss(result, rt::petName)));
+        }
     }
 
     private void skillPoints(NeoPetsRuntime rt, CommandSender sender, String[] args) {
@@ -241,13 +238,13 @@ public final class NeoPetsCommands {
             rt.messages().send(sender, MessageSpec.of("errors.invalid-amount"));
             return;
         }
-        CompletableFuture<Integer> result;
+        CompletableFuture<SkillPointResult> result;
         try {
             PlayerId playerId = new PlayerId(target.getUniqueId());
             result = switch (args[1].toLowerCase(Locale.ROOT)) {
-                case "give" -> rt.skillPoints().give(playerId, amount);
-                case "take" -> rt.skillPoints().take(playerId, amount);
-                case "set" -> rt.skillPoints().set(playerId, amount);
+                case "give" -> rt.submit(() -> rt.skillPoints().give(playerId, amount));
+                case "take" -> rt.submit(() -> rt.skillPoints().take(playerId, amount));
+                case "set" -> rt.submit(() -> rt.skillPoints().set(playerId, amount));
                 default -> null;
             };
         } catch (IllegalArgumentException exception) {
@@ -258,8 +255,8 @@ public final class NeoPetsCommands {
             return;
         }
         String targetName = Optional.ofNullable(target.getName()).orElse(args[2]);
-        complete(result, sender, balance -> rt.messages().send(sender, new MessageSpec(
-                "skills.points-changed", Map.of("player", targetName, "points", Integer.toString(balance)))));
+        complete(result, sender, outcome ->
+                rt.messages().send(sender, SkillPointResultMessages.change(outcome, targetName)));
     }
 
     private void reload(NeoPetsRuntime rt, CommandSender sender, String[] args) {
@@ -307,7 +304,7 @@ public final class NeoPetsCommands {
     }
 
     private Collection<String> ownedPetSuggestions(Player player, String input) {
-        List<OwnedPet> owned = runtime.get().pets().findByOwner(new PlayerId(player.getUniqueId())).getNow(List.of());
+        List<OwnedPet> owned = runtime.get().loadedPets(new PlayerId(player.getUniqueId()));
         var values = new ArrayList<String>();
         owned.forEach(pet -> {
             values.add(pet.variant().value());

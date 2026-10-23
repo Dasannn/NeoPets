@@ -2,7 +2,8 @@ package dev.dasannn.neopets.plugin.integration;
 
 import dev.dasannn.neopets.core.port.Economy;
 import java.util.Objects;
-import java.util.concurrent.Executor;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.logging.Logger;
 import org.bukkit.Server;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -16,13 +17,17 @@ public final class EconomyProvider {
      * Resolves the registered Vault provider, or returns a disabled fallback.
      *
      * @param server Bukkit server whose services are queried
-     * @param mainThreadExecutor executor used for every subsequent Vault call
+     * @param mainThreadDispatcher dispatcher used for every subsequent Vault call
      * @param logger plugin logger used for the single fallback warning
      * @return an available Vault adapter or a disabled economy
      */
-    public static Economy resolve(Server server, Executor mainThreadExecutor, Logger logger) {
+    public static Economy resolve(
+            Server server,
+            Function<Runnable, CompletableFuture<Void>> mainThreadDispatcher,
+            Logger logger
+    ) {
         Objects.requireNonNull(server, "server");
-        Objects.requireNonNull(mainThreadExecutor, "mainThreadExecutor");
+        Objects.requireNonNull(mainThreadDispatcher, "mainThreadDispatcher");
         Objects.requireNonNull(logger, "logger");
 
         if (!server.getPluginManager().isPluginEnabled("Vault")) {
@@ -37,7 +42,7 @@ public final class EconomyProvider {
 
         return new VaultEconomy(
                 registration.getProvider(),
-                mainThreadExecutor,
+                mainThreadDispatcher,
                 playerId -> server.getOfflinePlayer(playerId.value()));
     }
 

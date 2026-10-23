@@ -9,10 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.platform.paper.PetSpawner;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.Test;
@@ -28,7 +31,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(1, snapshot.settings().configVersion());
+        assertEquals(2, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -47,6 +50,36 @@ class ConfigurationLoaderTest {
         String usage = snapshot.language().find("general.usage-give").orElseThrow();
         assertEquals("Uso: /neopet give <jugador> <id|ids|random> [tipo]",
                 PlainTextComponentSerializer.plainText().serialize(MiniMessage.miniMessage().deserialize(usage)));
+    }
+
+    @Test
+    void everyShippedPetAppearancePassesTheRealPlatformAppliers() throws Exception {
+        var spawner = new PetSpawner();
+        ConfigurationSnapshot snapshot = new ConfigurationLoader(
+                temporaryDirectory, spawner::validateAppearance).load();
+
+        var issues = snapshot.variants().findAll().stream()
+                .flatMap(variant -> spawner.validateAppearance(variant.type(), variant.appearance()).stream()
+                        .map(reason -> variant.id() + ": " + reason))
+                .toList();
+
+        assertEquals(List.of(), issues);
+        assertTrue(snapshot.variants().findByType(new PetTypeId("parrot")).stream()
+                .noneMatch(variant -> variant.baby()));
+    }
+
+    @Test
+    void invalidPlatformAppearanceReloadKeepsPreviousSnapshotActive() throws Exception {
+        var spawner = new PetSpawner();
+        var manager = new ConfigurationManager(new ConfigurationLoader(
+                temporaryDirectory, spawner::validateAppearance));
+        ConfigurationSnapshot original = manager.current();
+        replace("pets/cat.yml", "appearance: { type: tabby }", "appearance: { variant: tabby }");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, manager::reload);
+
+        assertIssue(failure, "pets/cat.yml", "variants.cat_tabby.appearance");
+        assertSame(original, manager.current());
     }
 
     @Test
@@ -72,7 +105,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 1", "config-version: 99");
+        replace("config.yml", "config-version: 2", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -111,8 +144,9 @@ class ConfigurationLoaderTest {
     @Test
     void platformAppearanceValidatorContributesFailuresWithoutStoppingOtherValidation() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory,
-                (type, appearance) -> appearance.properties().containsKey("variant")
-                        ? List.of("unsupported test appearance") : List.of());
+                (type, appearance) -> appearance.properties().isEmpty()
+                        ? List.of()
+                        : List.of("unsupported test appearance"));
 
         ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
 
@@ -170,11 +204,33 @@ class ConfigurationLoaderTest {
         assertIssue(failure, "lang/es.yml", "gui.pets-title");
     }
 
+    @Test
+    void versionOneInstallBackfillsNewKeysWithoutOverwritingCustomValues() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 2", "config-version: 1");
+        replace("config.yml", "  load-timeout-seconds: 10\n", "");
+        replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
+        replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
+        replace("lang/es.yml", "  usage-neopet: \"<gray>Usa <white>/neopet give|summon|dismiss|sp|reload</white>.</gray>\"",
+                "  usage-neopet: \"mensaje personalizado\"");
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(2, upgraded.settings().configVersion());
+        assertEquals(37.0, upgraded.settings().followTeleportDistance());
+        assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
+        assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
+        assertTrue(upgraded.language().find("errors.profile-load").isPresent());
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 2"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
+    }
+
     private void replace(String relativePath, String target, String replacement) throws IOException {
         Path file = temporaryDirectory.resolve(relativePath);
         String original = Files.readString(file);
         assertTrue(original.contains(target), "test fixture target not found: " + target);
-        Files.writeString(file, original.replaceFirst(target, replacement));
+        Files.writeString(file, original.replaceFirst(Pattern.quote(target), Matcher.quoteReplacement(replacement)));
     }
 
     private static void assertIssue(ConfigurationLoadException failure, String file, String path) {

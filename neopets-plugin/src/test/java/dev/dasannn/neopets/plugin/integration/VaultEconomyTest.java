@@ -11,8 +11,9 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
+import java.util.function.Function;
 import net.milkbowl.vault.economy.AbstractEconomy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.OfflinePlayer;
@@ -51,7 +52,7 @@ class VaultEconomyTest {
                 10.0, 3.0, EconomyResponse.ResponseType.FAILURE, "Insufficient funds");
         vault.depositResponse = response(
                 10.0, 3.0, EconomyResponse.ResponseType.NOT_IMPLEMENTED, "");
-        var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
+        var economy = new VaultEconomy(vault, VaultEconomyTest::runDirectly, ignored -> OFFLINE_PLAYER);
 
         EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 10.0).join();
         EconomyResult deposit = economy.deposit(PLAYER_ID, 10.0).join();
@@ -70,7 +71,7 @@ class VaultEconomyTest {
         vault.withdrawResponse = null;
         vault.depositResponse = response(
                 5.0, Double.NaN, EconomyResponse.ResponseType.SUCCESS, null);
-        var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
+        var economy = new VaultEconomy(vault, VaultEconomyTest::runDirectly, ignored -> OFFLINE_PLAYER);
 
         EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 5.0).join();
         EconomyResult deposit = economy.deposit(PLAYER_ID, 5.0).join();
@@ -87,7 +88,7 @@ class VaultEconomyTest {
     void rejectsNonPositiveNonFiniteAndOverPrecisionAmounts() {
         var vault = new FakeVaultEconomy();
         vault.fractionalDigits = 2;
-        var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
+        var economy = new VaultEconomy(vault, VaultEconomyTest::runDirectly, ignored -> OFFLINE_PLAYER);
 
         assertFutureFailsWithIllegalArgument(() -> economy.has(PLAYER_ID, 0.0).join());
         assertFutureFailsWithIllegalArgument(() -> economy.withdraw(PLAYER_ID, -1.0).join());
@@ -103,7 +104,7 @@ class VaultEconomyTest {
         vault.fractionalDigits = -1;
         vault.depositResponse = response(
                 0.0001, 1.0001, EconomyResponse.ResponseType.SUCCESS, null);
-        var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
+        var economy = new VaultEconomy(vault, VaultEconomyTest::runDirectly, ignored -> OFFLINE_PLAYER);
 
         EconomyResult result = economy.deposit(PLAYER_ID, 0.0001).join();
 
@@ -143,6 +144,28 @@ class VaultEconomyTest {
         assertEquals(1, vault.transactionCalls);
     }
 
+    @Test
+    void schedulingFailureCompletesTheEconomyFutureExceptionally() {
+        var vault = new FakeVaultEconomy();
+        var dispatch = new CompletableFuture<Void>();
+        var economy = new VaultEconomy(vault, ignored -> dispatch, ignored -> OFFLINE_PLAYER);
+
+        var withdrawal = economy.withdraw(PLAYER_ID, 2.50);
+        dispatch.completeExceptionally(new IllegalStateException("scheduler stopped"));
+
+        assertThrows(CompletionException.class, withdrawal::join);
+        assertEquals(0, vault.transactionCalls);
+    }
+
+    private static CompletableFuture<Void> runDirectly(Runnable task) {
+        try {
+            task.run();
+            return CompletableFuture.completedFuture(null);
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+    }
+
     private static void assertFutureFailsWithIllegalArgument(Runnable operation) {
         var failure = assertThrows(CompletionException.class, operation::run);
         assertInstanceOf(IllegalArgumentException.class, failure.getCause());
@@ -171,22 +194,31 @@ class VaultEconomyTest {
                 });
     }
 
-    private static final class DirectExecutor implements Executor {
+    private static final class DirectExecutor implements Function<Runnable, CompletableFuture<Void>> {
         private int executions;
 
         @Override
-        public void execute(Runnable command) {
+        public CompletableFuture<Void> apply(Runnable command) {
             executions++;
-            command.run();
+            return runDirectly(command);
         }
     }
 
-    private static final class DeferredExecutor implements Executor {
+    private static final class DeferredExecutor implements Function<Runnable, CompletableFuture<Void>> {
         private final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
 
         @Override
-        public void execute(Runnable command) {
-            tasks.addLast(command);
+        public CompletableFuture<Void> apply(Runnable command) {
+            var future = new CompletableFuture<Void>();
+            tasks.addLast(() -> {
+                try {
+                    command.run();
+                    future.complete(null);
+                } catch (Throwable failure) {
+                    future.completeExceptionally(failure);
+                }
+            });
+            return future;
         }
 
         private void runNext() {

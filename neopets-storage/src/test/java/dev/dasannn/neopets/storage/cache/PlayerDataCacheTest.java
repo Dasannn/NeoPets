@@ -294,6 +294,43 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void cancellingOwnerlessDeleteDoesNotLetFlushPassItsPendingWrite() throws Exception {
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var deleteWrite = new CompletableFuture<Void>();
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.petDelete = ignored -> deleteWrite;
+
+        var delete = pets.deleteById(PET);
+        ownerLookup.complete(Optional.empty());
+        assertEquals(1, delegates.petDeletes.get());
+        assertTrue(delete.cancel(true));
+
+        var flush = cache.flushAll();
+        assertFalse(flush.isDone());
+
+        deleteWrite.complete(null);
+        await(flush);
+        assertTrue(delete.isCancelled());
+    }
+
+    @Test
+    void flushAllReportsFailureFromPendingOwnerlessDelete() throws Exception {
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var deleteWrite = new CompletableFuture<Void>();
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.petDelete = ignored -> deleteWrite;
+
+        pets.deleteById(PET);
+        var flush = cache.flushAll();
+        ownerLookup.complete(Optional.empty());
+        var databaseFailure = new IllegalStateException("delete failed");
+        deleteWrite.completeExceptionally(databaseFailure);
+
+        var failure = assertThrows(ExecutionException.class, () -> await(flush));
+        assertEquals(databaseFailure, failure.getCause());
+    }
+
+    @Test
     void unloadWaitsForQueuedPetOperationsBeforeEvicting() throws Exception {
         var ownedPet = pet(PET, PLAYER, "cat_black");
         var changedProgress = progress(PET, 2, 1);
@@ -324,6 +361,42 @@ final class PlayerDataCacheTest {
         await(unload);
         assertFalse(cache.isLoaded(PLAYER));
         assertEquals(changedProgress, delegates.progress.get(PET));
+    }
+
+    @Test
+    void unloadWaitsForTreeWriteWhoseOwnerResolvesDuringLoad() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var originalProgress = progress(PET, 1, 0);
+        var changedProgress = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        delegates.progress.put(PET, originalProgress);
+        var treeLoad = new CompletableFuture<Optional<TreeProgress>>();
+        var ownerLookup = new CompletableFuture<Optional<OwnedPet>>();
+        var treeWrite = new CompletableFuture<Void>();
+        delegates.treeLoad = ignored -> treeLoad;
+        delegates.petFind = ignored -> ownerLookup;
+        delegates.treeSave = ignored -> treeWrite;
+
+        var load = cache.load(PLAYER);
+        var save = trees.save(changedProgress);
+        var unload = cache.unload(PLAYER);
+
+        treeLoad.complete(Optional.of(originalProgress));
+        await(load);
+        assertTrue(cache.isLoaded(PLAYER));
+        assertFalse(unload.isDone());
+        assertEquals(0, delegates.treeWrites.get());
+
+        ownerLookup.complete(Optional.of(ownedPet));
+        assertEquals(1, delegates.treeWrites.get());
+        assertFalse(unload.isDone());
+        assertTrue(cache.isLoaded(PLAYER));
+
+        treeWrite.complete(null);
+        await(save);
+        await(unload);
+        assertFalse(cache.isLoaded(PLAYER));
     }
 
     @Test
@@ -421,6 +494,28 @@ final class PlayerDataCacheTest {
         assertEquals(1, delegates.treeWrites.get());
         await(cache.unload(PLAYER));
         assertEquals(1, delegates.treeWrites.get());
+    }
+
+    @Test
+    void petGrantQueuedDuringLoginLoadIsAddedToTheInstalledSnapshot() throws Exception {
+        var grantedPet = pet(PET, PLAYER, "dog_brown");
+        var petsAtLoadStart = new CompletableFuture<List<OwnedPet>>();
+        delegates.petFindByOwner = ignored -> petsAtLoadStart;
+
+        var load = cache.load(PLAYER);
+        var grant = pets.save(grantedPet);
+
+        assertFalse(load.isDone());
+        assertFalse(grant.isDone());
+        assertEquals(0, delegates.petWrites.get());
+
+        petsAtLoadStart.complete(List.of());
+        await(load);
+        await(grant);
+
+        assertEquals(List.of(grantedPet), cache.loadedPets(PLAYER).orElseThrow());
+        assertEquals(grantedPet, delegates.pets.get(PET));
+        assertEquals(1, delegates.petWrites.get());
     }
 
     @Test
@@ -617,6 +712,7 @@ final class PlayerDataCacheTest {
         private final AtomicInteger treeWrites = new AtomicInteger();
         private Function<PlayerProfile, CompletableFuture<Void>> playerSave = this::storePlayer;
         private Function<PetId, CompletableFuture<Optional<OwnedPet>>> petFind = this::findPet;
+        private Function<PlayerId, CompletableFuture<List<OwnedPet>>> petFindByOwner = this::findPetsByOwner;
         private Function<OwnedPet, CompletableFuture<Void>> petSave = this::storePet;
         private Function<PetId, CompletableFuture<Void>> petDelete = this::removePet;
         private Function<PetId, CompletableFuture<Optional<TreeProgress>>> treeLoad = this::loadProgress;
@@ -643,9 +739,7 @@ final class PlayerDataCacheTest {
         @Override
         public CompletableFuture<List<OwnedPet>> findByOwner(PlayerId ownerId) {
             petOwnerReads.incrementAndGet();
-            return CompletableFuture.completedFuture(pets.values().stream()
-                    .filter(pet -> pet.owner().equals(ownerId))
-                    .toList());
+            return petFindByOwner.apply(ownerId);
         }
 
         @Override
@@ -679,6 +773,12 @@ final class PlayerDataCacheTest {
 
         private CompletableFuture<Optional<OwnedPet>> findPet(PetId petId) {
             return CompletableFuture.completedFuture(Optional.ofNullable(pets.get(petId)));
+        }
+
+        private CompletableFuture<List<OwnedPet>> findPetsByOwner(PlayerId ownerId) {
+            return CompletableFuture.completedFuture(pets.values().stream()
+                    .filter(pet -> pet.owner().equals(ownerId))
+                    .toList());
         }
 
         private CompletableFuture<Void> storePet(OwnedPet pet) {

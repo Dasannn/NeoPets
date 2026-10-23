@@ -8,6 +8,7 @@ import java.util.Set;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Sittable;
 
 /** Runs owner-following behavior for a pet from the shared ticker. */
 public final class PetBrain {
@@ -60,6 +61,11 @@ public final class PetBrain {
             pet.setAggressive(false);
         }
 
+        if (pet instanceof Sittable sittable && sittable.isSitting()) {
+            pet.getPathfinder().stopPathfinding();
+            return;
+        }
+
         var sameWorld = pet.getWorld().equals(owner.getWorld());
         var distanceSquared = sameWorld
                 ? pet.getLocation().distanceSquared(owner.getLocation())
@@ -69,8 +75,11 @@ public final class PetBrain {
             case PATHFIND -> pet.getPathfinder().moveTo(owner, pathfindingSpeed);
             case TELEPORT -> {
                 pet.getPathfinder().stopPathfinding();
-                pet.teleport(owner.getLocation());
-                pet.setFallDistance(0.0F);
+                if (pet.teleport(owner.getLocation())) {
+                    // Paper recreates the underlying mob when changing worlds and restores its vanilla goals.
+                    suppressConflictingVanillaGoals(pet);
+                    pet.setFallDistance(0.0F);
+                }
             }
         }
     }

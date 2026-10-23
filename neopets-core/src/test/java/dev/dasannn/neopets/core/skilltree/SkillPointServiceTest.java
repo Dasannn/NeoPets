@@ -31,7 +31,7 @@ class SkillPointServiceTest {
         var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
         assertEquals(0, service.balance(playerId).join());
-        assertEquals(5, service.give(playerId, 5).join());
+        assertEquals(new SkillPointResult.Changed(5), service.give(playerId, 5).join());
 
         assertEquals(5, repository.profile.orElseThrow().skillPointBalance());
         assertEquals(List.of(new SkillPointsChanged(playerId, 0, 5)), events);
@@ -45,10 +45,10 @@ class SkillPointServiceTest {
         eventBus.subscribe(SkillPointsChanged.class, events::add);
         var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
-        assertEquals(7, service.give(playerId, 3).join());
-        assertEquals(5, service.take(playerId, 2).join());
-        assertEquals(20, service.set(playerId, 20).join());
-        assertEquals(20, service.set(playerId, 20).join());
+        assertEquals(new SkillPointResult.Changed(7), service.give(playerId, 3).join());
+        assertEquals(new SkillPointResult.Changed(5), service.take(playerId, 2).join());
+        assertEquals(new SkillPointResult.Changed(20), service.set(playerId, 20).join());
+        assertEquals(new SkillPointResult.Changed(20), service.set(playerId, 20).join());
 
         assertEquals(20, service.balance(playerId).join());
         assertEquals(3, repository.saveCount);
@@ -73,8 +73,8 @@ class SkillPointServiceTest {
 
         repository.completeFirstSave();
 
-        assertEquals(12, first.join());
-        assertEquals(15, second.join());
+        assertEquals(new SkillPointResult.Changed(12), first.join());
+        assertEquals(new SkillPointResult.Changed(15), second.join());
         assertEquals(15, repository.profile.skillPointBalance());
     }
 
@@ -87,8 +87,8 @@ class SkillPointServiceTest {
         var take = service.take(playerId, 12);
         repository.completeFirstSave();
 
-        assertEquals(13, give.join());
-        assertEquals(1, take.join());
+        assertEquals(new SkillPointResult.Changed(13), give.join());
+        assertEquals(new SkillPointResult.Changed(1), take.join());
         assertEquals(1, repository.profile.skillPointBalance());
     }
 
@@ -98,8 +98,8 @@ class SkillPointServiceTest {
                 new PlayerProfile(playerId, Integer.MAX_VALUE - 1, List.of()));
         var service = new SkillPointService(repository, new DomainEventBus(), new PlayerOperationQueue());
 
-        assertEquals(Integer.MAX_VALUE, service.give(playerId, 1).join());
-        assertFutureFailsWith(IllegalArgumentException.class, service.give(playerId, 1));
+        assertEquals(new SkillPointResult.Changed(Integer.MAX_VALUE), service.give(playerId, 1).join());
+        assertEquals(new SkillPointResult.Overflow(Integer.MAX_VALUE, 1), service.give(playerId, 1).join());
     }
 
     @Test
@@ -114,7 +114,7 @@ class SkillPointServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.take(playerId, 0));
         assertThrows(IllegalArgumentException.class, () -> service.take(playerId, -1));
         assertThrows(IllegalArgumentException.class, () -> service.set(playerId, -1));
-        assertFutureFailsWith(IllegalArgumentException.class, service.take(playerId, 3));
+        assertEquals(new SkillPointResult.InsufficientSkillPoints(2, 3), service.take(playerId, 3).join());
         assertEquals(2, service.balance(playerId).join());
     }
 
@@ -159,8 +159,8 @@ class SkillPointServiceTest {
         eventBus.subscribe(SkillPointsChanged.class, deliveredEvents::add);
         var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
-        assertEquals(5, service.give(playerId, 5).join());
-        assertEquals(3, service.take(playerId, 2).join());
+        assertEquals(new SkillPointResult.Changed(5), service.give(playerId, 5).join());
+        assertEquals(new SkillPointResult.Changed(3), service.take(playerId, 2).join());
 
         assertEquals(3, repository.profile.orElseThrow().skillPointBalance());
         assertEquals(2, repository.saveCount);

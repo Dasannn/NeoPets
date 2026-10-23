@@ -5,7 +5,6 @@ import dev.dasannn.neopets.core.port.EconomyResult;
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -19,23 +18,23 @@ public final class VaultEconomy implements dev.dasannn.neopets.core.port.Economy
     private static final String NULL_RESPONSE_FAILURE = "Economy provider returned no response";
 
     private final net.milkbowl.vault.economy.Economy vault;
-    private final Executor mainThreadExecutor;
+    private final Function<Runnable, CompletableFuture<Void>> mainThreadDispatcher;
     private final Function<PlayerId, OfflinePlayer> playerResolver;
 
     /**
      * Creates an adapter whose Vault calls are dispatched through the supplied executor.
      *
      * @param vault registered Vault economy provider
-     * @param mainThreadExecutor executor that runs work on the server thread
+     * @param mainThreadDispatcher dispatcher that reports execution or scheduling failure
      * @param playerResolver resolves core player IDs to Bukkit offline players on the server thread
      */
     public VaultEconomy(
             net.milkbowl.vault.economy.Economy vault,
-            Executor mainThreadExecutor,
+            Function<Runnable, CompletableFuture<Void>> mainThreadDispatcher,
             Function<PlayerId, OfflinePlayer> playerResolver
     ) {
         this.vault = Objects.requireNonNull(vault, "vault");
-        this.mainThreadExecutor = Objects.requireNonNull(mainThreadExecutor, "mainThreadExecutor");
+        this.mainThreadDispatcher = Objects.requireNonNull(mainThreadDispatcher, "mainThreadDispatcher");
         this.playerResolver = Objects.requireNonNull(playerResolver, "playerResolver");
     }
 
@@ -113,10 +112,15 @@ public final class VaultEconomy implements dev.dasannn.neopets.core.port.Economy
     private <T> CompletableFuture<T> onMainThread(Supplier<T> operation) {
         var completion = new CompletableFuture<T>();
         try {
-            mainThreadExecutor.execute(() -> {
+            CompletableFuture<Void> dispatched = Objects.requireNonNull(mainThreadDispatcher.apply(() -> {
                 try {
                     completion.complete(operation.get());
                 } catch (Throwable failure) {
+                    completion.completeExceptionally(failure);
+                }
+            }), "mainThreadDispatcher returned null");
+            dispatched.whenComplete((ignored, failure) -> {
+                if (failure != null) {
                     completion.completeExceptionally(failure);
                 }
             });

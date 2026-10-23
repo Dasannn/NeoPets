@@ -33,26 +33,45 @@ public final class SkillPointService {
     }
 
     /** Adds a positive number of points and returns the resulting balance. */
-    public CompletableFuture<Integer> give(PlayerId playerId, int amount) {
+    public CompletableFuture<SkillPointResult> give(PlayerId playerId, int amount) {
         requirePositive(amount, "amount");
         Objects.requireNonNull(playerId, "playerId");
-        return operations.submit(playerId, () -> applyDelta(playerId, amount));
+        return operations.submit(playerId, () -> balanceProfile(playerId).thenCompose(foundProfile -> {
+            var profile = foundProfile.orElseGet(() -> new PlayerProfile(playerId, 0, List.of()));
+            long changed = (long) profile.skillPointBalance() + amount;
+            if (changed > Integer.MAX_VALUE) {
+                return CompletableFuture.completedFuture(
+                        new SkillPointResult.Overflow(profile.skillPointBalance(), amount));
+            }
+            return persist(profile, (int) changed).thenApply(SkillPointResult.Changed::new);
+        }));
     }
 
     /** Removes a positive number of points and returns the resulting balance. */
-    public CompletableFuture<Integer> take(PlayerId playerId, int amount) {
+    public CompletableFuture<SkillPointResult> take(PlayerId playerId, int amount) {
         requirePositive(amount, "amount");
         Objects.requireNonNull(playerId, "playerId");
-        return operations.submit(playerId, () -> applyDelta(playerId, -amount));
+        return operations.submit(playerId, () -> balanceProfile(playerId).thenCompose(foundProfile -> {
+            var profile = foundProfile.orElseGet(() -> new PlayerProfile(playerId, 0, List.of()));
+            if (amount > profile.skillPointBalance()) {
+                return CompletableFuture.completedFuture(new SkillPointResult.InsufficientSkillPoints(
+                        profile.skillPointBalance(), amount));
+            }
+            return persist(profile, profile.skillPointBalance() - amount)
+                    .thenApply(SkillPointResult.Changed::new);
+        }));
     }
 
     /** Replaces a player's balance with a non-negative value and returns it. */
-    public CompletableFuture<Integer> set(PlayerId playerId, int balance) {
+    public CompletableFuture<SkillPointResult> set(PlayerId playerId, int balance) {
         if (balance < 0) {
             throw new IllegalArgumentException("balance must not be negative");
         }
         Objects.requireNonNull(playerId, "playerId");
-        return operations.submit(playerId, () -> updateUnsequenced(playerId, ignored -> balance));
+        return operations.submit(playerId, () -> balanceProfile(playerId).thenCompose(foundProfile -> {
+            var profile = foundProfile.orElseGet(() -> new PlayerProfile(playerId, 0, List.of()));
+            return persist(profile, balance).thenApply(SkillPointResult.Changed::new);
+        }));
     }
 
     CompletableFuture<Integer> balanceUnsequenced(PlayerId playerId) {
@@ -87,14 +106,18 @@ public final class SkillPointService {
             var profile = foundProfile.orElseGet(() -> new PlayerProfile(playerId, 0, List.of()));
             int previousBalance = profile.skillPointBalance();
             int newBalance = mutation.applyAsInt(previousBalance);
-            if (newBalance == previousBalance) {
-                return CompletableFuture.completedFuture(newBalance);
-            }
+            return persist(profile, newBalance);
+        });
+    }
 
-            return playerRepository.save(profile.withSkillPointBalance(newBalance)).thenApply(ignored -> {
-                eventBus.publish(new SkillPointsChanged(playerId, previousBalance, newBalance));
-                return newBalance;
-            });
+    private CompletableFuture<Integer> persist(PlayerProfile profile, int newBalance) {
+        int previousBalance = profile.skillPointBalance();
+        if (newBalance == previousBalance) {
+            return CompletableFuture.completedFuture(newBalance);
+        }
+        return playerRepository.save(profile.withSkillPointBalance(newBalance)).thenApply(ignored -> {
+            eventBus.publish(new SkillPointsChanged(profile.playerId(), previousBalance, newBalance));
+            return newBalance;
         });
     }
 
