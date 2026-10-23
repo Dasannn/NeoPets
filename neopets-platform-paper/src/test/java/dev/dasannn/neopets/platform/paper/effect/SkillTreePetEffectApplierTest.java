@@ -53,6 +53,38 @@ class SkillTreePetEffectApplierTest {
         assertEquals(List.of("feline_landing"), warnings);
     }
 
+    @Test
+    void removingALivePetDeactivatesItsCustomAbilities() {
+        PetId petId = new PetId(UUID.randomUUID());
+        var deactivated = new ArrayList<PetId>();
+        AbilityRegistry registry = new AbilityRegistry() {
+            @Override
+            public boolean update(
+                    String abilityId,
+                    PetId updatedPetId,
+                    LivingEntity entity,
+                    int activeLevel,
+                    Map<String, String> parameters
+            ) {
+                return true;
+            }
+
+            @Override
+            public void deactivate(PetId deactivatedPetId) {
+                deactivated.add(deactivatedPetId);
+            }
+        };
+        var applier = new SkillTreePetEffectApplier(
+                ignored -> Optional.empty(),
+                new AttributeEffectAdapter(new VanillaEffectCatalog()),
+                registry,
+                ignored -> { });
+
+        applier.remove(petId, unusedEntity());
+
+        assertEquals(List.of(petId), deactivated);
+    }
+
     private static SkillTreePetEffectApplier applier(
             PetId petId,
             SkillTreeDefinition definition,

@@ -40,7 +40,7 @@ class ConfigurationMigratorTest {
         var migrator = new ConfigurationMigrator();
         var configuration = new YamlConfiguration();
 
-        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 7));
+        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 8));
         assertThrows(IllegalArgumentException.class,
                 () -> new ConfigurationMigrator(2, List.of()).migrate(configuration, 1));
     }
@@ -57,5 +57,22 @@ class ConfigurationMigratorTest {
         assertEquals(List.of(2, 4, 6, 8, 10), dog.getList("attributes.health.values"));
         assertEquals(List.of(0.05, 0.1, 0.15, 0.2, 0.25), dog.getList("attributes.speed.values"));
         assertEquals(List.of(3, 6, 9, 12, 15), dog.getList("attributes.scent.values"));
+    }
+
+    @Test
+    void versionSevenAddsMissingAbilityDefaultsWithoutOverwritingCustomValues() {
+        var configuration = new YamlConfiguration();
+        configuration.set("config-version", 6);
+        configuration.set("abilities.zarpazo.radius", 9.5);
+
+        assertTrue(new ConfigurationMigrator().migrate(configuration, 6));
+
+        assertEquals(7, configuration.getInt("config-version"));
+        assertEquals(9.5, configuration.getDouble("abilities.zarpazo.radius"));
+        assertEquals(10, configuration.getInt("abilities.zarpazo.cooldown-seconds"));
+        assertEquals(4.0, configuration.getDouble("abilities.zarpazo.damage"));
+        assertEquals(5, configuration.getInt("abilities.vigia.cooldown-seconds"));
+        assertEquals(16.0, configuration.getDouble("abilities.vigia.radius"));
+        assertEquals(5, configuration.getInt("abilities.vigia.duration-seconds"));
     }
 }

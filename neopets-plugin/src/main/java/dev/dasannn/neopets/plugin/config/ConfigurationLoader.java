@@ -385,6 +385,22 @@ public final class ConfigurationLoader {
         double teleportDistance = valueOr(decimal(root, file, "follow.teleport-distance", false, issues),
                 BigDecimal.valueOf(20)).doubleValue();
 
+        int zarpazoCooldown = valueOr(integer(
+                root, file, "abilities.zarpazo.cooldown-seconds", 1, 86_400, issues), 10);
+        double zarpazoRadius = valueOr(boundedDecimal(
+                root, file, "abilities.zarpazo.radius", BigDecimal.valueOf(128), issues),
+                BigDecimal.valueOf(6)).doubleValue();
+        double zarpazoDamage = valueOr(boundedDecimal(
+                root, file, "abilities.zarpazo.damage", BigDecimal.valueOf(2_048), issues),
+                BigDecimal.valueOf(4)).doubleValue();
+        int vigiaCooldown = valueOr(integer(
+                root, file, "abilities.vigia.cooldown-seconds", 1, 86_400, issues), 5);
+        double vigiaRadius = valueOr(boundedDecimal(
+                root, file, "abilities.vigia.radius", BigDecimal.valueOf(128), issues),
+                BigDecimal.valueOf(16)).doubleValue();
+        int vigiaDuration = valueOr(integer(
+                root, file, "abilities.vigia.duration-seconds", 1, 3_600, issues), 5);
+
         var ranks = parseRanks(root, file, issues);
         long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
         long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
@@ -396,7 +412,12 @@ public final class ConfigurationLoader {
         var death = new PluginSettings.Death(deathEnabled, deathPvp, deathKeepSkills);
         var reset = new PluginSettings.Reset(resetEnabled, resetCost);
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
-        return new PluginSettings(version, storage, features, teleportDistance, ranks,
+        var abilities = new PluginSettings.Abilities(
+                new PluginSettings.Zarpazo(
+                        Duration.ofSeconds(zarpazoCooldown), zarpazoRadius, zarpazoDamage),
+                new PluginSettings.Vigia(
+                        Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)));
+        return new PluginSettings(version, storage, features, teleportDistance, abilities, ranks,
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
                 Duration.ofSeconds(loadTimeoutSeconds));
     }
@@ -729,6 +750,21 @@ public final class ConfigurationLoader {
         }
         if (value.signum() < 0 || (!allowZero && value.signum() == 0)) {
             issue(issues, file, path, allowZero ? "must not be negative" : "must be greater than zero");
+            return null;
+        }
+        return value;
+    }
+
+    private static BigDecimal boundedDecimal(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            BigDecimal maximum,
+            List<ConfigurationIssue> issues
+    ) {
+        BigDecimal value = decimal(root, file, path, false, issues);
+        if (value != null && value.compareTo(maximum) > 0) {
+            issue(issues, file, path, "must be at most " + maximum.toPlainString());
             return null;
         }
         return value;

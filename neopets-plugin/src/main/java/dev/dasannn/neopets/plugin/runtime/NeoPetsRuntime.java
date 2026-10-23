@@ -40,7 +40,10 @@ import dev.dasannn.neopets.platform.paper.PetProtectionListener;
 import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import dev.dasannn.neopets.platform.paper.PetTicker;
-import dev.dasannn.neopets.platform.paper.effect.AbilityRegistry;
+import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
+import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
+import dev.dasannn.neopets.platform.paper.ability.VigiaAbility;
+import dev.dasannn.neopets.platform.paper.ability.ZarpazoAbility;
 import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
 import dev.dasannn.neopets.platform.paper.effect.PetSkillTreeState;
 import dev.dasannn.neopets.platform.paper.effect.SkillTreePetEffectApplier;
@@ -153,10 +156,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var effectCatalog = new VanillaEffectCatalog();
+            var abilityRegistry = new DefaultAbilityRegistry(List.of(
+                    new ZarpazoAbility(() -> zarpazoSettings(configuration)),
+                    new VigiaAbility(() -> vigiaSettings(configuration))),
+                    new CooldownTracker(), Clock.systemUTC());
             var effectApplier = new SkillTreePetEffectApplier(
                     petId -> effectState(cache, configuration, petId),
                     new AttributeEffectAdapter(effectCatalog),
-                    AbilityRegistry.empty(),
+                    abilityRegistry,
                     abilityId -> plugin.getLogger().warning(
                             "No custom pet ability is registered for effect id '" + abilityId + "'"));
             var gateway = new PaperPetEntityGateway(plugin.getServer(), scheduler, spawner, livePets,
@@ -169,7 +176,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     (petId, failure) -> plugin.getLogger().log(Level.SEVERE,
                             "Could not reapply skill-tree effects for pet " + petId, failure)));
             var brain = new PetBrain(4.0, configuration.current().settings().followTeleportDistance(), 1.2);
-            var ticker = lifecycle.started(new PetTicker(plugin.getServer(), scheduler, livePets, brain, gateway));
+            var ticker = lifecycle.started(new PetTicker(
+                    plugin.getServer(), scheduler, livePets, brain, gateway, abilityRegistry));
             ticker.start();
             var orphanCleaner = new OrphanCleaner();
             orphanCleaner.cleanLoadedEntities(plugin.getServer(), livePets.snapshot().keySet());
@@ -325,6 +333,16 @@ public final class NeoPetsRuntime implements AutoCloseable {
                 plugin.getDataFolder().toPath().resolve(configured.sqliteFile()),
                 configured.mysql().host(), configured.mysql().port(), configured.mysql().database(),
                 configured.mysql().username(), configured.mysql().password(), 8, Duration.ofSeconds(10));
+    }
+
+    private static ZarpazoAbility.Settings zarpazoSettings(ConfigurationManager configuration) {
+        PluginSettings.Zarpazo settings = configuration.current().settings().abilities().zarpazo();
+        return new ZarpazoAbility.Settings(settings.cooldown(), settings.radius(), settings.damage());
+    }
+
+    private static VigiaAbility.Settings vigiaSettings(ConfigurationManager configuration) {
+        PluginSettings.Vigia settings = configuration.current().settings().abilities().vigia();
+        return new VigiaAbility.Settings(settings.cooldown(), settings.radius(), settings.duration());
     }
 
     private static void closeAfterFailure(RuntimeLifecycle lifecycle, Throwable startupFailure) {

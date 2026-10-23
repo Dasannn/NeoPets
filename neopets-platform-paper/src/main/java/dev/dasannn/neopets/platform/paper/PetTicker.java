@@ -3,6 +3,7 @@ package dev.dasannn.neopets.platform.paper;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
+import dev.dasannn.neopets.platform.paper.effect.AbilityRegistry;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
@@ -26,6 +27,7 @@ public final class PetTicker implements AutoCloseable, Listener {
     private final PetBrain brain;
     private final PetEntityGateway entityGateway;
     private final RecoveryFailureReporter recoveryFailureReporter;
+    private final AbilityRegistry abilities;
     private final long periodTicks;
     private final Set<PetId> recoveriesInFlight = ConcurrentHashMap.newKeySet();
     private TaskScheduler.RepeatingTask task;
@@ -39,7 +41,7 @@ public final class PetTicker implements AutoCloseable, Listener {
             PetEntityGateway entityGateway
     ) {
         this(server, scheduler, registry, brain, entityGateway, DEFAULT_PERIOD_TICKS,
-                new RecoveryFailureReporter(server.getLogger()));
+                new RecoveryFailureReporter(server.getLogger()), AbilityRegistry.empty());
     }
 
     /** Creates a ticker with a configured positive period. */
@@ -52,7 +54,20 @@ public final class PetTicker implements AutoCloseable, Listener {
             long periodTicks
     ) {
         this(server, scheduler, registry, brain, entityGateway, periodTicks,
-                new RecoveryFailureReporter(server.getLogger()));
+                new RecoveryFailureReporter(server.getLogger()), AbilityRegistry.empty());
+    }
+
+    /** Creates a ticker that also drives custom abilities from the same shared task. */
+    public PetTicker(
+            Server server,
+            TaskScheduler scheduler,
+            LivePetRegistry registry,
+            PetBrain brain,
+            PetEntityGateway entityGateway,
+            AbilityRegistry abilities
+    ) {
+        this(server, scheduler, registry, brain, entityGateway, DEFAULT_PERIOD_TICKS,
+                new RecoveryFailureReporter(server.getLogger()), abilities);
     }
 
     PetTicker(
@@ -64,12 +79,27 @@ public final class PetTicker implements AutoCloseable, Listener {
             long periodTicks,
             RecoveryFailureReporter recoveryFailureReporter
     ) {
+        this(server, scheduler, registry, brain, entityGateway, periodTicks,
+                recoveryFailureReporter, AbilityRegistry.empty());
+    }
+
+    PetTicker(
+            Server server,
+            TaskScheduler scheduler,
+            LivePetRegistry registry,
+            PetBrain brain,
+            PetEntityGateway entityGateway,
+            long periodTicks,
+            RecoveryFailureReporter recoveryFailureReporter,
+            AbilityRegistry abilities
+    ) {
         this.server = Objects.requireNonNull(server, "server");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.brain = Objects.requireNonNull(brain, "brain");
         this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
         this.recoveryFailureReporter = Objects.requireNonNull(recoveryFailureReporter, "recoveryFailureReporter");
+        this.abilities = Objects.requireNonNull(abilities, "abilities");
         if (periodTicks <= 0) {
             throw new IllegalArgumentException("periodTicks must be greater than zero");
         }
@@ -91,6 +121,7 @@ public final class PetTicker implements AutoCloseable, Listener {
             task.cancel();
             task = null;
         }
+        abilities.deactivateAll();
     }
 
     /** Recreates active non-persistent pets when Paper unloads their chunk. */
@@ -127,11 +158,13 @@ public final class PetTicker implements AutoCloseable, Listener {
                 continue;
             }
             if (!(entity instanceof Mob pet) || !pet.isValid()) {
+                abilities.deactivate(entry.getKey());
                 registry.unregister(entry.getKey(), entry.getValue());
                 continue;
             }
             var ownerId = PetEntityMetadata.ownerId(pet);
             if (ownerId.isEmpty()) {
+                abilities.deactivate(entry.getKey());
                 registry.unregister(entry.getKey(), entry.getValue());
                 pet.remove();
                 continue;
@@ -139,6 +172,7 @@ public final class PetTicker implements AutoCloseable, Listener {
             var owner = server.getPlayer(ownerId.orElseThrow());
             if (owner != null && owner.isOnline()) {
                 brain.tick(pet, owner);
+                abilities.tick(entry.getKey(), pet, owner);
             }
         }
     }

@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 6
+config-version: 7
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -34,6 +34,17 @@ reset:
 
 follow:
   teleport-distance: 20
+
+abilities:
+  zarpazo:
+    cooldown-seconds: 10
+    radius: 6.0
+    damage: 4.0
+  vigia:
+    cooldown-seconds: 5
+    radius: 16.0
+    # Paper 26.3 sends this glow only to the pet owner.
+    duration-seconds: 5
 
 ranks:
   default:

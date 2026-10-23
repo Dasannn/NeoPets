@@ -50,7 +50,10 @@ class PetsMenuIconTest {
                 new PluginSettings.Mysql("localhost", 3306, "test", "test", "test"));
         var features = new PluginSettings.Features(new PluginSettings.Death(true, false, true),
                 false, true, new PluginSettings.Reset(false, BigDecimal.ZERO));
-        var settings = new PluginSettings(1, storage, features, 20, Map.of("default",
+        var abilities = new PluginSettings.Abilities(
+                new PluginSettings.Zarpazo(Duration.ofSeconds(10), 6, 4),
+                new PluginSettings.Vigia(Duration.ofSeconds(5), 16, Duration.ofSeconds(5)));
+        var settings = new PluginSettings(1, storage, features, 20, abilities, Map.of("default",
                 new dev.dasannn.neopets.core.model.RankLimits(1, 3, 10)),
                 new PluginSettings.Courier(Duration.ofMinutes(5), Duration.ofMinutes(15)),
                 Duration.ofSeconds(10));

@@ -39,7 +39,14 @@ public final class SkillTreePetEffectApplier implements PetEffectApplier {
     public void apply(PetId petId, LivingEntity entity) {
         Objects.requireNonNull(petId, "petId");
         Objects.requireNonNull(entity, "entity");
-        stateLookup.apply(petId).ifPresent(state -> applyState(petId, entity, state));
+        stateLookup.apply(petId).ifPresentOrElse(
+                state -> applyState(petId, entity, state),
+                () -> abilities.deactivate(petId));
+    }
+
+    @Override
+    public void remove(PetId petId, LivingEntity entity) {
+        abilities.deactivate(Objects.requireNonNull(petId, "petId"));
     }
 
     private void applyState(PetId petId, LivingEntity entity, PetSkillTreeState state) {
