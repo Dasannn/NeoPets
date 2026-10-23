@@ -6,3 +6,5 @@ build/
 .agent/
 out/
 run/
+__pycache__/
+*.pyc

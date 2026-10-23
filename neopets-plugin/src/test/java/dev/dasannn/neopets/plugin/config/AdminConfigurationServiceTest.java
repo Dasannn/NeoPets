@@ -165,6 +165,45 @@ class AdminConfigurationServiceTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void ioAndRuntimeReloadFailuresRestoreTheFileAndAllowTheNextEdit(boolean runtimeFailure) throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        var manager = new ConfigurationManager(loader);
+        var beforeSnapshot = manager.current();
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        String before = Files.readString(configFile);
+        Exception failure = runtimeFailure ? new IllegalStateException("reload failed")
+                : new java.io.IOException("reload failed");
+        var reloads = new AtomicInteger();
+
+        try (var service = new AdminConfigurationService(configFile, loader, () -> {
+            if (reloads.incrementAndGet() == 1) {
+                assertFalse(YamlConfiguration.loadConfiguration(configFile.toFile()).getBoolean("death.enabled"));
+                if (failure instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw (java.io.IOException) failure;
+            }
+            manager.reload();
+        }, Executors.newSingleThreadExecutor())) {
+            var thrown = assertThrows(CompletionException.class, () -> service.edit(
+                    FeatureRegistry.find("death.enabled").orElseThrow(),
+                    new FeatureRegistry.Interaction(true, false)).join());
+            org.junit.jupiter.api.Assertions.assertSame(failure, thrown.getCause());
+            assertEquals(before, Files.readString(configFile));
+            org.junit.jupiter.api.Assertions.assertSame(beforeSnapshot, manager.current());
+            assertTrue(manager.current().settings().features().death().enabled());
+            try (var files = Files.list(temporaryDirectory)) {
+                assertTrue(files.noneMatch(path -> path.getFileName().toString().startsWith(".neopets-config-")));
+            }
+            service.edit(FeatureRegistry.find("death.enabled").orElseThrow(),
+                    new FeatureRegistry.Interaction(true, false)).join();
+            assertFalse(manager.current().settings().features().death().enabled());
+            assertEquals(2, reloads.get());
+        }
+    }
+
     private static AdminConfigurationService service(
             Path configFile, ConfigurationLoader loader, AtomicInteger reloads
     ) {
