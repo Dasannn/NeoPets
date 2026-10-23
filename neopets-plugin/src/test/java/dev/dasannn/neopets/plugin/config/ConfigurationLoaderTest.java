@@ -2,6 +2,7 @@ package dev.dasannn.neopets.plugin.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -75,6 +76,35 @@ class ConfigurationLoaderTest {
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
         assertSame(original, manager.current());
+    }
+
+    @Test
+    void successfulReloadPublishesEditedValuesWithoutMutatingPreviousSnapshot() throws Exception {
+        var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
+        ConfigurationSnapshot original = manager.current();
+        replace("config.yml", "teleport-distance: 20", "teleport-distance: 42");
+
+        ConfigurationSnapshot reloaded = manager.reload();
+
+        assertNotSame(original, reloaded);
+        assertSame(reloaded, manager.current());
+        assertEquals(20.0, original.settings().followTeleportDistance());
+        assertEquals(42.0, reloaded.settings().followTeleportDistance());
+    }
+
+    @Test
+    void uncheckedYamlParserFailuresAreCollectedAndDoNotStopLaterFiles() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        Files.writeString(temporaryDirectory.resolve("pets/dog.yml"), "\"\": bad\n");
+        Files.writeString(temporaryDirectory.resolve("pets/cat.yml"), "value: !!int nope\n");
+        replace("skilltrees/parrot.yml", "max-level: 5", "max-level: 0");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "pets/dog.yml", "<root>");
+        assertIssue(failure, "pets/cat.yml", "<root>");
+        assertIssue(failure, "skilltrees/parrot.yml", "attributes.health.max-level");
     }
 
     @Test

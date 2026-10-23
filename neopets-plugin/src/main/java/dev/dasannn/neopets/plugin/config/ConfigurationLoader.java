@@ -135,8 +135,9 @@ public final class ConfigurationLoader {
         try (var reader = new InputStreamReader(
                 Files.newInputStream(dataDirectory.resolve(relativePath)), StandardCharsets.UTF_8)) {
             yaml.load(reader);
-        } catch (IOException | InvalidConfigurationException exception) {
+        } catch (IOException | InvalidConfigurationException | RuntimeException exception) {
             issue(issues, relativePath, "<root>", "cannot parse YAML: " + conciseMessage(exception));
+            return new YamlConfiguration();
         }
         return yaml;
     }
