@@ -12,6 +12,9 @@ repositories {
     maven("https://jitpack.io") {
         name = "jitpack"
     }
+    maven("https://repo.extendedclip.com/releases/") {
+        name = "extendedclip"
+    }
 }
 
 val bundledModules = configurations.create("bundledModules") {
@@ -25,6 +28,7 @@ dependencies {
     compileOnly(libs.paper.api)
     compileOnly(libs.vault.api)
     compileOnly(libs.luckperms.api)
+    compileOnly(libs.placeholderapi)
     testImplementation(libs.paper.api)
     testImplementation(libs.vault.api)
 

@@ -162,6 +162,13 @@ public final class PlayerDataCache {
         }
     }
 
+    /** Returns an immutable profile snapshot only when the player is currently loaded. */
+    public Optional<PlayerProfile> loadedProfile(PlayerId playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        CacheLookup<PlayerProfile> lookup = findProfile(playerId);
+        return lookup.hit() ? lookup.value() : Optional.empty();
+    }
+
     /** Returns a pet only when its owner's complete snapshot is currently loaded. */
     public Optional<OwnedPet> loadedPet(PetId petId) {
         Objects.requireNonNull(petId, "petId");
