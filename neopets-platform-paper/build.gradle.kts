@@ -5,4 +5,5 @@ plugins {
 dependencies {
     api(project(":neopets-core"))
     compileOnly(libs.paper.api)
+    testImplementation(libs.paper.api)
 }
