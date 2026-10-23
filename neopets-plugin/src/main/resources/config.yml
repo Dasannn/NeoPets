@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 1
+config-version: 2
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -12,6 +12,10 @@ storage:
     database: neopets
     username: neopets
     password: "change-me"
+
+player-data:
+  # Maximum database wait during asynchronous pre-login profile loading.
+  load-timeout-seconds: 10
 
 death:
   enabled: true

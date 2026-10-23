@@ -7,10 +7,13 @@ errors:
   invalid-amount: "<red>La cantidad debe ser un número entero positivo.</red>"
   config-invalid: "<red>No se pudo recargar la configuración. Revisa la consola.</red>"
   internal: "<red>Ha ocurrido un error inesperado.</red>"
+  profile-load: "<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>"
 
 general:
   reloaded: "<green>Configuración de NeoPets recargada.</green>"
   usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
+  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|reload</white>.</gray>"
+  usage-pet-action: '<gray>Uso: <white>/neopet summon|dismiss \<variante|id></white></gray>'
   usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
   usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
   usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
@@ -20,12 +23,21 @@ pets:
   given: "<green>Has recibido <pet>.</green>"
   given-admin: "<green>Entregaste <pet> a <player>.</green>"
   already-owned: "<yellow><player> ya posee esa variante.</yellow>"
-  all-owned: "<yellow>Ya posees todas las variantes disponibles de esa selección.</yellow>"
+  all-owned: "<yellow>No quedan variantes disponibles de esa selección.</yellow>"
   unknown-variant: "<red>No existe la variante <yellow><variant></yellow>.</red>"
   unknown-type: "<red>No existe el tipo de mascota <yellow><type></yellow>.</red>"
   summoned: "<green>Has invocado a <pet>.</green>"
   dismissed: "<gray>Has desinvocado a <pet>.</gray>"
   active-limit: "<red>Ya alcanzaste tu límite de <limit> mascotas activas.</red>"
+  already-active: "<yellow><pet> ya está invocada.</yellow>"
+  already-inactive: "<yellow><pet> ya está desinvocada.</yellow>"
+  not-owned: "<red>No posees esa mascota.</red>"
+  in-transit: "<yellow><pet> está realizando una entrega.</yellow>"
+  dead-unavailable: "<red><pet> está muerta y no puede hacer eso.</red>"
+  list-header: "<aqua>Tus mascotas:</aqua>"
+  list-entry: "<gray>• <pet> <dark_gray>(<variant>)</dark_gray> — <action></gray>"
+  action-summon: "invocar"
+  action-dismiss: "desinvocar"
   renamed: "<green>Tu mascota ahora se llama <name>.</green>"
   rename-disabled: "<yellow>El renombrado de mascotas está desactivado.</yellow>"
   dead: "<red><pet> ha muerto. Su alma ha sido entregada a tu inventario.</red>"
@@ -39,6 +51,8 @@ pets:
 skills:
   points: "<aqua>SP disponibles: <white><points></white></aqua>"
   points-changed: "<green>El saldo de SP de <player> ahora es <points>.</green>"
+  points-insufficient: "<red><player> solo tiene <points> SP; no se pueden quitar <amount>.</red>"
+  points-overflow: "<red>El saldo de SP de <player> excedería el máximo permitido.</red>"
   node-unlocked: "<green>Has desbloqueado <attribute> nivel <level>.</green>"
   node-activated: "<green>Has activado <attribute> nivel <level>.</green>"
   previous-level-required: "<yellow>Debes desbloquear primero el nivel anterior.</yellow>"

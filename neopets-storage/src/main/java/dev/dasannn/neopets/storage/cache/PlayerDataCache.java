@@ -125,6 +125,20 @@ public final class PlayerDataCache {
         }
     }
 
+    /** Returns a pet only when its owner's complete snapshot is currently loaded. */
+    public Optional<OwnedPet> loadedPet(PetId petId) {
+        Objects.requireNonNull(petId, "petId");
+        CacheLookup<OwnedPet> lookup = findPet(petId);
+        return lookup.hit() ? lookup.value() : Optional.empty();
+    }
+
+    /** Returns an immutable owned-pet snapshot only when the player is currently loaded. */
+    public Optional<List<OwnedPet>> loadedPets(PlayerId playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        CacheLookup<List<OwnedPet>> lookup = findPetsByOwner(playerId);
+        return lookup.hit() ? lookup.value() : Optional.empty();
+    }
+
     CacheLookup<PlayerProfile> findProfile(PlayerId playerId) {
         synchronized (monitor) {
             var data = players.get(playerId);

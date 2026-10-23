@@ -13,7 +13,8 @@ public record PluginSettings(
         Features features,
         double followTeleportDistance,
         Map<String, RankLimits> ranks,
-        Courier courier
+        Courier courier,
+        Duration playerDataLoadTimeout
 ) {
     public PluginSettings {
         if (configVersion < 1) {
@@ -30,6 +31,10 @@ public record PluginSettings(
             throw new IllegalArgumentException("ranks must contain default");
         }
         Objects.requireNonNull(courier, "courier");
+        Objects.requireNonNull(playerDataLoadTimeout, "playerDataLoadTimeout");
+        if (playerDataLoadTimeout.isZero() || playerDataLoadTimeout.isNegative()) {
+            throw new IllegalArgumentException("playerDataLoadTimeout must be positive");
+        }
     }
 
     /** Supported persistence backends. */

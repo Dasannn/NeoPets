@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.Test;
@@ -27,7 +29,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(1, snapshot.settings().configVersion());
+        assertEquals(2, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -71,7 +73,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 1", "config-version: 99");
+        replace("config.yml", "config-version: 2", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -158,11 +160,33 @@ class ConfigurationLoaderTest {
         assertIssue(failure, "lang/es.yml", "gui.pets-title");
     }
 
+    @Test
+    void versionOneInstallBackfillsNewKeysWithoutOverwritingCustomValues() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 2", "config-version: 1");
+        replace("config.yml", "  load-timeout-seconds: 10\n", "");
+        replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
+        replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
+        replace("lang/es.yml", "  usage-neopet: \"<gray>Usa <white>/neopet give|summon|dismiss|sp|reload</white>.</gray>\"",
+                "  usage-neopet: \"mensaje personalizado\"");
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(2, upgraded.settings().configVersion());
+        assertEquals(37.0, upgraded.settings().followTeleportDistance());
+        assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
+        assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
+        assertTrue(upgraded.language().find("errors.profile-load").isPresent());
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 2"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
+    }
+
     private void replace(String relativePath, String target, String replacement) throws IOException {
         Path file = temporaryDirectory.resolve(relativePath);
         String original = Files.readString(file);
         assertTrue(original.contains(target), "test fixture target not found: " + target);
-        Files.writeString(file, original.replaceFirst(target, replacement));
+        Files.writeString(file, original.replaceFirst(Pattern.quote(target), Matcher.quoteReplacement(replacement)));
     }
 
     private static void assertIssue(ConfigurationLoadException failure, String file, String path) {
