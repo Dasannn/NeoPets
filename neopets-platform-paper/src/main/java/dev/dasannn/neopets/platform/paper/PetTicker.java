@@ -24,6 +24,7 @@ public final class PetTicker implements AutoCloseable, Listener {
     private final LivePetRegistry registry;
     private final PetBrain brain;
     private final PetEntityGateway entityGateway;
+    private final RecoveryFailureReporter recoveryFailureReporter;
     private final long periodTicks;
     private final Set<PetId> recoveriesInFlight = ConcurrentHashMap.newKeySet();
     private TaskScheduler.RepeatingTask task;
@@ -36,7 +37,8 @@ public final class PetTicker implements AutoCloseable, Listener {
             PetBrain brain,
             PetEntityGateway entityGateway
     ) {
-        this(server, scheduler, registry, brain, entityGateway, DEFAULT_PERIOD_TICKS);
+        this(server, scheduler, registry, brain, entityGateway, DEFAULT_PERIOD_TICKS,
+                new RecoveryFailureReporter(server.getLogger()));
     }
 
     /** Creates a ticker with a configured positive period. */
@@ -48,11 +50,25 @@ public final class PetTicker implements AutoCloseable, Listener {
             PetEntityGateway entityGateway,
             long periodTicks
     ) {
+        this(server, scheduler, registry, brain, entityGateway, periodTicks,
+                new RecoveryFailureReporter(server.getLogger()));
+    }
+
+    PetTicker(
+            Server server,
+            TaskScheduler scheduler,
+            LivePetRegistry registry,
+            PetBrain brain,
+            PetEntityGateway entityGateway,
+            long periodTicks,
+            RecoveryFailureReporter recoveryFailureReporter
+    ) {
         this.server = Objects.requireNonNull(server, "server");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.brain = Objects.requireNonNull(brain, "brain");
         this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
+        this.recoveryFailureReporter = Objects.requireNonNull(recoveryFailureReporter, "recoveryFailureReporter");
         if (periodTicks <= 0) {
             throw new IllegalArgumentException("periodTicks must be greater than zero");
         }
@@ -124,9 +140,17 @@ public final class PetTicker implements AutoCloseable, Listener {
         }
         try {
             var recovery = Objects.requireNonNull(entityGateway.spawn(petId), "entityGateway.spawn result");
-            recovery.whenComplete((ignored, failure) -> recoveriesInFlight.remove(petId));
+            recovery.whenComplete((ignored, failure) -> {
+                recoveriesInFlight.remove(petId);
+                if (failure == null) {
+                    recoveryFailureReporter.recovered(petId);
+                } else {
+                    recoveryFailureReporter.report(petId, failure);
+                }
+            });
         } catch (RuntimeException failure) {
             recoveriesInFlight.remove(petId);
+            recoveryFailureReporter.report(petId, failure);
         }
     }
 }

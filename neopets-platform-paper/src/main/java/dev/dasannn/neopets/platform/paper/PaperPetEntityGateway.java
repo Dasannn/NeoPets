@@ -12,6 +12,7 @@ import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 
 /**
  * Paper entity lifecycle adapter that is safe to call from any thread.
@@ -87,13 +88,7 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
     @Override
     public CompletableFuture<Void> despawn(PetId petId) {
         Objects.requireNonNull(petId, "petId");
-        return scheduler.runOnMain(() -> registry.unregister(petId)
-                .map(server::getEntity)
-                .ifPresent(entity -> {
-                    if (entity.isValid()) {
-                        entity.remove();
-                    }
-                }));
+        return scheduler.runOnMain(() -> despawnOnMain(petId));
     }
 
     @Override
@@ -125,6 +120,7 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
         if (owner == null || !owner.isOnline()) {
             throw new IllegalStateException("Pet owner is not online: " + spawnData.ownerId());
         }
+        clearShoulderedPet(owner, petId);
 
         var entity = spawner.spawn(owner.getLocation(), spawnData.ownerId(), petId, variant);
         if (entity == null || !entity.isValid()) {
@@ -144,6 +140,39 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
             }
             throw failure;
         }
+    }
+
+    private void despawnOnMain(PetId petId) {
+        registry.unregister(petId)
+                .map(server::getEntity)
+                .ifPresent(entity -> {
+                    if (entity.isValid()) {
+                        entity.remove();
+                    }
+                });
+
+        var spawnData = spawnDataLookup.apply(petId);
+        if (spawnData == null) {
+            return;
+        }
+        var owner = server.getPlayer(spawnData.ownerId());
+        if (owner != null) {
+            clearShoulderedPet(owner, petId);
+        }
+    }
+
+    @SuppressWarnings("deprecation") // Paper exposes no non-releasing API for inspecting serialized shoulder data.
+    private static void clearShoulderedPet(Player owner, PetId petId) {
+        if (isPet(owner.getShoulderEntityLeft(), petId)) {
+            owner.setShoulderEntityLeft(null);
+        }
+        if (isPet(owner.getShoulderEntityRight(), petId)) {
+            owner.setShoulderEntityRight(null);
+        }
+    }
+
+    private static boolean isPet(Entity entity, PetId petId) {
+        return entity != null && PetEntityMetadata.petId(entity).filter(petId::equals).isPresent();
     }
 
     @FunctionalInterface
