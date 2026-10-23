@@ -13,6 +13,7 @@ import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
 import dev.dasannn.neopets.core.port.SaddlebagRepository;
+import dev.dasannn.neopets.platform.paper.PetKeys;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
@@ -30,7 +31,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 import org.bukkit.Server;
+import org.bukkit.damage.DamageSource;
+import org.bukkit.entity.Donkey;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -39,6 +43,7 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.BeforeEach;
@@ -267,6 +272,61 @@ class CourierSaddlebagsTest {
         assertPlayerInventoryBlocked(false);
         coordinator.openOwner(player, pet);
         assertEquals(1, opened);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void lethalDamageIsBlockedDuringTransitSaveAndProtectionTracksItsOutcome(boolean succeeds) {
+        transitSave = new CompletableFuture<>();
+        Donkey donkey = donkey();
+        var before = lethalDamage(donkey);
+        coordinator.onDamage(before);
+        assertFalse(before.isCancelled());
+
+        var sending = courier.request(id, owner, new PlayerId(recipient.getUniqueId()));
+        assertFalse(sending.isDone());
+        assertEquals(PetStatus.ALIVE, persistedPet.status());
+        assertTrue(courier.requestFor(id).isEmpty());
+        var during = lethalDamage(donkey);
+        assertTrue(during.getFinalDamage() >= donkey.getHealth());
+        coordinator.onDamage(during);
+        assertTrue(during.isCancelled(), "lethal damage must not queue a death during the save");
+
+        if (succeeds) {
+            transitSave.complete(null);
+            sending.join();
+            assertEquals(PetStatus.IN_TRANSIT, persistedPet.status());
+        } else {
+            transitSave.completeExceptionally(new IllegalStateException("save failed"));
+            assertThrows(java.util.concurrent.CompletionException.class, sending::join);
+            assertEquals(PetStatus.ALIVE, persistedPet.status());
+        }
+        var after = lethalDamage(donkey);
+        coordinator.onDamage(after);
+        assertEquals(succeeds, after.isCancelled());
+
+        if (succeeds) {
+            courier.reject(courier.requestFor(id).orElseThrow().id(), new PlayerId(recipient.getUniqueId())).join();
+            var returned = lethalDamage(donkey);
+            coordinator.onDamage(returned);
+            assertFalse(returned.isCancelled());
+        }
+    }
+
+    private Donkey donkey() {
+        var data = proxy(PersistentDataContainer.class, (p, m, a) ->
+                m.getName().equals("get") && PetKeys.PET_ID.equals(a[0])
+                        ? id.value().toString() : fallback(m.getReturnType()));
+        return proxy(Donkey.class, (p, m, a) -> switch (m.getName()) {
+            case "getPersistentDataContainer" -> data;
+            case "getHealth" -> 20.0;
+            default -> fallback(m.getReturnType());
+        });
+    }
+
+    private EntityDamageEvent lethalDamage(Donkey donkey) {
+        var source = proxy(DamageSource.class, (p, m, a) -> fallback(m.getReturnType()));
+        return new EntityDamageEvent(donkey, EntityDamageEvent.DamageCause.CUSTOM, source, 1000);
     }
 
     @org.junit.jupiter.params.ParameterizedTest

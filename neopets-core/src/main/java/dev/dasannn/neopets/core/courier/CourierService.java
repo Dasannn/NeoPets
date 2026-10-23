@@ -12,10 +12,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -29,6 +31,7 @@ public final class CourierService {
     private final Supplier<Duration> timeout;
     private final Supplier<Duration> cooldown;
     private final Map<PetId, CourierRequest> requests = new HashMap<>();
+    private final Set<PetId> pendingSends = new HashSet<>();
     private final Map<PetId, Instant> nextSend = new HashMap<>();
 
     public CourierService(
@@ -74,7 +77,9 @@ public final class CourierService {
             CourierRequest request = new CourierRequest(UUID.randomUUID(), petId, owner, recipient,
                     now.plus(requestTimeout), false, pet.active());
             OwnedPet travelling = pet.withStatus(PetStatus.IN_TRANSIT);
-            return pets.save(travelling).thenCompose(ignored -> entities.despawn(petId)
+            synchronized (this) { pendingSends.add(petId); }
+            return CompletableFuture.completedFuture(null).thenCompose(ignored -> pets.save(travelling))
+                    .thenCompose(ignored -> entities.despawn(petId)
                     .exceptionallyCompose(failure -> pets.save(pet)
                             .thenCompose(restored -> pet.active() ? entities.spawn(petId)
                                     : CompletableFuture.completedFuture(null))
@@ -88,6 +93,8 @@ public final class CourierService {
                             nextSend.put(petId, now.plus(sendCooldown));
                         }
                         return (CourierResult) new CourierResult.Requested(request);
+                    }).whenComplete((result, failure) -> {
+                        synchronized (this) { pendingSends.remove(petId); }
                     });
         }));
     }
@@ -196,6 +203,12 @@ public final class CourierService {
     /** Finds a pet's active request. */
     public synchronized Optional<CourierRequest> requestFor(PetId petId) {
         return Optional.ofNullable(requests.get(Objects.requireNonNull(petId, "petId")));
+    }
+
+    /** Protects the owner-side entity while a send is being saved, as well as active trips. */
+    public synchronized boolean isProtected(PetId petId) {
+        Objects.requireNonNull(petId, "petId");
+        return pendingSends.contains(petId) || requests.containsKey(petId);
     }
 
     /** Returns an immutable point-in-time snapshot of every active trip. */

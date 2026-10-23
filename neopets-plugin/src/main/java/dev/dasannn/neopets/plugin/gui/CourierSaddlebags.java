@@ -463,7 +463,7 @@ public final class CourierSaddlebags implements Listener, AutoCloseable {
     /** Transit invulnerability includes creative-player damage, which bypasses vanilla invulnerability. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDamage(EntityDamageEvent event) {
-        PetEntityMetadata.petId(event.getEntity()).filter(id -> courier.requestFor(id).isPresent())
+        PetEntityMetadata.petId(event.getEntity()).filter(courier::isProtected)
                 .ifPresent(ignored -> event.setCancelled(true));
     }
 

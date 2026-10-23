@@ -118,6 +118,7 @@ class CourierServiceTest {
         assertInstanceOf(CourierResult.Returned.class, rejected.join());
         assertInstanceOf(CourierResult.UnknownRequest.class, accepted.join());
         assertTrue(service.activeRequests().isEmpty());
+        assertTrue(!service.isProtected(PET));
         assertEquals(PetStatus.ALIVE, repository.pet.status());
         assertTrue(gateway.actions.stream().noneMatch(action -> action.startsWith("courier:")));
     }
@@ -189,10 +190,13 @@ class CourierServiceTest {
         assertTrue(!requested.isDone());
         assertTrue(gateway.actions.isEmpty());
         assertEquals(PetStatus.ALIVE, repository.pet.status());
+        assertTrue(service.isProtected(PET));
+        assertTrue(service.requestFor(PET).isEmpty());
         repository.pendingSave.complete(null);
         assertInstanceOf(CourierResult.Requested.class, requested.join());
         assertEquals(PetStatus.IN_TRANSIT, repository.pet.status());
         assertEquals(List.of("despawn"), gateway.actions);
+        assertTrue(service.isProtected(PET));
     }
 
     @Test
@@ -204,6 +208,7 @@ class CourierServiceTest {
         assertEquals(original, repository.pet);
         assertTrue(gateway.actions.isEmpty());
         assertTrue(service.activeRequests().isEmpty());
+        assertTrue(!service.isProtected(PET));
         repository.failSave = false;
         request();
     }
@@ -217,6 +222,7 @@ class CourierServiceTest {
         assertEquals(original, repository.pet);
         assertEquals(List.of("despawn", "spawn"), gateway.actions);
         assertTrue(service.activeRequests().isEmpty());
+        assertTrue(!service.isProtected(PET));
         gateway.failDespawn = false;
         request();
     }
