@@ -10,11 +10,10 @@ import dev.dasannn.neopets.core.model.PetStatus;
 import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.model.PetVariant;
 import dev.dasannn.neopets.core.model.PlayerId;
-import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
-import dev.dasannn.neopets.core.port.PlayerRepository;
 import dev.dasannn.neopets.core.port.RandomSource;
 import dev.dasannn.neopets.core.port.RankLimitsResolver;
 import java.nio.charset.StandardCharsets;
@@ -27,20 +26,23 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
  * Coordinates pet grants and active-pet lifecycle changes.
  *
  * <p>Operations for one player are serialized so concurrent grants cannot award the same
- * variant twice and concurrent summons cannot exceed that player's rank limit.</p>
+ * variant twice and concurrent summons cannot exceed that player's rank limit. Repository
+ * uniqueness remains the final guard when multiple service instances race.</p>
  */
 public final class PetService {
     private final VariantCatalog variantCatalog;
     private final PetRepository petRepository;
-    private final PlayerRepository playerRepository;
     private final PetEntityGateway entityGateway;
     private final RankLimitsResolver rankLimitsResolver;
     private final DomainEventBus eventBus;
@@ -53,7 +55,6 @@ public final class PetService {
     public PetService(
             VariantCatalog variantCatalog,
             PetRepository petRepository,
-            PlayerRepository playerRepository,
             PetEntityGateway entityGateway,
             RankLimitsResolver rankLimitsResolver,
             DomainEventBus eventBus,
@@ -62,7 +63,6 @@ public final class PetService {
     ) {
         this.variantCatalog = Objects.requireNonNull(variantCatalog, "variantCatalog");
         this.petRepository = Objects.requireNonNull(petRepository, "petRepository");
-        this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository");
         this.entityGateway = Objects.requireNonNull(entityGateway, "entityGateway");
         this.rankLimitsResolver = Objects.requireNonNull(rankLimitsResolver, "rankLimitsResolver");
         this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
@@ -108,11 +108,11 @@ public final class PetService {
         if (variant.isEmpty()) {
             return CompletableFuture.completedFuture(new GiveResult.UnknownVariant(variantId));
         }
-        return serialized(playerId, () -> loadProfile(playerId).thenCompose(profile -> {
-            if (profile.ownsVariant(variantId)) {
+        return serialized(playerId, () -> petRepository.findByOwner(playerId).thenCompose(pets -> {
+            if (ownsVariant(pets, variantId)) {
                 return CompletableFuture.completedFuture(new GiveResult.AlreadyOwned(variantId));
             }
-            return grant(profile, variant.orElseThrow());
+            return grantSpecific(playerId, variant.orElseThrow());
         }));
     }
 
@@ -121,8 +121,8 @@ public final class PetService {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(petId, "petId");
         return serialized(playerId, () -> petRepository.findById(petId).thenCombine(
-                loadProfile(playerId),
-                (pet, profile) -> new PetAndProfile(pet, profile)
+                petRepository.findByOwner(playerId),
+                PetAndOwnedPets::new
         ).thenCompose(state -> {
             var pet = state.pet();
             if (pet.isEmpty() || !pet.orElseThrow().owner().equals(playerId)) {
@@ -140,13 +140,17 @@ public final class PetService {
             }
 
             int maxActivePets = rankLimitsResolver.resolve(playerId).maxActivePets();
-            if (state.profile().activePets().size() >= maxActivePets) {
+            long activePets = state.ownedPets().stream().filter(OwnedPet::active).count();
+            if (activePets >= maxActivePets) {
                 return CompletableFuture.completedFuture(new SummonResult.LimitReached(maxActivePets));
             }
 
             var activePet = ownedPet.withActive(true);
-            return persistPetAndProfile(activePet, replacePet(state.profile(), activePet)).thenApply(ignored -> {
-                entityGateway.spawn(petId);
+            return applyEntityThenPersist(
+                    () -> entityGateway.spawn(petId),
+                    () -> entityGateway.despawn(petId),
+                    activePet
+            ).thenApply(ignored -> {
                 eventBus.publish(new PetSummoned(petId, playerId));
                 return new SummonResult.Summoned(activePet);
             });
@@ -157,11 +161,7 @@ public final class PetService {
     public CompletableFuture<DismissResult> dismiss(PlayerId playerId, PetId petId) {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(petId, "petId");
-        return serialized(playerId, () -> petRepository.findById(petId).thenCombine(
-                loadProfile(playerId),
-                (pet, profile) -> new PetAndProfile(pet, profile)
-        ).thenCompose(state -> {
-            var pet = state.pet();
+        return serialized(playerId, () -> petRepository.findById(petId).thenCompose(pet -> {
             if (pet.isEmpty() || !pet.orElseThrow().owner().equals(playerId)) {
                 return CompletableFuture.completedFuture(new DismissResult.NotOwned(petId));
             }
@@ -177,8 +177,11 @@ public final class PetService {
             }
 
             var inactivePet = ownedPet.withActive(false);
-            return persistPetAndProfile(inactivePet, replacePet(state.profile(), inactivePet)).thenApply(ignored -> {
-                entityGateway.despawn(petId);
+            return applyEntityThenPersist(
+                    () -> entityGateway.despawn(petId),
+                    () -> entityGateway.spawn(petId),
+                    inactivePet
+            ).thenApply(ignored -> {
                 eventBus.publish(new PetDismissed(petId, playerId));
                 return new DismissResult.Dismissed(inactivePet);
             });
@@ -186,34 +189,99 @@ public final class PetService {
     }
 
     private CompletableFuture<GiveResult> giveFromCandidates(PlayerId playerId, List<PetVariant> candidates) {
-        return loadProfile(playerId).thenCompose(profile -> {
+        return petRepository.findByOwner(playerId).thenCompose(pets -> {
             var unowned = candidates.stream()
-                    .filter(variant -> !profile.ownsVariant(variant.id()))
+                    .filter(variant -> !ownsVariant(pets, variant.id()))
                     .toList();
-            if (unowned.isEmpty()) {
-                return CompletableFuture.completedFuture(new GiveResult.AllOwned());
-            }
-            return grant(profile, chooseWeighted(unowned));
+            return grantRandom(playerId, unowned);
         });
     }
 
-    private CompletableFuture<GiveResult> grant(PlayerProfile profile, PetVariant variant) {
+    private CompletableFuture<GiveResult> grantRandom(PlayerId playerId, List<PetVariant> candidates) {
+        if (candidates.isEmpty()) {
+            return CompletableFuture.completedFuture(new GiveResult.AllOwned());
+        }
+
+        var selected = chooseWeighted(candidates);
+        var pet = newPet(playerId, selected);
+        return savePet(pet).<CompletableFuture<GiveResult>>handle((ignored, failure) -> {
+            if (failure == null) {
+                return CompletableFuture.completedFuture(granted(pet));
+            }
+            Throwable cause = unwrap(failure);
+            if (cause instanceof DuplicatePetVariantException duplicate
+                    && duplicate.ownerId().equals(playerId)
+                    && duplicate.variantId().equals(selected.id())) {
+                var remaining = candidates.stream()
+                        .filter(candidate -> !candidate.id().equals(selected.id()))
+                        .toList();
+                return grantRandom(playerId, remaining);
+            }
+            return CompletableFuture.failedFuture(cause);
+        }).thenCompose(result -> result);
+    }
+
+    private CompletableFuture<GiveResult> grantSpecific(PlayerId playerId, PetVariant variant) {
+        var pet = newPet(playerId, variant);
+        return savePet(pet).<CompletableFuture<GiveResult>>handle((ignored, failure) -> {
+            if (failure == null) {
+                return CompletableFuture.completedFuture(granted(pet));
+            }
+            Throwable cause = unwrap(failure);
+            if (cause instanceof DuplicatePetVariantException duplicate
+                    && duplicate.ownerId().equals(playerId)
+                    && duplicate.variantId().equals(variant.id())) {
+                return CompletableFuture.completedFuture(new GiveResult.AlreadyOwned(variant.id()));
+            }
+            return CompletableFuture.failedFuture(cause);
+        }).thenCompose(result -> result);
+    }
+
+    private OwnedPet newPet(PlayerId playerId, PetVariant variant) {
         Instant createdAt = clock.instant();
-        var pet = new OwnedPet(
-                nextPetId(profile.playerId(), variant.id(), createdAt),
-                profile.playerId(),
+        return new OwnedPet(
+                nextPetId(playerId, variant.id(), createdAt),
+                playerId,
                 variant.id(),
                 Optional.empty(),
                 PetStatus.ALIVE,
                 false,
                 createdAt
         );
-        var pets = new ArrayList<>(profile.ownedPets());
-        pets.add(pet);
-        var updatedProfile = profile.withOwnedPets(pets);
-        return persistPetAndProfile(pet, updatedProfile).thenApply(ignored -> {
-            eventBus.publish(new PetGiven(pet.id(), pet.owner(), pet.variant()));
-            return new GiveResult.Granted(pet);
+    }
+
+    private GiveResult granted(OwnedPet pet) {
+        eventBus.publish(new PetGiven(pet.id(), pet.owner(), pet.variant()));
+        return new GiveResult.Granted(pet);
+    }
+
+    private CompletableFuture<Void> savePet(OwnedPet pet) {
+        try {
+            return Objects.requireNonNull(petRepository.save(pet), "pet save future");
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+    }
+
+    private CompletableFuture<Void> applyEntityThenPersist(
+            Runnable entityAction,
+            Runnable compensation,
+            OwnedPet pet
+    ) {
+        try {
+            entityAction.run();
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+
+        return savePet(pet).exceptionallyCompose(failure -> {
+            Throwable cause = unwrap(failure);
+            try {
+                compensation.run();
+            } catch (Throwable compensationFailure) {
+                cause.addSuppressed(compensationFailure);
+            }
+            return CompletableFuture.failedFuture(cause);
         });
     }
 
@@ -235,26 +303,8 @@ public final class PetService {
         return candidates.getLast();
     }
 
-    private CompletableFuture<PlayerProfile> loadProfile(PlayerId playerId) {
-        return playerRepository.findById(playerId).thenCombine(
-                petRepository.findByOwner(playerId),
-                (storedProfile, pets) -> new PlayerProfile(
-                        playerId,
-                        storedProfile.map(PlayerProfile::skillPointBalance).orElse(0),
-                        pets
-                )
-        );
-    }
-
-    private CompletableFuture<Void> persistPetAndProfile(OwnedPet pet, PlayerProfile profile) {
-        return CompletableFuture.allOf(petRepository.save(pet), playerRepository.save(profile));
-    }
-
-    private static PlayerProfile replacePet(PlayerProfile profile, OwnedPet replacement) {
-        var pets = profile.ownedPets().stream()
-                .map(pet -> pet.id().equals(replacement.id()) ? replacement : pet)
-                .toList();
-        return profile.withOwnedPets(pets);
+    private static boolean ownsVariant(List<OwnedPet> pets, VariantId variantId) {
+        return pets.stream().anyMatch(pet -> pet.variant().equals(variantId));
     }
 
     private PetId nextPetId(PlayerId playerId, VariantId variantId, Instant createdAt) {
@@ -264,32 +314,54 @@ public final class PetService {
 
     private <T> CompletableFuture<T> serialized(PlayerId playerId, Supplier<CompletableFuture<T>> action) {
         var result = new CompletableFuture<T>();
-        CompletableFuture<Void> tail = operationTails.compute(playerId, (ignored, previous) -> {
-            CompletableFuture<Void> ready = previous == null
-                    ? CompletableFuture.completedFuture(null)
-                    : previous;
-            return ready.handle((value, failure) -> null).thenCompose(value -> {
-                CompletableFuture<T> operation;
-                try {
-                    operation = Objects.requireNonNull(action.get(), "operation future");
-                } catch (Throwable failure) {
-                    result.completeExceptionally(failure);
-                    return CompletableFuture.completedFuture(null);
-                }
-                return operation.handle((operationResult, failure) -> {
-                    if (failure == null) {
-                        result.complete(operationResult);
-                    } else {
-                        result.completeExceptionally(failure);
-                    }
-                    return null;
-                });
-            });
+        var currentTail = new CompletableFuture<Void>();
+        var previousTail = new AtomicReference<CompletableFuture<Void>>();
+
+        operationTails.compute(playerId, (ignored, previous) -> {
+            previousTail.set(previous);
+            return currentTail;
         });
-        tail.whenComplete((value, failure) -> operationTails.remove(playerId, tail));
+
+        CompletableFuture<Void> ready = previousTail.get() == null
+                ? CompletableFuture.completedFuture(null)
+                : previousTail.get();
+        ready.handle((value, failure) -> null).thenRun(() -> runSerializedAction(action, result, currentTail));
+        currentTail.whenComplete((value, failure) -> operationTails.remove(playerId, currentTail));
         return result;
     }
 
-    private record PetAndProfile(Optional<OwnedPet> pet, PlayerProfile profile) {
+    private static <T> void runSerializedAction(
+            Supplier<CompletableFuture<T>> action,
+            CompletableFuture<T> result,
+            CompletableFuture<Void> currentTail
+    ) {
+        CompletableFuture<T> operation;
+        try {
+            operation = Objects.requireNonNull(action.get(), "operation future");
+        } catch (Throwable failure) {
+            currentTail.complete(null);
+            result.completeExceptionally(failure);
+            return;
+        }
+        operation.whenComplete((operationResult, failure) -> {
+            currentTail.complete(null);
+            if (failure == null) {
+                result.complete(operationResult);
+            } else {
+                result.completeExceptionally(unwrap(failure));
+            }
+        });
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private record PetAndOwnedPets(Optional<OwnedPet> pet, List<OwnedPet> ownedPets) {
     }
 }

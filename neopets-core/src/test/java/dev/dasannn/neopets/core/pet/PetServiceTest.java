@@ -3,6 +3,7 @@ package dev.dasannn.neopets.core.pet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.event.DomainEvent;
@@ -16,13 +17,12 @@ import dev.dasannn.neopets.core.model.PetStatus;
 import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.model.PetVariant;
 import dev.dasannn.neopets.core.model.PlayerId;
-import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.RankLimits;
 import dev.dasannn.neopets.core.model.VariantAppearance;
 import dev.dasannn.neopets.core.model.VariantId;
+import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
-import dev.dasannn.neopets.core.port.PlayerRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -34,6 +34,8 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +48,6 @@ class PetServiceTest {
     private static final PetVariant CAT_BLACK = variant("cat_black", CAT, 10.0);
 
     private final FakePetRepository pets = new FakePetRepository();
-    private final FakePlayerRepository players = new FakePlayerRepository();
     private final RecordingEntityGateway entities = new RecordingEntityGateway();
     private final DomainEventBus events = new DomainEventBus();
     private final List<DomainEvent> publishedEvents = new ArrayList<>();
@@ -71,7 +72,6 @@ class PetServiceTest {
 
         assertEquals(new GiveResult.UnknownVariant(unknown), result);
         assertTrue(pets.stored.isEmpty());
-        assertTrue(players.stored.isEmpty());
         assertTrue(publishedEvents.isEmpty());
     }
 
@@ -111,18 +111,63 @@ class PetServiceTest {
     }
 
     @Test
-    void grantUsesClockPersistsBothModelsAndPublishesEvent() {
+    void grantUsesClockPersistsOnePetRowAndPublishesEvent() {
         var player = player(5);
-        players.stored.put(player, new PlayerProfile(player, 7, List.of()));
 
         var result = assertInstanceOf(GiveResult.Granted.class,
                 service.giveSpecific(player, LIGHT.id()).join());
 
         assertEquals(NOW, result.pet().createdAt());
         assertEquals(result.pet(), pets.stored.get(result.pet().id()));
-        assertEquals(7, players.stored.get(player).skillPointBalance());
-        assertEquals(List.of(result.pet()), players.stored.get(player).ownedPets());
+        assertEquals(1, pets.saveCalls);
         assertEquals(List.of(new PetGiven(result.pet().id(), player, LIGHT.id())), publishedEvents);
+    }
+
+    @Test
+    void duplicateIdsDoNotIncreaseAVariantsSelectionWeight() {
+        var player = player(51);
+        randomValue = 0.30;
+
+        var result = assertInstanceOf(GiveResult.Granted.class,
+                service.give(player, List.of(LIGHT.id(), LIGHT.id(), HEAVY.id())).join());
+
+        assertEquals(HEAVY.id(), result.pet().variant());
+    }
+
+    @Test
+    void failedPetSaveDoesNotPublishOrLeaveAPartialGrant() {
+        var player = player(52);
+        pets.nextSaveFailure = new IllegalStateException("storage unavailable");
+
+        assertThrows(CompletionException.class, () -> service.giveSpecific(player, LIGHT.id()).join());
+
+        assertTrue(pets.stored.isEmpty());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void uniquenessRaceMapsSpecificGrantToAlreadyOwned() {
+        var player = player(53);
+        pets.nextSaveFailure = new DuplicatePetVariantException(player, LIGHT.id());
+
+        var result = service.giveSpecific(player, LIGHT.id()).join();
+
+        assertEquals(new GiveResult.AlreadyOwned(LIGHT.id()), result);
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void uniquenessRaceRetriesAnotherRandomCandidate() {
+        var player = player(54);
+        randomValue = 0.0;
+        pets.nextSaveFailure = new DuplicatePetVariantException(player, LIGHT.id());
+
+        var result = assertInstanceOf(GiveResult.Granted.class,
+                service.give(player, List.of(LIGHT.id(), HEAVY.id())).join());
+
+        assertEquals(HEAVY.id(), result.pet().variant());
+        assertEquals(2, pets.saveCalls);
+        assertEquals(1, publishedEvents.size());
     }
 
     @Test
@@ -146,12 +191,10 @@ class PetServiceTest {
     @Test
     void weightedSelectionFollowsConfiguredDistributionWithSeededRandomness() {
         var seededPets = new FakePetRepository();
-        var seededPlayers = new FakePlayerRepository();
         var seededService = service(
                 new InMemoryVariantCatalog(List.of(LIGHT, HEAVY)),
                 new Random(87123)::nextDouble,
                 seededPets,
-                seededPlayers,
                 new RecordingEntityGateway()
         );
         int heavySelections = 0;
@@ -185,6 +228,24 @@ class PetServiceTest {
         assertInstanceOf(GiveResult.Granted.class, first.join());
         assertEquals(new GiveResult.AlreadyOwned(LIGHT.id()), second.join());
         assertEquals(1, pets.findByOwner(player).join().size());
+    }
+
+    @Test
+    void synchronousEventListenerCanQueueAnotherOperationForTheSamePlayer() {
+        var player = player(81);
+        var reentrantResult = new AtomicReference<CompletableFuture<GiveResult>>();
+        events.subscribe(PetGiven.class, event -> {
+            if (event.variantId().equals(LIGHT.id())) {
+                reentrantResult.set(service.giveSpecific(player, HEAVY.id()));
+            }
+        });
+
+        var first = service.giveSpecific(player, LIGHT.id()).join();
+        var second = reentrantResult.get().join();
+
+        assertInstanceOf(GiveResult.Granted.class, first);
+        assertEquals(HEAVY.id(), assertInstanceOf(GiveResult.Granted.class, second).pet().variant());
+        assertEquals(2, pets.findByOwner(player).join().size());
     }
 
     @Test
@@ -240,9 +301,57 @@ class PetServiceTest {
 
         assertTrue(result.pet().active());
         assertTrue(pets.stored.get(inactive.id()).active());
-        assertTrue(players.stored.get(player).ownedPets().getFirst().active());
         assertEquals(List.of(inactive.id()), entities.spawned);
         assertEquals(List.of(new PetSummoned(inactive.id(), player)), publishedEvents);
+    }
+
+    @Test
+    void concurrentSummonsCannotExceedTheRankLimit() {
+        var player = player(121);
+        var firstPet = pet(1210, player, LIGHT.id(), PetStatus.ALIVE, false);
+        var secondPet = pet(1211, player, HEAVY.id(), PetStatus.ALIVE, false);
+        pets.store(firstPet);
+        pets.store(secondPet);
+        var delayedPets = new CompletableFuture<List<OwnedPet>>();
+        pets.nextFindByOwner = delayedPets;
+
+        var first = service.summon(player, firstPet.id());
+        var second = service.summon(player, secondPet.id());
+
+        assertFalse(first.isDone());
+        assertFalse(second.isDone());
+        delayedPets.complete(List.of(firstPet, secondPet));
+        assertInstanceOf(SummonResult.Summoned.class, first.join());
+        assertEquals(new SummonResult.LimitReached(1), second.join());
+        assertEquals(List.of(firstPet.id()), entities.spawned);
+    }
+
+    @Test
+    void failedSpawnLeavesPetInactiveAndPublishesNoEvent() {
+        var player = player(122);
+        var inactive = pet(1220, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(inactive);
+        entities.spawnFailure = new IllegalStateException("spawn failed");
+
+        assertThrows(CompletionException.class, () -> service.summon(player, inactive.id()).join());
+
+        assertFalse(pets.stored.get(inactive.id()).active());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void failedSummonPersistenceDespawnsTheEntityAgain() {
+        var player = player(123);
+        var inactive = pet(1230, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(inactive);
+        pets.nextSaveFailure = new IllegalStateException("save failed");
+
+        assertThrows(CompletionException.class, () -> service.summon(player, inactive.id()).join());
+
+        assertFalse(pets.stored.get(inactive.id()).active());
+        assertEquals(List.of(inactive.id()), entities.spawned);
+        assertEquals(List.of(inactive.id()), entities.despawned);
+        assertTrue(publishedEvents.isEmpty());
     }
 
     @Test
@@ -281,21 +390,47 @@ class PetServiceTest {
         assertEquals(List.of(new PetDismissed(active.id(), player)), publishedEvents);
     }
 
+    @Test
+    void failedDespawnLeavesPetActiveAndPublishesNoEvent() {
+        var player = player(141);
+        var active = pet(1410, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+        entities.despawnFailure = new IllegalStateException("despawn failed");
+
+        assertThrows(CompletionException.class, () -> service.dismiss(player, active.id()).join());
+
+        assertTrue(pets.stored.get(active.id()).active());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
+    void failedDismissPersistenceRespawnsTheEntity() {
+        var player = player(142);
+        var active = pet(1420, player, LIGHT.id(), PetStatus.ALIVE, true);
+        pets.store(active);
+        pets.nextSaveFailure = new IllegalStateException("save failed");
+
+        assertThrows(CompletionException.class, () -> service.dismiss(player, active.id()).join());
+
+        assertTrue(pets.stored.get(active.id()).active());
+        assertEquals(List.of(active.id()), entities.despawned);
+        assertEquals(List.of(active.id()), entities.spawned);
+        assertTrue(publishedEvents.isEmpty());
+    }
+
     private PetService service(VariantCatalog catalog, dev.dasannn.neopets.core.port.RandomSource random) {
-        return service(catalog, random, pets, players, entities);
+        return service(catalog, random, pets, entities);
     }
 
     private PetService service(
             VariantCatalog catalog,
             dev.dasannn.neopets.core.port.RandomSource random,
             FakePetRepository petRepository,
-            FakePlayerRepository playerRepository,
             RecordingEntityGateway gateway
     ) {
         return new PetService(
                 catalog,
                 petRepository,
-                playerRepository,
                 gateway,
                 ignored -> new RankLimits(maxActivePets, 3, 10),
                 events,
@@ -329,7 +464,9 @@ class PetServiceTest {
     private static final class FakePetRepository implements PetRepository {
         private final Map<PetId, OwnedPet> stored = new LinkedHashMap<>();
         private CompletableFuture<List<OwnedPet>> nextFindByOwner;
+        private Throwable nextSaveFailure;
         private int findByOwnerCalls;
+        private int saveCalls;
 
         @Override
         public CompletableFuture<Optional<OwnedPet>> findById(PetId petId) {
@@ -351,6 +488,20 @@ class PetServiceTest {
 
         @Override
         public CompletableFuture<Void> save(OwnedPet pet) {
+            saveCalls++;
+            if (nextSaveFailure != null) {
+                var failure = nextSaveFailure;
+                nextSaveFailure = null;
+                return CompletableFuture.failedFuture(failure);
+            }
+            boolean duplicateVariant = stored.values().stream()
+                    .anyMatch(existing -> !existing.id().equals(pet.id())
+                            && existing.owner().equals(pet.owner())
+                            && existing.variant().equals(pet.variant()));
+            if (duplicateVariant) {
+                return CompletableFuture.failedFuture(
+                        new DuplicatePetVariantException(pet.owner(), pet.variant()));
+            }
             stored.put(pet.id(), pet);
             return CompletableFuture.completedFuture(null);
         }
@@ -371,37 +522,37 @@ class PetServiceTest {
         }
     }
 
-    private static final class FakePlayerRepository implements PlayerRepository {
-        private final Map<PlayerId, PlayerProfile> stored = new LinkedHashMap<>();
-
-        @Override
-        public CompletableFuture<Optional<PlayerProfile>> findById(PlayerId playerId) {
-            return CompletableFuture.completedFuture(Optional.ofNullable(stored.get(playerId)));
-        }
-
-        @Override
-        public CompletableFuture<Void> save(PlayerProfile profile) {
-            stored.put(profile.playerId(), profile);
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
     private static final class RecordingEntityGateway implements PetEntityGateway {
         private final List<PetId> spawned = new ArrayList<>();
         private final List<PetId> despawned = new ArrayList<>();
+        private Throwable spawnFailure;
+        private Throwable despawnFailure;
 
         @Override
         public void spawn(PetId petId) {
+            if (spawnFailure != null) {
+                throw propagate(spawnFailure);
+            }
             spawned.add(petId);
         }
 
         @Override
         public void despawn(PetId petId) {
+            if (despawnFailure != null) {
+                throw propagate(despawnFailure);
+            }
             despawned.add(petId);
         }
 
         @Override
         public void applyEffects(PetId petId) {
+        }
+
+        private static RuntimeException propagate(Throwable failure) {
+            if (failure instanceof RuntimeException runtimeException) {
+                return runtimeException;
+            }
+            return new RuntimeException(failure);
         }
     }
 }
