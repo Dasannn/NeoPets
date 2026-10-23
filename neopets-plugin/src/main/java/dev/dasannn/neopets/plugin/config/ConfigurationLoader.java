@@ -136,6 +136,9 @@ public final class ConfigurationLoader {
         return Set.copyOf(keys);
     }
 
+    private static final Set<String> VERSION_13_MESSAGES = Set.of(
+            "errors.player-offline", "pets.revived-admin", "pets.soul-wrong-owner",
+            "pets.revive-not-dead");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -187,6 +190,7 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_9_MESSAGES);
         required.addAll(VERSION_10_MESSAGES);
         required.addAll(VERSION_11_MESSAGES);
+        required.addAll(VERSION_13_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -369,6 +373,9 @@ public final class ConfigurationLoader {
         }
         if (sourceVersion < 11) {
             changed |= mergeMissing(language, defaults, VERSION_11_MESSAGES);
+        }
+        if (sourceVersion < 13) {
+            changed |= mergeMissing(language, defaults, VERSION_13_MESSAGES);
         }
         return changed;
     }

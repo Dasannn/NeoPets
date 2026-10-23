@@ -423,6 +423,27 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void versionTwelveInstallReceivesEveryReviveCommandMessage() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: " + ConfigurationMigrator.CURRENT_VERSION, "config-version: 12");
+        String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
+        language = language.replaceFirst("(?m)^  player-offline:.*\\R", "")
+                .replaceFirst("(?m)^  revived-admin:.*\\R", "")
+                .replaceFirst("(?m)^  soul-wrong-owner:.*\\R", "")
+                .replaceFirst("(?m)^  revive-not-dead:.*\\R", "");
+        Files.writeString(temporaryDirectory.resolve("lang/es.yml"), language);
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
+        assertTrue(upgraded.language().find("errors.player-offline").isPresent());
+        assertTrue(upgraded.language().find("pets.revived-admin").isPresent());
+        assertTrue(upgraded.language().find("pets.soul-wrong-owner").isPresent());
+        assertTrue(upgraded.language().find("pets.revive-not-dead").isPresent());
+    }
+
+    @Test
     void variantIconIsOptionalForMenuSpawnEggFallback() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();

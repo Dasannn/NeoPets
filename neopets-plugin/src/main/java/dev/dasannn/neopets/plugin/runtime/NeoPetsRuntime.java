@@ -44,6 +44,7 @@ import dev.dasannn.neopets.plugin.listener.PlayerLifecycleListener;
 import dev.dasannn.neopets.plugin.listener.SoulDeliveryCoordinator;
 import dev.dasannn.neopets.plugin.listener.SoulItemDelivery;
 import dev.dasannn.neopets.plugin.listener.SoulItemFactory;
+import dev.dasannn.neopets.plugin.listener.SoulItemProtectionListener;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
 import dev.dasannn.neopets.platform.paper.OrphanCleaner;
 import dev.dasannn.neopets.platform.paper.PaperPetEntityGateway;
@@ -101,6 +102,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final PetService petService;
     private final SkillPointService skillPoints;
     private final SkillTreeService skillTrees;
+    private final SoulItemService soulItems;
     private final CachingPetRepository pets;
     private final PlayerLifecycleListener playerLifecycle;
     private final PetsMenu petsMenu;
@@ -116,6 +118,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             PetService petService,
             SkillPointService skillPoints,
             SkillTreeService skillTrees,
+            SoulItemService soulItems,
             CachingPetRepository pets,
             PlayerLifecycleListener playerLifecycle,
             PetsMenu petsMenu,
@@ -130,6 +133,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.petService = petService;
         this.skillPoints = skillPoints;
         this.skillTrees = skillTrees;
+        this.soulItems = soulItems;
         this.pets = pets;
         this.playerLifecycle = playerLifecycle;
         this.petsMenu = petsMenu;
@@ -266,6 +270,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     petDeathWorkflow::reconcile);
             pluginManager.registerEvents(playerLifecycle, plugin);
             pluginManager.registerEvents(new FelineLandingListener(felineLanding), plugin);
+            pluginManager.registerEvents(new SoulItemProtectionListener(), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
             var adminMenu = new AdminMenu(plugin, menu, configuration, adminConfiguration,
@@ -295,7 +300,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
-                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, adminMenu,
+                    skillPoints, skillTrees, soulItems, pets, playerLifecycle, petsMenu, adminMenu,
                     adminConfiguration, cache, work);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
@@ -324,6 +329,10 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     public SkillTreeService skillTrees() {
         return skillTrees;
+    }
+
+    public SoulItemService soulItems() {
+        return soulItems;
     }
 
     public CachingPetRepository pets() {

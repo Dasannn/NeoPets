@@ -12,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 12;
+    public static final int CURRENT_VERSION = 13;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -220,6 +220,21 @@ public final class ConfigurationMigrator {
                 for (String ability : List.of("zarpazo", "vigia", "buscatesoros", "aterrizaje-felino")) {
                     setIfMissing(configuration, "abilities." + ability + ".enabled", true);
                 }
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 12;
+            }
+
+            @Override
+            public int toVersion() {
+                return 13;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 13 adds revive-command language keys only.
             }
         }));
     }
