@@ -1,6 +1,6 @@
 # NeoPets — Plan de implementación (MVP)
 
-> Estado: **BORRADOR — pendiente de aprobación**
+> Estado: **APROBADO** (2026-10-23)
 > Depende de: `docs/constitution.md`, `docs/spec.md`, `ARCHITECTURE.md`
 
 ## 1. Hitos

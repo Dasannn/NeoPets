@@ -1,6 +1,6 @@
 # NeoPets — Tareas (MVP)
 
-> Estado: **BORRADOR — pendiente de aprobación**
+> Estado: **APROBADO** (2026-10-23)
 > Formato: ID · carril · depende de · alcance · terminado cuando…
 
 ## M0 Fundaciones
