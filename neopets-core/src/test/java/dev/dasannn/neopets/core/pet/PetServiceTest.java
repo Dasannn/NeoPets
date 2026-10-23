@@ -31,11 +31,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -935,6 +937,7 @@ class PetServiceTest {
 
     private static final class FakeSoulTokens implements SoulTokenRepository {
         private final Map<UUID, Soul> tokens = new LinkedHashMap<>();
+        private final Set<UUID> delivered = new HashSet<>();
         private int consumptions;
 
         @Override
@@ -961,6 +964,26 @@ class PetServiceTest {
                 consumptions++;
             }
             return CompletableFuture.completedFuture(usable);
+        }
+
+        @Override
+        public CompletableFuture<Optional<SoulToken>> findUnconsumedByPet(PetId petId) {
+            return CompletableFuture.completedFuture(tokens.entrySet().stream()
+                    .filter(entry -> entry.getValue().petId().equals(petId) && !entry.getValue().consumed())
+                    .map(entry -> new SoulToken(entry.getKey(), petId, entry.getValue().ownerId(), Instant.EPOCH))
+                    .findFirst());
+        }
+
+        @Override
+        public CompletableFuture<Boolean> wasDelivered(UUID tokenId, PetId petId, PlayerId ownerId) {
+            return CompletableFuture.completedFuture(delivered.contains(tokenId));
+        }
+
+        @Override
+        public CompletableFuture<Boolean> markDelivered(
+                UUID tokenId, PetId petId, PlayerId ownerId, Instant deliveredAt
+        ) {
+            return CompletableFuture.completedFuture(tokens.containsKey(tokenId) && delivered.add(tokenId));
         }
     }
 
