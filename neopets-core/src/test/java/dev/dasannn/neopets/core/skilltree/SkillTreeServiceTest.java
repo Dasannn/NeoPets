@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.NodeActivated;
 import dev.dasannn.neopets.core.event.NodeUnlocked;
@@ -28,6 +30,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 
 class SkillTreeServiceTest {
@@ -51,8 +54,15 @@ class SkillTreeServiceTest {
             new VanillaEffectReference("movement_speed", List.of(new BigDecimal("0.1"))),
             List.of(new BigDecimal("5.00")),
             List.of(1));
+    private static final AttributeDefinition FREE = new AttributeDefinition(
+            "free",
+            AttributeCategory.CUSTOM,
+            1,
+            new CustomEffectReference("free", Optional.empty()),
+            List.of(BigDecimal.ZERO),
+            List.of(0));
     private static final SkillTreeDefinition DEFINITION =
-            new SkillTreeDefinition(TYPE_ID, List.of(HEALTH, SPEED));
+            new SkillTreeDefinition(TYPE_ID, List.of(HEALTH, SPEED, FREE));
 
     @Test
     void unlocksNextLevelWithdrawsItsCostPersistsOnceAndPublishes() {
@@ -145,6 +155,23 @@ class SkillTreeServiceTest {
         assertEquals(List.of(10.0), fixture.economy.deposits);
         assertEquals(List.of(), events);
         assertEquals(1, fixture.progressRepository.saveCount);
+    }
+
+    @Test
+    void reportsFailedMoneyCompensationWithoutHidingThePersistenceFailure() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+        fixture.economy.balance = 50.0;
+        fixture.progressRepository.saveFailure = new IllegalStateException("write failed");
+        fixture.economy.depositFailure = "refund provider offline";
+
+        var result = assertInstanceOf(UnlockResult.Failed.class,
+                fixture.service.unlock(PLAYER, PET_ID, "health").join());
+
+        assertEquals("write failed", result.cause().getMessage());
+        assertEquals(1, result.cause().getSuppressed().length);
+        assertEquals("economy refund failed: refund provider offline",
+                result.cause().getSuppressed()[0].getMessage());
+        assertEquals(40.0, fixture.economy.balance);
     }
 
     @Test
@@ -251,6 +278,52 @@ class SkillTreeServiceTest {
     }
 
     @Test
+    void activatesAZeroCostLevelWithoutReadingOrWritingThePointBalance() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(
+                progress(0, 0, 0, 0).withLevels("free", 1, 0));
+
+        var activation = fixture.service.activate(PLAYER, PET_ID, "free");
+
+        assertTrue(activation.isDone(), "zero-cost activation must not queue a nested SP operation");
+        var result = assertInstanceOf(ActivateResult.Activated.class, activation.join());
+        assertEquals(0, result.skillPointCost());
+        assertEquals(1, fixture.progress().attributes().get("free").activeLevel());
+        assertEquals(0, fixture.playerRepository.findCount);
+        assertEquals(0, fixture.playerRepository.saveCount);
+    }
+
+    @Test
+    void activationDoesNotSelfDeadlockOnTheSharedPlayerQueue() {
+        var fixture = new Fixture(alivePet(), 1, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(1, 0, 0, 0));
+
+        var activation = fixture.service.activate(PLAYER, PET_ID, "health");
+
+        assertTrue(activation.isDone(), "activation must use the unsequenced SP primitive");
+        assertInstanceOf(ActivateResult.Activated.class, activation.join());
+        assertEquals(0, fixture.playerRepository.profile.skillPointBalance());
+    }
+
+    @Test
+    void reportsFailedPointCompensationWithoutHidingThePersistenceFailure() {
+        var fixture = new Fixture(alivePet(), 4, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(1, 0, 0, 0));
+        fixture.progressRepository.saveFailure = new IllegalStateException("tree write failed");
+        fixture.playerRepository.saveFailure = new IllegalStateException("SP refund failed");
+        fixture.playerRepository.failSaveNumber = 2;
+
+        var result = assertInstanceOf(ActivateResult.Failed.class,
+                fixture.service.activate(PLAYER, PET_ID, "health").join());
+
+        assertEquals("tree write failed", result.cause().getMessage());
+        assertEquals(1, result.cause().getSuppressed().length);
+        assertEquals("SP refund failed", result.cause().getSuppressed()[0].getMessage());
+        assertEquals(3, fixture.playerRepository.profile.skillPointBalance());
+        assertEquals(2, fixture.playerRepository.saveCount);
+    }
+
+    @Test
     void resetZeroesEveryLevelRefundsAssignedPointsAndNeverTouchesMoney() {
         var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
         fixture.progressRepository.progress = Optional.of(progress(2, 2, 1, 1));
@@ -293,7 +366,7 @@ class SkillTreeServiceTest {
     }
 
     @Test
-    void resetCompensatesPointRefundWhenProgressPersistenceFails() {
+    void resetDoesNotExposeRefundedPointsWhenProgressPersistenceFails() {
         var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
         fixture.progressRepository.progress = Optional.of(progress(1, 1, 0, 0));
         fixture.progressRepository.saveFailure = new IllegalStateException("write failed");
@@ -303,7 +376,63 @@ class SkillTreeServiceTest {
 
         assertEquals("write failed", result.cause().getMessage());
         assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
-        assertEquals(2, fixture.playerRepository.saveCount);
+        assertEquals(0, fixture.playerRepository.saveCount);
+        assertEquals(1, fixture.progress().activeNodes());
+    }
+
+    @Test
+    void resetRestoresTreeWhenCreditingSkillPointsFails() {
+        var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(1, 1, 0, 0));
+        fixture.playerRepository.saveFailure = new IllegalStateException("SP refund failed");
+        fixture.playerRepository.failSaveNumber = 1;
+
+        var result = assertInstanceOf(ResetResult.Failed.class,
+                fixture.service.reset(PLAYER, PET_ID, true).join());
+
+        assertEquals("SP refund failed", result.cause().getMessage());
+        assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
+        assertEquals(1, fixture.progress().activeNodes());
+        assertEquals(2, fixture.progressRepository.saveCount);
+    }
+
+    @Test
+    void resetReportsFailureToRestoreTreeAfterPointCreditFails() {
+        var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(1, 1, 0, 0));
+        fixture.playerRepository.saveFailure = new IllegalStateException("SP refund failed");
+        fixture.playerRepository.failSaveNumber = 1;
+        fixture.progressRepository.saveFailure = new IllegalStateException("tree restore failed");
+        fixture.progressRepository.failSaveNumber = 2;
+
+        var result = assertInstanceOf(ResetResult.Failed.class,
+                fixture.service.reset(PLAYER, PET_ID, true).join());
+
+        assertEquals("SP refund failed", result.cause().getMessage());
+        assertEquals(1, result.cause().getSuppressed().length);
+        assertEquals("tree restore failed", result.cause().getSuppressed()[0].getMessage());
+        assertEquals(0, fixture.progress().activeNodes());
+    }
+
+    @Test
+    void resetAndConcurrentPointSpendShareOneSequence() {
+        var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
+        fixture.progressRepository.progress = Optional.of(progress(1, 1, 0, 0));
+        fixture.progressRepository.delayNextSave();
+
+        var reset = fixture.service.reset(PLAYER, PET_ID, true);
+        var spend = fixture.skillPointService.take(PLAYER, 3);
+
+        assertFalse(reset.isDone());
+        assertFalse(spend.isDone(), "SP mutation must wait for the complete tree operation");
+        assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
+
+        fixture.progressRepository.failDelayedSave(new IllegalStateException("tree write failed"));
+
+        assertInstanceOf(ResetResult.Failed.class, reset.join());
+        var failure = assertThrows(CompletionException.class, spend::join);
+        assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+        assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
         assertEquals(1, fixture.progress().activeNodes());
     }
 
@@ -365,6 +494,22 @@ class SkillTreeServiceTest {
         assertThrows(NullPointerException.class, () -> fixture.service.unlock(PLAYER, PET_ID, null));
     }
 
+    @Test
+    void requiresTheSkillPointServiceToUseTheSamePlayerQueue() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+
+        assertThrows(IllegalArgumentException.class, () -> new SkillTreeService(
+                fixture.petRepository,
+                fixture.progressRepository,
+                new InMemorySkillTreeRegistry(List.of(DEFINITION)),
+                ignored -> Optional.of(TYPE_ID),
+                fixture.economy,
+                fixture.skillPointService,
+                ignored -> new RankLimits(1, 10, 10),
+                fixture.eventBus,
+                new PlayerOperationQueue()));
+    }
+
     private static OwnedPet alivePet() {
         return pet(PLAYER, PetStatus.ALIVE);
     }
@@ -385,21 +530,24 @@ class SkillTreeServiceTest {
         private final InMemoryPlayerRepository playerRepository;
         private final FakeEconomy economy = new FakeEconomy();
         private final DomainEventBus eventBus = new DomainEventBus();
+        private final PlayerOperationQueue operations = new PlayerOperationQueue();
+        private final SkillPointService skillPointService;
         private final SkillTreeService service;
 
         private Fixture(OwnedPet pet, int skillPoints, RankLimits limits) {
             petRepository = new InMemoryPetRepository(pet);
             playerRepository = new InMemoryPlayerRepository(new PlayerProfile(PLAYER, skillPoints, List.of()));
-            var skillPointsService = new SkillPointService(playerRepository, eventBus);
+            this.skillPointService = new SkillPointService(playerRepository, eventBus, operations);
             service = new SkillTreeService(
                     petRepository,
                     progressRepository,
                     new InMemorySkillTreeRegistry(List.of(DEFINITION)),
                     variantId -> variantId.equals(VARIANT_ID) ? Optional.of(TYPE_ID) : Optional.empty(),
                     economy,
-                    skillPointsService,
+                    skillPointService,
                     ignored -> limits,
-                    eventBus);
+                    eventBus,
+                    operations);
         }
 
         private TreeProgress progress() {
@@ -441,6 +589,7 @@ class SkillTreeServiceTest {
         private Optional<TreeProgress> progress = Optional.empty();
         private RuntimeException loadFailure;
         private RuntimeException saveFailure;
+        private int failSaveNumber;
         private int loadCount;
         private int saveCount;
         private boolean delayNextSave;
@@ -459,7 +608,7 @@ class SkillTreeServiceTest {
         @Override
         public CompletableFuture<Void> save(TreeProgress progress) {
             saveCount++;
-            if (saveFailure != null) {
+            if (saveFailure != null && (failSaveNumber == 0 || saveCount == failSaveNumber)) {
                 return CompletableFuture.failedFuture(saveFailure);
             }
             if (delayNextSave) {
@@ -480,10 +629,16 @@ class SkillTreeServiceTest {
             progress = Optional.of(delayedProgress);
             delayedSave.complete(null);
         }
+
+        private void failDelayedSave(Throwable failure) {
+            delayedSave.completeExceptionally(failure);
+        }
     }
 
     private static final class InMemoryPlayerRepository implements PlayerRepository {
         private PlayerProfile profile;
+        private RuntimeException saveFailure;
+        private int failSaveNumber;
         private int findCount;
         private int saveCount;
 
@@ -500,8 +655,11 @@ class SkillTreeServiceTest {
 
         @Override
         public CompletableFuture<Void> save(PlayerProfile profile) {
-            this.profile = profile;
             saveCount++;
+            if (saveFailure != null && (failSaveNumber == 0 || saveCount == failSaveNumber)) {
+                return CompletableFuture.failedFuture(saveFailure);
+            }
+            this.profile = profile;
             return CompletableFuture.completedFuture(null);
         }
     }
@@ -509,6 +667,7 @@ class SkillTreeServiceTest {
     private static final class FakeEconomy implements Economy {
         private double balance;
         private String withdrawalFailure;
+        private String depositFailure;
         private final List<Double> withdrawals = new ArrayList<>();
         private final List<Double> deposits = new ArrayList<>();
 
@@ -529,6 +688,9 @@ class SkillTreeServiceTest {
 
         @Override
         public EconomyResult deposit(PlayerId playerId, double amount) {
+            if (depositFailure != null) {
+                return new EconomyResult.Failure(depositFailure);
+            }
             balance += amount;
             deposits.add(amount);
             return new EconomyResult.Success(balance);

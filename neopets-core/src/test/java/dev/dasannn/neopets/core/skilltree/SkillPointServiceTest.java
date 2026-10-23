@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.SkillPointsChanged;
 import dev.dasannn.neopets.core.model.PlayerId;
@@ -27,7 +28,7 @@ class SkillPointServiceTest {
         var events = new ArrayList<SkillPointsChanged>();
         var eventBus = new DomainEventBus();
         eventBus.subscribe(SkillPointsChanged.class, events::add);
-        var service = new SkillPointService(repository, eventBus);
+        var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
         assertEquals(0, service.balance(playerId).join());
         assertEquals(5, service.give(playerId, 5).join());
@@ -42,7 +43,7 @@ class SkillPointServiceTest {
         var events = new ArrayList<SkillPointsChanged>();
         var eventBus = new DomainEventBus();
         eventBus.subscribe(SkillPointsChanged.class, events::add);
-        var service = new SkillPointService(repository, eventBus);
+        var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
         assertEquals(7, service.give(playerId, 3).join());
         assertEquals(5, service.take(playerId, 2).join());
@@ -61,7 +62,7 @@ class SkillPointServiceTest {
     @Test
     void serializesOverlappingGivesForTheSamePlayer() {
         var repository = new DelayedFirstSaveRepository(new PlayerProfile(playerId, 10, List.of()));
-        var service = new SkillPointService(repository, new DomainEventBus());
+        var service = new SkillPointService(repository, new DomainEventBus(), new PlayerOperationQueue());
 
         var first = service.give(playerId, 2);
         var second = service.give(playerId, 3);
@@ -80,7 +81,7 @@ class SkillPointServiceTest {
     @Test
     void serializesOverlappingGiveAndTakeForTheSamePlayer() {
         var repository = new DelayedFirstSaveRepository(new PlayerProfile(playerId, 10, List.of()));
-        var service = new SkillPointService(repository, new DomainEventBus());
+        var service = new SkillPointService(repository, new DomainEventBus(), new PlayerOperationQueue());
 
         var give = service.give(playerId, 3);
         var take = service.take(playerId, 12);
@@ -95,7 +96,7 @@ class SkillPointServiceTest {
     void balanceHasNoConfiguredCapButRejectsIntegerOverflow() {
         var repository = new InMemoryPlayerRepository(
                 new PlayerProfile(playerId, Integer.MAX_VALUE - 1, List.of()));
-        var service = new SkillPointService(repository, new DomainEventBus());
+        var service = new SkillPointService(repository, new DomainEventBus(), new PlayerOperationQueue());
 
         assertEquals(Integer.MAX_VALUE, service.give(playerId, 1).join());
         assertFutureFailsWith(IllegalArgumentException.class, service.give(playerId, 1));
@@ -105,7 +106,8 @@ class SkillPointServiceTest {
     void validatesAmountsAndAvailableBalance() {
         var service = new SkillPointService(
                 new InMemoryPlayerRepository(new PlayerProfile(playerId, 2, List.of())),
-                new DomainEventBus());
+                new DomainEventBus(),
+                new PlayerOperationQueue());
 
         assertThrows(IllegalArgumentException.class, () -> service.give(playerId, 0));
         assertThrows(IllegalArgumentException.class, () -> service.give(playerId, -1));
@@ -120,10 +122,12 @@ class SkillPointServiceTest {
     void requiresDependenciesAndPlayerIds() {
         var repository = new InMemoryPlayerRepository();
         var eventBus = new DomainEventBus();
-        assertThrows(NullPointerException.class, () -> new SkillPointService(null, eventBus));
-        assertThrows(NullPointerException.class, () -> new SkillPointService(repository, null));
+        var operations = new PlayerOperationQueue();
+        assertThrows(NullPointerException.class, () -> new SkillPointService(null, eventBus, operations));
+        assertThrows(NullPointerException.class, () -> new SkillPointService(repository, null, operations));
+        assertThrows(NullPointerException.class, () -> new SkillPointService(repository, eventBus, null));
 
-        var service = new SkillPointService(repository, eventBus);
+        var service = new SkillPointService(repository, eventBus, operations);
         assertThrows(NullPointerException.class, () -> service.balance(null));
         assertThrows(NullPointerException.class, () -> service.give(null, 1));
         assertThrows(NullPointerException.class, () -> service.take(null, 1));
@@ -137,7 +141,7 @@ class SkillPointServiceTest {
         var events = new ArrayList<SkillPointsChanged>();
         var eventBus = new DomainEventBus();
         eventBus.subscribe(SkillPointsChanged.class, events::add);
-        var service = new SkillPointService(repository, eventBus);
+        var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
         assertFutureFailsWith(IllegalStateException.class, service.give(playerId, 1));
         assertEquals(List.of(), events);
@@ -153,7 +157,7 @@ class SkillPointServiceTest {
             throw new IllegalStateException("listener unavailable");
         });
         eventBus.subscribe(SkillPointsChanged.class, deliveredEvents::add);
-        var service = new SkillPointService(repository, eventBus);
+        var service = new SkillPointService(repository, eventBus, new PlayerOperationQueue());
 
         assertEquals(5, service.give(playerId, 5).join());
         assertEquals(3, service.take(playerId, 2).join());

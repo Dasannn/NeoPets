@@ -1,6 +1,6 @@
 package dev.dasannn.neopets.core.skilltree;
 
-import dev.dasannn.neopets.core.concurrent.KeyedSequencer;
+import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.NodeActivated;
 import dev.dasannn.neopets.core.event.NodeUnlocked;
@@ -26,8 +26,8 @@ import java.util.function.Function;
 /**
  * Purchases, activates, and resets skill-tree levels for owned pets.
  *
- * <p>Every operation for one player is sequenced through one queue. External balance changes are
- * applied before tree persistence and compensated if that persistence fails.</p>
+ * <p>Every operation for one player is sequenced through a queue shared with skill-point mutations.
+ * Cross-repository changes use compensation when a later persistence step fails.</p>
  */
 public final class SkillTreeService {
     private final PetRepository petRepository;
@@ -38,7 +38,7 @@ public final class SkillTreeService {
     private final SkillPointService skillPointService;
     private final RankLimitsResolver rankLimitsResolver;
     private final DomainEventBus eventBus;
-    private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
+    private final PlayerOperationQueue operations;
 
     /** Creates a service with persistence and external effects supplied as ports. */
     public SkillTreeService(
@@ -49,7 +49,8 @@ public final class SkillTreeService {
             Economy economy,
             SkillPointService skillPointService,
             RankLimitsResolver rankLimitsResolver,
-            DomainEventBus eventBus
+            DomainEventBus eventBus,
+            PlayerOperationQueue operations
     ) {
         this.petRepository = Objects.requireNonNull(petRepository, "petRepository");
         this.progressRepository = Objects.requireNonNull(progressRepository, "progressRepository");
@@ -59,6 +60,10 @@ public final class SkillTreeService {
         this.skillPointService = Objects.requireNonNull(skillPointService, "skillPointService");
         this.rankLimitsResolver = Objects.requireNonNull(rankLimitsResolver, "rankLimitsResolver");
         this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
+        this.operations = Objects.requireNonNull(operations, "operations");
+        if (!skillPointService.uses(operations)) {
+            throw new IllegalArgumentException("skill-point and skill-tree services must share one player queue");
+        }
     }
 
     /** Purchases the next level of an attribute with money. */
@@ -201,17 +206,17 @@ public final class SkillTreeService {
                             new ActivateResult.SkillPointLimitReached(skillPointLimit));
                 }
 
-                return skillPointService.balance(playerId).thenCompose(balance -> {
+                TreeProgress changed = progress.withActiveLevel(attributeDefinition.id(), nextLevel);
+                if (skillPointCost == 0) {
+                    return saveActivated(
+                            playerId, attributeDefinition.id(), nextLevel, 0, changed, false);
+                }
+                return skillPointService.balanceUnsequenced(playerId).thenCompose(balance -> {
                     if (balance < skillPointCost) {
                         return CompletableFuture.completedFuture(
                                 new ActivateResult.InsufficientSkillPoints(skillPointCost, balance));
                     }
-                    TreeProgress changed = progress.withActiveLevel(attributeDefinition.id(), nextLevel);
-                    if (skillPointCost == 0) {
-                        return saveActivated(
-                                playerId, attributeDefinition.id(), nextLevel, 0, changed, false);
-                    }
-                    return skillPointService.take(playerId, skillPointCost).thenCompose(ignored -> saveActivated(
+                    return skillPointService.applyDelta(playerId, -skillPointCost).thenCompose(ignored -> saveActivated(
                             playerId, attributeDefinition.id(), nextLevel, skillPointCost, changed, true));
                 });
             });
@@ -237,7 +242,7 @@ public final class SkillTreeService {
             if (!pointsSpent) {
                 return CompletableFuture.completedFuture(new ActivateResult.Failed(cause));
             }
-            return skillPointService.give(playerId, skillPointCost)
+            return skillPointService.applyDelta(playerId, skillPointCost)
                     .handle((balance, refundFailure) -> {
                         if (refundFailure != null) {
                             cause.addSuppressed(unwrap(refundFailure));
@@ -262,35 +267,34 @@ public final class SkillTreeService {
                 TreeProgress current = progress(stored, petId, definition);
                 TreeProgress zeroed = TreeProgress.empty(petId, definition);
                 int refund = refundSkillPoints ? current.assignedSkillPoints(definition) : 0;
-                if (refund == 0) {
-                    return saveReset(playerId, zeroed, 0, false);
-                }
-                return skillPointService.give(playerId, refund)
-                        .thenCompose(ignored -> saveReset(playerId, zeroed, refund, true));
+                return saveReset(playerId, current, zeroed, refund);
             });
         });
     }
 
     private CompletableFuture<ResetResult> saveReset(
-            PlayerId playerId, TreeProgress zeroed, int refund, boolean pointsReturned
+            PlayerId playerId, TreeProgress current, TreeProgress zeroed, int refund
     ) {
-        return saveProgress(zeroed).<CompletableFuture<ResetResult>>handle((ignored, failure) -> {
-            if (failure == null) {
+        return saveProgress(zeroed).thenCompose(ignored -> {
+            if (refund == 0) {
                 return CompletableFuture.completedFuture(new ResetResult.Reset(zeroed, refund));
             }
 
-            Throwable cause = unwrap(failure);
-            if (!pointsReturned) {
-                return CompletableFuture.completedFuture(new ResetResult.Failed(cause));
-            }
-            return skillPointService.take(playerId, refund)
-                    .handle((balance, compensationFailure) -> {
-                        if (compensationFailure != null) {
-                            cause.addSuppressed(unwrap(compensationFailure));
+            return skillPointService.applyDelta(playerId, refund)
+                    .<CompletableFuture<ResetResult>>handle((balance, failure) -> {
+                        if (failure == null) {
+                            return CompletableFuture.completedFuture(new ResetResult.Reset(zeroed, refund));
                         }
-                        return (ResetResult) new ResetResult.Failed(cause);
-                    });
-        }).thenCompose(Function.identity());
+
+                        Throwable cause = unwrap(failure);
+                        return saveProgress(current).handle((restored, compensationFailure) -> {
+                            if (compensationFailure != null) {
+                                cause.addSuppressed(unwrap(compensationFailure));
+                            }
+                            return (ResetResult) new ResetResult.Failed(cause);
+                        });
+                    }).thenCompose(Function.identity());
+        });
     }
 
     private Optional<SkillTreeDefinition> treeFor(OwnedPet pet) {
