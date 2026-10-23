@@ -38,6 +38,7 @@ class DomainEventTest {
         assertThrows(NullPointerException.class, () -> new NodeActivated(petId, null, 1));
         assertThrows(IllegalArgumentException.class, () -> new NodeActivated(petId, " ", 1));
         assertThrows(IllegalArgumentException.class, () -> new NodeActivated(petId, "health", -1));
+        assertThrows(NullPointerException.class, () -> new TreeReset(null));
     }
 
     @Test
@@ -56,6 +57,7 @@ class DomainEventTest {
         assertInstanceOf(DomainEvent.class, new PetRevived(petId, ownerId));
         assertInstanceOf(DomainEvent.class, new NodeUnlocked(petId, "health", 1));
         assertInstanceOf(DomainEvent.class, new NodeActivated(petId, "health", 1));
+        assertInstanceOf(DomainEvent.class, new TreeReset(petId));
         assertInstanceOf(DomainEvent.class, new SkillPointsChanged(ownerId, 0, 1));
     }
 }

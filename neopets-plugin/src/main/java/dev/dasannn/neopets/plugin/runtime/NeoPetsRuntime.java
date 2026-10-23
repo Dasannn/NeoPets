@@ -15,6 +15,7 @@ import dev.dasannn.neopets.core.port.RankLimitsResolver;
 import dev.dasannn.neopets.core.skilltree.SkillPointService;
 import dev.dasannn.neopets.core.skilltree.SkillTreeRegistry;
 import dev.dasannn.neopets.core.skilltree.SkillTreeService;
+import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.api.NeoPetsApiImpl;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
@@ -39,6 +40,11 @@ import dev.dasannn.neopets.platform.paper.PetProtectionListener;
 import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import dev.dasannn.neopets.platform.paper.PetTicker;
+import dev.dasannn.neopets.platform.paper.effect.AbilityRegistry;
+import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
+import dev.dasannn.neopets.platform.paper.effect.PetSkillTreeState;
+import dev.dasannn.neopets.platform.paper.effect.SkillTreePetEffectApplier;
+import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import dev.dasannn.neopets.storage.JdbcPetRepository;
 import dev.dasannn.neopets.storage.JdbcPlayerRepository;
 import dev.dasannn.neopets.storage.JdbcTreeProgressRepository;
@@ -109,7 +115,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
         try {
             var spawner = new PetSpawner();
             var configuration = new ConfigurationManager(new ConfigurationLoader(
-                    plugin.getDataFolder().toPath(), spawner::validateAppearance));
+                    plugin.getDataFolder().toPath(), spawner::validateAppearance,
+                    VanillaEffectCatalog.knownEffectIds()));
             var messages = new LocalizedMessages(configuration);
 
             var storage = lifecycle.started(new StorageBootstrap(storageSettings(plugin, configuration)));
@@ -145,11 +152,22 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
+            var effectCatalog = new VanillaEffectCatalog();
+            var effectApplier = new SkillTreePetEffectApplier(
+                    petId -> effectState(cache, configuration, petId),
+                    new AttributeEffectAdapter(effectCatalog),
+                    AbilityRegistry.empty(),
+                    abilityId -> plugin.getLogger().warning(
+                            "No custom pet ability is registered for effect id '" + abilityId + "'"));
             var gateway = new PaperPetEntityGateway(plugin.getServer(), scheduler, spawner, livePets,
                     petId -> spawnData(cache, petId),
                     variantId -> variants.findById(variantId).orElseThrow(
-                            () -> new IllegalStateException("Unknown variant: " + variantId)));
+                            () -> new IllegalStateException("Unknown variant: " + variantId)),
+                    effectApplier);
             entityPort.bind(gateway);
+            lifecycle.started(SkillTreeEffectRefresh.subscribe(events, livePets, gateway,
+                    (petId, failure) -> plugin.getLogger().log(Level.SEVERE,
+                            "Could not reapply skill-tree effects for pet " + petId, failure)));
             var brain = new PetBrain(4.0, configuration.current().settings().followTeleportDistance(), 1.2);
             var ticker = lifecycle.started(new PetTicker(plugin.getServer(), scheduler, livePets, brain, gateway));
             ticker.start();
@@ -281,6 +299,20 @@ public final class NeoPetsRuntime implements AutoCloseable {
         OwnedPet pet = cache.loadedPet(petId)
                 .orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
         return new PetSpawnData(pet.owner().value(), pet.variant());
+    }
+
+    private static Optional<PetSkillTreeState> effectState(
+            PlayerDataCache cache,
+            ConfigurationManager configuration,
+            PetId petId
+    ) {
+        return cache.loadedPet(petId).flatMap(pet -> configuration.current().variants()
+                .findById(pet.variant())
+                .flatMap(variant -> configuration.current().skillTree(variant.type()))
+                .map(definition -> new PetSkillTreeState(
+                        definition,
+                        cache.loadedTreeProgress(petId)
+                                .orElseGet(() -> TreeProgress.empty(petId, definition)))));
     }
 
     private static StorageSettings storageSettings(

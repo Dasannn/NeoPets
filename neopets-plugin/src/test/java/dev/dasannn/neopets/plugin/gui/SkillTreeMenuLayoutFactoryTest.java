@@ -15,7 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,7 +73,7 @@ class SkillTreeMenuLayoutFactoryTest {
     }
 
     @Test
-    void laysOutFourAttributesPerPageWithAlignedFillersAndControls() {
+    void laysOutFourAttributesPerPageWithDistinctIconsEmptyTailSlotsAndControls() {
         SkillTreeMenuData data = data(referenceProgress(), 7, 12, 22, 12, 22,
                 Optional.of(BigDecimal.valueOf(20_000)));
         var first = factory.build(data, 0, false);
@@ -78,17 +81,54 @@ class SkillTreeMenuLayoutFactoryTest {
 
         assertEquals(2, first.totalPages());
         assertEquals("GLISTERING_MELON_SLICE", first.layout().items().get(10).material());
-        assertEquals("LIME_STAINED_GLASS_PANE", first.layout().items().get(11).material());
-        assertEquals("LIGHT_GRAY_STAINED_GLASS_PANE", first.layout().items().get(16).material());
+        assertEquals("LIME_DYE", first.layout().items().get(11).material());
+        assertTrue(first.layout().items().get(11).glint());
+        assertFalse(first.layout().items().containsKey(16));
+        assertEquals("MAGMA_CREAM", first.layout().items().get(28).material());
+        assertFalse(first.layout().items().containsKey(30));
         assertEquals("SUGAR", second.layout().items().get(10).material());
         assertEquals("NETHER_STAR", second.layout().items().get(19).material());
-        assertEquals("LIGHT_GRAY_STAINED_GLASS_PANE", second.layout().items().get(28).material());
+        assertFalse(second.layout().items().containsKey(21));
+        assertFalse(second.layout().items().containsKey(28));
+        assertEquals(6, Set.of(
+                first.layout().items().get(10).material(),
+                first.layout().items().get(19).material(),
+                first.layout().items().get(28).material(),
+                first.layout().items().get(37).material(),
+                second.layout().items().get(10).material(),
+                second.layout().items().get(19).material()).size());
         assertTrue(first.layout().items().get(50).actionId().isPresent());
         assertTrue(first.layout().items().get(48).actionId().isEmpty());
         assertTrue(second.layout().items().get(48).actionId().isPresent());
         assertTrue(second.layout().items().get(50).actionId().isEmpty());
-        assertEquals("ARROW", first.layout().items().get(49).material());
+        assertEquals("OAK_DOOR", first.layout().items().get(49).material());
         assertEquals("BOOK", first.layout().items().get(51).material());
+    }
+
+    @Test
+    void rendersNodeStatesAsDyesAndShippedValuesAsRelativeBonuses() {
+        TreeProgress progress = TreeProgress.empty(PET_ID, polarBear)
+                .withLevels("health", 3, 1);
+        var layout = factory.build(data(progress, 5, 1, 22, 3, 22,
+                Optional.of(BigDecimal.valueOf(10_000))), 0, false).layout();
+
+        assertEquals("LIME_DYE", layout.items().get(11).material());
+        assertTrue(layout.items().get(11).glint());
+        assertEquals("YELLOW_DYE", layout.items().get(12).material());
+        assertEquals("GRAY_DYE", layout.items().get(13).material());
+        assertEquals("ORANGE_DYE", layout.items().get(14).material());
+
+        SkillTreeMenuData noMoney = data(progress, 5, 1, 22, 3, 22, Optional.of(BigDecimal.ZERO));
+        assertEquals("RED_DYE", factory.build(noMoney, 0, false).layout().items().get(14).material());
+
+        SkillTreeMenuData reference = data(referenceProgress(), 7, 12, 22, 12, 22,
+                Optional.of(BigDecimal.valueOf(20_000)));
+        var first = factory.build(reference, 0, false).layout();
+        var second = factory.build(reference, 1, false).layout();
+        assertEquals("+8 de vida máxima", plain(first.items().get(14).lore().getFirst()));
+        assertEquals("+1 de regeneración", plain(first.items().get(20).lore().getFirst()));
+        assertEquals("Inmunidad al fuego", plain(first.items().get(29).lore().getFirst()));
+        assertEquals("+10% de velocidad", plain(second.items().get(12).lore().getFirst()));
     }
 
     @Test
@@ -116,7 +156,7 @@ class SkillTreeMenuLayoutFactoryTest {
         MenuLayoutJson.write(output.resolve("skill-tree-polar-bear-page-1.json"),
                 factory.build(reference, 0, false).layout(), List.of(4, 10, 14, 47));
         MenuLayoutJson.write(output.resolve("skill-tree-polar-bear-page-2.json"),
-                factory.build(reference, 1, false).layout(), List.of(4, 10, 19, 48));
+                factory.build(reference, 1, false).layout(), List.of(4, 12, 19, 48));
 
         TreeProgress fresh = TreeProgress.empty(PET_ID, polarBear);
         MenuLayoutJson.write(output.resolve("skill-tree-fresh.json"),
@@ -151,5 +191,9 @@ class SkillTreeMenuLayoutFactoryTest {
         return new SkillTreeMenuData(PET_ID.toString(), "Nieve", "polar_bear", "SNOWBALL",
                 false, availableSp, assignedSp, maxSp, unlockedNodes, maxNodes, money,
                 polarBear, progress, true, BigDecimal.valueOf(5_000));
+    }
+
+    private static String plain(String miniMessage) {
+        return PlainTextComponentSerializer.plainText().serialize(MiniMessage.miniMessage().deserialize(miniMessage));
     }
 }

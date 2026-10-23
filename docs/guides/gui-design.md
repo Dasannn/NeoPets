@@ -12,8 +12,9 @@ Todas las GUIs de NeoPets siguen estas reglas para verse ordenadas, limpias y co
 - **Contenido**: el área interior de 7×4 (slots 10–16, 19–25, 28–34, 37–43), llenada de izquierda
   a derecha y de arriba abajo, sin huecos.
 - **Barra de control** (fila inferior), siempre en las mismas posiciones:
-  - 47 filtro/orden (`HOPPER`), 48 página anterior (`ARROW`), 49 cerrar o volver (`BARRIER` /
-    `ARROW` con nombre "Volver"), 50 página siguiente (`ARROW`), 51 ayuda (`BOOK`).
+  - 47 filtro/orden (`HOPPER`) o acción secundaria del menú, 48 página anterior (`ARROW`), 49 cerrar
+    (`BARRIER`) o volver al menú anterior (`OAK_DOOR`, nunca una flecha), 50 página siguiente (`ARROW`),
+    51 ayuda (`BOOK`).
   - Un botón sin acción posible (p. ej. no hay página anterior) se muestra en gris
     (`<gray>`) o se sustituye por panel de marco.
 
@@ -25,6 +26,10 @@ Todas las GUIs de NeoPets siguen estas reglas para verse ordenadas, limpias y co
   `POLAR_BEAR_SPAWN_EGG`, `DONKEY_SPAWN_EGG`) o el `icon` configurado en la variante.
   - Invocada: brillo de encantamiento.
   - Muerta: `GRAY_DYE` con nombre en rojo.
+- Elementos de estado (p. ej. nodos de un árbol) usan ítems distintos de los paneles del marco
+  (tintes por estado), para no confundirse con el marco ni el relleno. Los slots sin contenido
+  dentro de una fila de datos se dejan vacíos.
+- Valores de mejoras siempre relativos: `+8 de vida`, `+10% de velocidad`.
 - Nada de texto en cursiva por defecto (desactivar la cursiva de lore/nombres).
 
 ## Texto (MiniMessage)

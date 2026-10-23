@@ -4,6 +4,7 @@ import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.NodeActivated;
 import dev.dasannn.neopets.core.event.NodeUnlocked;
+import dev.dasannn.neopets.core.event.TreeReset;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetStatus;
@@ -321,13 +322,13 @@ public final class SkillTreeService {
     ) {
         return saveProgress(zeroed).thenCompose(ignored -> {
             if (refund == 0) {
-                return CompletableFuture.completedFuture(new ResetResult.Reset(zeroed, refund));
+                return completedReset(zeroed, refund);
             }
 
             return skillPointService.applyDelta(playerId, refund)
                     .<CompletableFuture<ResetResult>>handle((balance, failure) -> {
                         if (failure == null) {
-                            return CompletableFuture.completedFuture(new ResetResult.Reset(zeroed, refund));
+                            return completedReset(zeroed, refund);
                         }
 
                         Throwable cause = unwrap(failure);
@@ -339,6 +340,11 @@ public final class SkillTreeService {
                         });
                     }).thenCompose(Function.identity());
         });
+    }
+
+    private CompletableFuture<ResetResult> completedReset(TreeProgress zeroed, int refund) {
+        eventBus.publish(new TreeReset(zeroed.petId()));
+        return CompletableFuture.completedFuture(new ResetResult.Reset(zeroed, refund));
     }
 
     private Optional<SkillTreeDefinition> treeFor(OwnedPet pet) {

@@ -76,14 +76,12 @@ public final class SkillTreeMenuLayoutFactory {
             int start = ROW_STARTS[row];
             if (from + row < to) {
                 addAttributeRow(items, start, attributes.get(from + row), data);
-            } else {
-                fillRow(items, start);
             }
         }
         items.put(47, resetItem(data, resetConfirmation));
         items.put(48, pageIndex > 0 ? MenuItem.action("ARROW", text("gui.skill-tree.previous-page"),
                 List.of(pageNumber(pageIndex, totalPages)), false, ACTION_PREVIOUS_PAGE) : inactiveControl());
-        items.put(49, MenuItem.action("ARROW", text("gui.skill-tree.back"), List.of(), false, ACTION_BACK));
+        items.put(49, MenuItem.action("OAK_DOOR", text("gui.skill-tree.back"), List.of(), false, ACTION_BACK));
         items.put(50, pageIndex + 1 < totalPages ? MenuItem.action("ARROW", text("gui.skill-tree.next-page"),
                 List.of(pageNumber(pageIndex, totalPages)), false, ACTION_NEXT_PAGE) : inactiveControl());
         items.put(51, MenuItem.action("BOOK", text("gui.skill-tree.help-name"),
@@ -149,9 +147,6 @@ public final class SkillTreeMenuLayoutFactory {
         for (int level = 1; level <= attribute.maxLevel(); level++) {
             items.put(start + level, nodeItem(data, attribute, level));
         }
-        for (int slot = start + attribute.maxLevel() + 1; slot <= start + 6; slot++) {
-            items.put(slot, interiorFiller());
-        }
     }
 
     private MenuItem attributeItem(AttributeDefinition attribute) {
@@ -169,33 +164,34 @@ public final class SkillTreeMenuLayoutFactory {
         String effect = effectLine(attribute, level);
         String levelText = Integer.toString(level);
         return switch (view.state()) {
-            case ACTIVE -> item("LIME_STAINED_GLASS_PANE", "gui.skill-tree.node-active-name",
-                    List.of(effect), levelText, view.actionId());
-            case UNLOCKED -> item("YELLOW_STAINED_GLASS_PANE", "gui.skill-tree.node-unlocked-name",
+            case ACTIVE -> item("LIME_DYE", "gui.skill-tree.node-active-name",
+                    List.of(effect), levelText, true, view.actionId());
+            case UNLOCKED -> item("YELLOW_DYE", "gui.skill-tree.node-unlocked-name",
                     List.of(effect,
                             text("gui.skill-tree.node-sp-cost", "cost", attribute.skillPointCosts().get(level - 1)),
-                            "", text("gui.skill-tree.action-activate")), levelText, view.actionId());
-            case NEXT_UNLOCKABLE -> item("ORANGE_STAINED_GLASS_PANE", "gui.skill-tree.node-next-name",
+                            "", text("gui.skill-tree.action-activate")), levelText, false, view.actionId());
+            case NEXT_UNLOCKABLE -> item("ORANGE_DYE", "gui.skill-tree.node-next-name",
                     List.of(effect, text("gui.skill-tree.node-money-cost", "cost",
                             money(attribute.unlockMoneyCosts().get(level - 1))), "",
-                            text("gui.skill-tree.action-unlock")), levelText, view.actionId());
-            case LOCKED -> item("GRAY_STAINED_GLASS_PANE", "gui.skill-tree.node-locked-name",
-                    List.of(effect, "", reason(view.reason(), data)), levelText, view.actionId());
-            case UNAVAILABLE -> item("RED_STAINED_GLASS_PANE", "gui.skill-tree.node-unavailable-name",
-                    List.of(effect, "", reason(view.reason(), data)), levelText, view.actionId());
+                            text("gui.skill-tree.action-unlock")), levelText, false, view.actionId());
+            case LOCKED -> item("GRAY_DYE", "gui.skill-tree.node-locked-name",
+                    List.of(effect, "", reason(view.reason(), data)), levelText, false, view.actionId());
+            case UNAVAILABLE -> item("RED_DYE", "gui.skill-tree.node-unavailable-name",
+                    List.of(effect, "", reason(view.reason(), data)), levelText, false, view.actionId());
         };
     }
 
     private MenuItem item(
-            String material, String nameKey, List<String> lore, String level, Optional<String> action
+            String material, String nameKey, List<String> lore, String level, boolean glint, Optional<String> action
     ) {
-        return new MenuItem(material, text(nameKey, "level", level), lore, false, 1, action);
+        return new MenuItem(material, text(nameKey, "level", level), lore, glint, 1, action);
     }
 
     private String effectLine(AttributeDefinition attribute, int level) {
         String key = attributeKey(attribute, "effect");
         if (attribute.effect() instanceof VanillaEffectReference effect) {
-            return text(key, "value", number(effect.valuesPerLevel().get(level - 1)));
+            BigDecimal value = effect.valuesPerLevel().get(level - 1);
+            return text(key, "value", relativeValue(effect.catalogEffectId(), value));
         }
         if (attribute.effect() instanceof CustomEffectReference) {
             return text(key);
@@ -278,16 +274,6 @@ public final class SkillTreeMenuLayoutFactory {
         }
     }
 
-    private void fillRow(Map<Integer, MenuItem> items, int start) {
-        for (int slot = start; slot <= start + 6; slot++) {
-            items.put(slot, interiorFiller());
-        }
-    }
-
-    private MenuItem interiorFiller() {
-        return MenuItem.decoration("LIGHT_GRAY_STAINED_GLASS_PANE", text("gui.pets.blank"));
-    }
-
     private MenuItem inactiveControl() {
         return MenuItem.decoration("GRAY_STAINED_GLASS_PANE", text("gui.pets.blank"));
     }
@@ -329,6 +315,15 @@ public final class SkillTreeMenuLayoutFactory {
 
     private static String number(BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    private static String relativeValue(String effectId, BigDecimal value) {
+        return switch (effectId) {
+            case "movement_speed", "flying_speed", "scale", "knockback_resistance",
+                    "explosion_knockback_resistance", "fall_damage_multiplier", "fall_damage_reduction" ->
+                    number(value.multiply(BigDecimal.valueOf(100)));
+            default -> number(value);
+        };
     }
 
     private static String plain(String miniMessage) {

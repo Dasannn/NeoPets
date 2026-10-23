@@ -40,8 +40,22 @@ class ConfigurationMigratorTest {
         var migrator = new ConfigurationMigrator();
         var configuration = new YamlConfiguration();
 
-        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 5));
+        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 7));
         assertThrows(IllegalArgumentException.class,
                 () -> new ConfigurationMigrator(2, List.of()).migrate(configuration, 1));
+    }
+
+    @Test
+    void versionFiveRewritesOnlyUntouchedLegacySkillTreeValues() {
+        var migrator = new ConfigurationMigrator();
+        var dog = new YamlConfiguration();
+        dog.set("attributes.health.values", List.of(22, 24, 26, 28, 30));
+        dog.set("attributes.speed.values", List.of(0.32, 0.34, 0.36, 0.38, 0.4));
+        dog.set("attributes.scent.values", List.of(3, 6, 9, 12, 15));
+
+        assertTrue(migrator.migrateSkillTree(dog, "dog", 3));
+        assertEquals(List.of(2, 4, 6, 8, 10), dog.getList("attributes.health.values"));
+        assertEquals(List.of(0.05, 0.1, 0.15, 0.2, 0.25), dog.getList("attributes.speed.values"));
+        assertEquals(List.of(3, 6, 9, 12, 15), dog.getList("attributes.scent.values"));
     }
 }

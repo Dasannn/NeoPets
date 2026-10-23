@@ -4,14 +4,14 @@ attributes:
     category: vanilla
     max-level: 5
     effect: max_health
-    values: [32, 34, 36, 38, 40]
+    values: [2, 4, 6, 8, 10]
     money-costs: [100, 250, 500, 1000, 2000]
     skill-point-cost: 1
   regeneration:
     category: vanilla
     max-level: 5
     effect: regeneration
-    values: [0.1, 0.2, 0.3, 0.4, 0.5]
+    values: [1, 2, 3, 4, 5]
     money-costs: [150, 300, 600, 1200, 2400]
     skill-point-cost: 1
   fire_resistance:
@@ -25,14 +25,14 @@ attributes:
     category: vanilla
     max-level: 5
     effect: attack_damage
-    values: [7, 8, 9, 10, 12]
+    values: [1, 2, 3, 4, 5]
     money-costs: [100, 250, 500, 1000, 2000]
     skill-point-cost: 1
   speed:
     category: vanilla
     max-level: 5
     effect: movement_speed
-    values: [0.27, 0.29, 0.31, 0.33, 0.35]
+    values: [0.05, 0.1, 0.15, 0.2, 0.25]
     money-costs: [150, 300, 600, 1200, 2400]
     skill-point-cost: 1
   claw_swipe:
