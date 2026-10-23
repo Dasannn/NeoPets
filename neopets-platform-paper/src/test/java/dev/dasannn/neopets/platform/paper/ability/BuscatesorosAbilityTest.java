@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.platform.paper.ability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetId;
 import java.lang.reflect.Proxy;
@@ -10,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.Chunk;
+import org.bukkit.ChunkSnapshot;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -34,6 +36,17 @@ class BuscatesorosAbilityTest {
             case "getMaxHeight" -> 320;
             case "isChunkLoaded" -> true;
             case "getBlockAt" -> ore;
+            case "getChunkAt" -> proxy(Chunk.class, (chunk, chunkMethod, chunkArgs) -> {
+                if (!chunkMethod.getName().equals("getChunkSnapshot")) {
+                    throw new AssertionError(chunkMethod);
+                }
+                return proxy(ChunkSnapshot.class, (snapshot, snapshotMethod, coordinates) -> {
+                    if (!snapshotMethod.getName().equals("getBlockType")) {
+                        throw new AssertionError(snapshotMethod);
+                    }
+                    return Material.DIAMOND_ORE;
+                });
+            });
             default -> throw new AssertionError(method);
         });
         UUID entityId = UUID.randomUUID();
@@ -55,17 +68,24 @@ class BuscatesorosAbilityTest {
         var petId = new PetId(UUID.randomUUID());
         var cooldowns = new CooldownTracker();
         ability.onActivate(pet, owner, 1);
-        ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH, cooldowns, 0, ability.id()));
-        ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH.plusSeconds(1), cooldowns, 0, ability.id()));
-        assertEquals(32, particles[0]);
+        // The scan is spread over ticks; advance until it has found targets and notified the owner.
+        for (int tick = 0; tick < 200 && particles[0] == 0; tick++) {
+            ability.tick(new AbilityContext(
+                    petId, pet, owner, 1, Instant.EPOCH.plusMillis(tick), cooldowns, 0, ability.id()));
+        }
         assertEquals(1, notifications[0]);
+        assertTrue(particles[0] > 0);
+        int particlesBeforeDisable = particles[0];
         enabled.set(false);
         ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH.plusSeconds(2), cooldowns, 0, ability.id()));
         ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH.plusSeconds(30), cooldowns, 0, ability.id()));
-        assertEquals(32, particles[0]);
+        assertEquals(particlesBeforeDisable, particles[0]);
         assertEquals(1, notifications[0]);
         enabled.set(true);
-        ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH.plusSeconds(30), cooldowns, 0, ability.id()));
+        for (int tick = 0; tick < 200 && notifications[0] == 1; tick++) {
+            ability.tick(new AbilityContext(
+                    petId, pet, owner, 1, Instant.EPOCH.plusSeconds(30).plusMillis(tick), cooldowns, 0, ability.id()));
+        }
         assertEquals(2, notifications[0]);
     }
 
