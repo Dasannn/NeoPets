@@ -50,6 +50,50 @@ class PetTickerTest {
     }
 
     @Test
+    void failedUnloadRecoveryIsRetriedOnTheNextSharedTick() {
+        var petId = new PetId(UUID.randomUUID());
+        var unloadedEntityId = UUID.randomUUID();
+        var replacementEntityId = UUID.randomUUID();
+        var registry = new LivePetRegistry();
+        registry.register(petId, unloadedEntityId);
+        var scheduler = new RecordingScheduler();
+        var gateway = new RecordingGateway(registry, replacementEntityId, 1);
+        var ticker = ticker(scheduler, registry, gateway);
+        ticker.start();
+
+        ticker.recoverUnloaded(List.of(taggedEntity(petId, unloadedEntityId)));
+
+        assertEquals(1, gateway.spawnCount);
+        assertTrue(registry.isRecoveryPending(petId));
+
+        scheduler.task.runnable.run();
+
+        assertEquals(2, gateway.spawnCount);
+        assertEquals(replacementEntityId, registry.entityId(petId).orElseThrow());
+        assertFalse(registry.isRecoveryPending(petId));
+    }
+
+    @Test
+    void explicitDespawnCancelsAQueuedUnloadRecovery() {
+        var petId = new PetId(UUID.randomUUID());
+        var unloadedEntityId = UUID.randomUUID();
+        var registry = new LivePetRegistry();
+        registry.register(petId, unloadedEntityId);
+        var scheduler = new RecordingScheduler();
+        var gateway = new RecordingGateway(registry, UUID.randomUUID(), 1);
+        var ticker = ticker(scheduler, registry, gateway);
+        ticker.start();
+
+        ticker.recoverUnloaded(List.of(taggedEntity(petId, unloadedEntityId)));
+        gateway.despawn(petId).join();
+        scheduler.task.runnable.run();
+
+        assertEquals(1, gateway.spawnCount);
+        assertFalse(registry.isRecoveryPending(petId));
+        assertTrue(registry.entityId(petId).isEmpty());
+    }
+
+    @Test
     void transientEntityLookupMissDoesNotForgetActivePet() {
         var petId = new PetId(UUID.randomUUID());
         var entityId = UUID.randomUUID();
@@ -145,16 +189,26 @@ class PetTickerTest {
     private static final class RecordingGateway implements PetEntityGateway {
         private final LivePetRegistry registry;
         private final UUID replacementEntityId;
+        private int failuresRemaining;
         private int spawnCount;
 
         private RecordingGateway(LivePetRegistry registry, UUID replacementEntityId) {
+            this(registry, replacementEntityId, 0);
+        }
+
+        private RecordingGateway(LivePetRegistry registry, UUID replacementEntityId, int failuresRemaining) {
             this.registry = registry;
             this.replacementEntityId = replacementEntityId;
+            this.failuresRemaining = failuresRemaining;
         }
 
         @Override
         public CompletableFuture<Void> spawn(PetId petId) {
             spawnCount++;
+            if (failuresRemaining > 0) {
+                failuresRemaining--;
+                return CompletableFuture.failedFuture(new IllegalStateException("spawn failed"));
+            }
             if (registry != null) {
                 registry.register(petId, replacementEntityId);
             }
@@ -163,6 +217,9 @@ class PetTickerTest {
 
         @Override
         public CompletableFuture<Void> despawn(PetId petId) {
+            if (registry != null) {
+                registry.unregister(petId);
+            }
             return CompletableFuture.completedFuture(null);
         }
 

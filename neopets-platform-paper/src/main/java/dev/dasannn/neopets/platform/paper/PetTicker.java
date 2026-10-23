@@ -1,8 +1,11 @@
 package dev.dasannn.neopets.platform.paper;
 
+import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.util.Collection;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
@@ -22,6 +25,7 @@ public final class PetTicker implements AutoCloseable, Listener {
     private final PetBrain brain;
     private final PetEntityGateway entityGateway;
     private final long periodTicks;
+    private final Set<PetId> recoveriesInFlight = ConcurrentHashMap.newKeySet();
     private TaskScheduler.RepeatingTask task;
 
     /** Creates a ticker that runs every ten ticks. */
@@ -81,14 +85,15 @@ public final class PetTicker implements AutoCloseable, Listener {
     void recoverUnloaded(Collection<? extends Entity> entities) {
         for (var entity : entities) {
             PetEntityMetadata.petId(entity).ifPresent(petId -> {
-                if (registry.unregister(petId, entity.getUniqueId())) {
-                    entityGateway.spawn(petId);
+                if (registry.beginRecovery(petId, entity.getUniqueId())) {
+                    requestRecovery(petId);
                 }
             });
         }
     }
 
     private void tickAll() {
+        registry.pendingRecoveriesSnapshot().forEach(this::requestRecovery);
         for (var entry : registry.snapshot().entrySet()) {
             var entity = server.getEntity(entry.getValue());
             if (entity == null) {
@@ -110,6 +115,18 @@ public final class PetTicker implements AutoCloseable, Listener {
             if (owner != null && owner.isOnline()) {
                 brain.tick(pet, owner);
             }
+        }
+    }
+
+    private void requestRecovery(PetId petId) {
+        if (!registry.isRecoveryPending(petId) || !recoveriesInFlight.add(petId)) {
+            return;
+        }
+        try {
+            var recovery = Objects.requireNonNull(entityGateway.spawn(petId), "entityGateway.spawn result");
+            recovery.whenComplete((ignored, failure) -> recoveriesInFlight.remove(petId));
+        } catch (RuntimeException failure) {
+            recoveriesInFlight.remove(petId);
         }
     }
 }

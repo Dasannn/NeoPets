@@ -127,13 +127,16 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
         }
 
         var entity = spawner.spawn(owner.getLocation(), spawnData.ownerId(), petId, variant);
-        registry.register(petId, entity.getUniqueId());
+        if (entity == null || !entity.isValid()) {
+            throw new IllegalStateException(
+                    "NeoPets pet spawn was cancelled or rejected by the server, possibly by another plugin: " + petId);
+        }
         try {
             if (entity instanceof LivingEntity livingEntity) {
                 effectApplier.apply(petId, livingEntity);
             }
+            registry.register(petId, entity.getUniqueId());
         } catch (Throwable failure) {
-            registry.unregister(petId, entity.getUniqueId());
             try {
                 entity.remove();
             } catch (Throwable cleanupFailure) {

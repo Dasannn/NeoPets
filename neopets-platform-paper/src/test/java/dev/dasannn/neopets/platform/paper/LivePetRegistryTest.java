@@ -37,6 +37,27 @@ class LivePetRegistryTest {
     }
 
     @Test
+    void recoveryStateSurvivesFailureUntilRegistrationOrExplicitDespawn() {
+        var unloadedEntity = UUID.randomUUID();
+        var replacement = UUID.randomUUID();
+        registry.register(petId, unloadedEntity);
+
+        assertTrue(registry.beginRecovery(petId, unloadedEntity));
+        assertTrue(registry.entityId(petId).isEmpty());
+        assertTrue(registry.isRecoveryPending(petId));
+
+        registry.register(petId, replacement);
+
+        assertFalse(registry.isRecoveryPending(petId));
+        assertEquals(replacement, registry.entityId(petId).orElseThrow());
+
+        assertTrue(registry.beginRecovery(petId, replacement));
+        registry.unregister(petId);
+
+        assertFalse(registry.isRecoveryPending(petId));
+    }
+
+    @Test
     void snapshotIsImmutableAndUnaffectedByLaterUpdates() {
         registry.register(petId, UUID.randomUUID());
         var snapshot = registry.snapshot();

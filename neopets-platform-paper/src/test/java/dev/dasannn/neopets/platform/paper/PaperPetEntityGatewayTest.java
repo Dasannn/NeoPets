@@ -1,5 +1,7 @@
 package dev.dasannn.neopets.platform.paper;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,6 +22,48 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
 class PaperPetEntityGatewayTest {
+    @Test
+    void cancelledSpawnFailsWithoutRegisteringOrApplyingEffects() {
+        var fixture = new GatewayFixture();
+        var effectsApplied = new boolean[1];
+        var invalidEntity = livingEntity(UUID.randomUUID(), new boolean[] {true});
+        var gateway = fixture.gateway(
+                new DirectScheduler(),
+                (location, ownerId, petId, variant) -> invalidEntity,
+                (petId, entity) -> effectsApplied[0] = true);
+
+        var thrown = assertThrows(CompletionException.class, () -> gateway.spawn(fixture.petId).join());
+
+        assertTrue(thrown.getCause().getMessage().contains("cancelled or rejected"));
+        assertTrue(fixture.registry.entityId(fixture.petId).isEmpty());
+        assertFalse(effectsApplied[0]);
+    }
+
+    @Test
+    void spawnDefersAllBukkitWorkUntilTheMainThreadTaskRuns() {
+        var fixture = new GatewayFixture();
+        var scheduler = new DeferredScheduler();
+        var spawnCalls = new int[1];
+        var entityId = UUID.randomUUID();
+        var entity = livingEntity(entityId, new boolean[1]);
+        var gateway = fixture.gateway(scheduler, (location, ownerId, petId, variant) -> {
+            spawnCalls[0]++;
+            return entity;
+        }, PetEffectApplier.noOp());
+
+        var result = gateway.spawn(fixture.petId);
+
+        assertFalse(result.isDone());
+        assertEquals(0, spawnCalls[0]);
+
+        scheduler.runDeferredTask();
+
+        assertTrue(result.isDone());
+        assertFalse(result.isCompletedExceptionally());
+        assertEquals(1, spawnCalls[0]);
+        assertEquals(entityId, fixture.registry.entityId(fixture.petId).orElseThrow());
+    }
+
     @Test
     void failedEffectInitializationRemovesEntityAndRegistryEntry() {
         var petId = new PetId(UUID.randomUUID());
@@ -55,6 +99,36 @@ class PaperPetEntityGatewayTest {
         assertSame(failure, thrown.getCause());
         assertTrue(removed[0]);
         assertTrue(registry.entityId(petId).isEmpty());
+    }
+
+    private static final class GatewayFixture {
+        private final PetId petId = new PetId(UUID.randomUUID());
+        private final UUID ownerId = UUID.randomUUID();
+        private final VariantId variantId = new VariantId("dog_test");
+        private final PetVariant variant = new PetVariant(
+                variantId,
+                new PetTypeId("dog"),
+                VariantAppearance.empty(),
+                false,
+                1.0,
+                "pets.dog_test");
+        private final LivePetRegistry registry = new LivePetRegistry();
+        private final Server server = server(onlinePlayer(ownerId));
+
+        private PaperPetEntityGateway gateway(
+                TaskScheduler scheduler,
+                PaperPetEntityGateway.EntitySpawner spawner,
+                PetEffectApplier effectApplier
+        ) {
+            return new PaperPetEntityGateway(
+                    server,
+                    scheduler,
+                    spawner,
+                    registry,
+                    ignored -> new PetSpawnData(ownerId, variantId),
+                    ignored -> variant,
+                    effectApplier);
+        }
     }
 
     private static LivingEntity livingEntity(UUID entityId, boolean[] removed) {
@@ -119,6 +193,37 @@ class PaperPetEntityGatewayTest {
         @Override
         public boolean isMainThread() {
             return true;
+        }
+    }
+
+    private static final class DeferredScheduler implements TaskScheduler {
+        private Runnable deferredTask;
+        private CompletableFuture<Void> future;
+
+        @Override
+        public CompletableFuture<Void> runOnMain(Runnable task) {
+            deferredTask = task;
+            future = new CompletableFuture<>();
+            return future;
+        }
+
+        @Override
+        public RepeatingTask runRepeating(Runnable task, long initialDelayTicks, long periodTicks) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isMainThread() {
+            return false;
+        }
+
+        private void runDeferredTask() {
+            try {
+                deferredTask.run();
+                future.complete(null);
+            } catch (Throwable throwable) {
+                future.completeExceptionally(throwable);
+            }
         }
     }
 }
