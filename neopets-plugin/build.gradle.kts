@@ -8,6 +8,12 @@ plugins {
     id("neopets.java-conventions")
 }
 
+repositories {
+    maven("https://jitpack.io") {
+        name = "jitpack"
+    }
+}
+
 val bundledModules = configurations.create("bundledModules") {
     isCanBeConsumed = false
     isCanBeResolved = true
@@ -17,6 +23,9 @@ dependencies {
     api(project(":neopets-platform-paper"))
     api(project(":neopets-storage"))
     compileOnly(libs.paper.api)
+    compileOnly(libs.vault.api)
+    testImplementation(libs.paper.api)
+    testImplementation(libs.vault.api)
 
     // Internal modules (and, transitively, core and api) are merged into the plugin jar.
     add(bundledModules.name, project(":neopets-storage"))
