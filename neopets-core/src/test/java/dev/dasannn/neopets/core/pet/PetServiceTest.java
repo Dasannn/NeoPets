@@ -550,6 +550,53 @@ class PetServiceTest {
         assertTrue(publishedEvents.isEmpty());
     }
 
+    @Test
+    void renameRejectsPetsNotOwnedByThePlayer() {
+        var owner = player(150);
+        var stranger = player(151);
+        var pet = pet(1500, owner, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(pet);
+
+        assertEquals(new RenameResult.NotOwned(pet.id()), service.rename(stranger, pet.id(), "Luna").join());
+        assertTrue(pets.stored.get(pet.id()).customName().isEmpty());
+    }
+
+    @Test
+    void renameIsSerializedWithSummonWithoutLosingEitherChange() {
+        var player = player(152);
+        var inactive = pet(1520, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(inactive);
+        var delayedRenameSave = new CompletableFuture<Void>();
+        pets.nextSave = delayedRenameSave;
+
+        var renamed = service.rename(player, inactive.id(), "Luna");
+        var summoned = service.summon(player, inactive.id());
+
+        assertFalse(renamed.isDone());
+        assertFalse(summoned.isDone());
+        assertEquals(1, pets.findByIdCalls);
+        delayedRenameSave.complete(null);
+
+        assertEquals("Luna", assertInstanceOf(RenameResult.Renamed.class, renamed.join())
+                .pet().customName().orElseThrow());
+        assertInstanceOf(SummonResult.Summoned.class, summoned.join());
+        OwnedPet persisted = pets.stored.get(inactive.id());
+        assertEquals("Luna", persisted.customName().orElseThrow());
+        assertTrue(persisted.active());
+        assertEquals(2, pets.findByIdCalls);
+    }
+
+    @Test
+    void renameDefensivelyRejectsNamesThatCannotFitTheGuiContract() {
+        var player = player(153);
+        var pet = pet(1530, player, LIGHT.id(), PetStatus.ALIVE, false);
+        pets.store(pet);
+
+        assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), " "));
+        assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), "a".repeat(33)));
+        assertThrows(IllegalArgumentException.class, () -> service.rename(player, pet.id(), "line\nbreak"));
+    }
+
     private PetService service(VariantCatalog catalog, dev.dasannn.neopets.core.port.RandomSource random) {
         return service(catalog, random, pets, entities);
     }
@@ -600,11 +647,13 @@ class PetServiceTest {
         private CompletableFuture<Void> nextSave;
         private Throwable nextSaveFailure;
         private String lastSaveCallThread;
+        private int findByIdCalls;
         private int findByOwnerCalls;
         private int saveCalls;
 
         @Override
         public CompletableFuture<Optional<OwnedPet>> findById(PetId petId) {
+            findByIdCalls++;
             if (nextFindById != null) {
                 var result = nextFindById;
                 nextFindById = null;

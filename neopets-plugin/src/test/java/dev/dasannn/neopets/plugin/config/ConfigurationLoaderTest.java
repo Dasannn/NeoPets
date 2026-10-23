@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,7 +31,7 @@ class ConfigurationLoaderTest {
     void shippedDefaultsCopyAndParseIntoCompleteDomainCatalogs() throws Exception {
         ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
 
-        assertEquals(2, snapshot.settings().configVersion());
+        assertEquals(3, snapshot.settings().configVersion());
         assertEquals(PluginSettings.StorageType.SQLITE, snapshot.settings().storage().type());
         assertFalse(snapshot.settings().features().shopEnabled());
         assertEquals(5, snapshot.skillTrees().size());
@@ -104,7 +105,7 @@ class ConfigurationLoaderTest {
     void failedReloadLeavesPreviousSnapshotActive() throws Exception {
         var manager = new ConfigurationManager(new ConfigurationLoader(temporaryDirectory));
         ConfigurationSnapshot original = manager.current();
-        replace("config.yml", "config-version: 2", "config-version: 99");
+        replace("config.yml", "config-version: 3", "config-version: 99");
 
         assertThrows(ConfigurationLoadException.class, manager::reload);
 
@@ -182,10 +183,21 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void variantIconIsOptionalForMenuSpawnEggFallback() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("pets/dog.yml", "    icon: BONE\n", "");
+
+        ConfigurationSnapshot snapshot = loader.load();
+
+        assertFalse(snapshot.variantIcons().containsKey(new VariantId("dog_pale")));
+    }
+
+    @Test
     void everyShippedMessageIsRequired() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("lang/es.yml", "  pets-title: \"<dark_purple>Mis mascotas</dark_purple>\"\n", "");
+        replace("lang/es.yml", "  pets-title: \"Mis mascotas\"\n", "");
 
         ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
 
@@ -193,25 +205,48 @@ class ConfigurationLoaderTest {
     }
 
     @Test
-    void versionOneInstallBackfillsNewKeysWithoutOverwritingCustomValues() throws Exception {
+    void oldInstallBackfillsConfigAndLanguageWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 2", "config-version: 1");
+        replace("config.yml", "config-version: 3", "config-version: 1");
         replace("config.yml", "  load-timeout-seconds: 10\n", "");
         replace("config.yml", "teleport-distance: 20", "teleport-distance: 37");
         replace("lang/es.yml", "  profile-load: \"<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>\"\n", "");
+        replace("lang/es.yml", "    header-name: \"<gold><bold>Mis mascotas</bold></gold>\"\n", "");
         replace("lang/es.yml", "  usage-neopet: \"<gray>Usa <white>/neopet give|summon|dismiss|sp|reload</white>.</gray>\"",
                 "  usage-neopet: \"mensaje personalizado\"");
+        replace("lang/es.yml", "    close: \"<red>Cerrar</red>\"", "    close: \"cierre personalizado\"");
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(2, upgraded.settings().configVersion());
+        assertEquals(3, upgraded.settings().configVersion());
         assertEquals(37.0, upgraded.settings().followTeleportDistance());
         assertEquals(10, upgraded.settings().playerDataLoadTimeout().toSeconds());
         assertEquals("mensaje personalizado", upgraded.language().find("general.usage-neopet").orElseThrow());
+        assertEquals("cierre personalizado", upgraded.language().find("gui.pets.close").orElseThrow());
         assertTrue(upgraded.language().find("errors.profile-load").isPresent());
-        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 2"));
+        assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
+        assertTrue(Files.readString(temporaryDirectory.resolve("config.yml")).contains("config-version: 3"));
         assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("profile-load:"));
+        assertTrue(Files.readString(temporaryDirectory.resolve("lang/es.yml")).contains("header-name:"));
+    }
+
+    @Test
+    void versionTwoInstallReceivesEveryPetsMenuMessageAndStillLoads() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: 3", "config-version: 2");
+        String language = Files.readString(temporaryDirectory.resolve("lang/es.yml"));
+        int petsSection = language.indexOf("  pets:\n", language.indexOf("gui:\n"));
+        int adminSection = language.indexOf("\nadmin:\n", petsSection);
+        Files.writeString(temporaryDirectory.resolve("lang/es.yml"),
+                language.substring(0, petsSection) + language.substring(adminSection + 1));
+
+        ConfigurationSnapshot upgraded = loader.load();
+
+        assertEquals(3, upgraded.settings().configVersion());
+        assertTrue(upgraded.language().find("gui.pets.header-name").isPresent());
+        assertTrue(upgraded.language().find("gui.pets.rename-invalid").isPresent());
     }
 
     private void replace(String relativePath, String target, String replacement) throws IOException {
