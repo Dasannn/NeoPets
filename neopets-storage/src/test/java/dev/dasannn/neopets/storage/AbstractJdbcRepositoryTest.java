@@ -7,6 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.dasannn.neopets.core.pet.VariantCatalog;
+import dev.dasannn.neopets.core.model.PetVariant;
+import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.port.PetEntityGateway;
+import java.util.concurrent.CompletableFuture;
+import java.time.Clock;
+import dev.dasannn.neopets.core.pet.PetService;
+import dev.dasannn.neopets.core.event.DomainEventBus;
+import dev.dasannn.neopets.core.pet.DeathResult;
+import dev.dasannn.neopets.core.pet.SoulItemService;
+import dev.dasannn.neopets.core.pet.ReviveResult;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetStatus;
@@ -16,6 +27,7 @@ import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.SaddlebagVersionConflictException;
 import dev.dasannn.neopets.core.pet.PendingSoulDelivery;
+import dev.dasannn.neopets.core.pet.PetDeathWork;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +55,7 @@ abstract class AbstractJdbcRepositoryTest {
     private JdbcPetStorageRepository petStorage;
     private JdbcPendingSoulDeliveryRepository pendingDeliveries;
     private JdbcSaddlebagRepository saddlebags;
+    private JdbcPetDeathWorkRepository deathWork;
 
     abstract StorageSettings settings();
 
@@ -59,6 +72,7 @@ abstract class AbstractJdbcRepositoryTest {
         petStorage = new JdbcPetStorageRepository(bootstrap);
         pendingDeliveries = new JdbcPendingSoulDeliveryRepository(bootstrap);
         saddlebags = new JdbcSaddlebagRepository(bootstrap);
+        deathWork = new JdbcPetDeathWorkRepository(bootstrap);
     }
 
     @AfterEach
@@ -204,11 +218,37 @@ abstract class AbstractJdbcRepositoryTest {
         await(pets.save(alive));
         await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {7, 8, 9}));
 
-        await(pets.save(alive.withStatus(PetStatus.DEAD).withActive(false)));
+        var catalog = new VariantCatalog() {
+            public Optional<PetVariant> findById(VariantId id) {
+                return Optional.empty();
+            }
+            public List<PetVariant> findAll() { return List.of(); }
+            public List<PetVariant> findByType(
+                    PetTypeId type) { return List.of(); }
+        };
+        var entities = new PetEntityGateway() {
+            public CompletableFuture<Void> spawn(PetId id) {
+                throw new AssertionError("death/revive must not spawn entities");
+            }
+            public CompletableFuture<Void> despawn(PetId id) {
+                throw new AssertionError("death/revive must not despawn entities");
+            }
+            public CompletableFuture<Void> applyEffects(PetId id) {
+                throw new AssertionError("death/revive must not apply effects");
+            }
+        };
+        var clock = Clock.systemUTC();
+        var service = new PetService(catalog, pets, entities,
+                ignored -> { throw new AssertionError("death/revive must not resolve ranks"); },
+                new DomainEventBus(), () -> 0.0, clock);
+        assertInstanceOf(DeathResult.Died.class, await(service.die(OWNER, PET_ID)));
 
         assertArrayEquals(new byte[] {7, 8, 9},
                 await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {0})).contents());
-        await(pets.save(alive.withStatus(PetStatus.ALIVE).withActive(false)));
+        var souls = new SoulItemService(tokens, clock);
+        var soul = await(souls.issue(PET_ID, OWNER));
+        assertInstanceOf(ReviveResult.Revived.class,
+                await(service.revive(OWNER, PET_ID, soul.tokenId(), OWNER, souls)));
         assertArrayEquals(new byte[] {7, 8, 9},
                 await(saddlebags.loadOrCreate(PET_ID, OWNER, new byte[] {0})).contents());
     }
@@ -251,6 +291,13 @@ abstract class AbstractJdbcRepositoryTest {
         var issuedAt = Instant.parse("2026-10-23T13:00:00.456Z");
         await(tokens.issue(tokenId, PET_ID, OWNER, issuedAt));
 
+        assertEquals(Optional.of(new dev.dasannn.neopets.core.pet.SoulToken(
+                tokenId, PET_ID, OWNER, issuedAt)), await(tokens.findUnconsumedByPet(PET_ID)));
+        assertFalse(await(tokens.wasDelivered(tokenId, PET_ID, OWNER)));
+        assertTrue(await(tokens.markDelivered(tokenId, PET_ID, OWNER, issuedAt.plusMillis(1))));
+        assertFalse(await(tokens.markDelivered(tokenId, PET_ID, OWNER, issuedAt.plusMillis(2))));
+        assertTrue(await(tokens.wasDelivered(tokenId, PET_ID, OWNER)));
+
         assertTrue(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
         assertFalse(await(tokens.isUsable(tokenId, OTHER_PET_ID, OWNER)));
         assertFalse(await(tokens.isUsable(tokenId, PET_ID, OTHER_OWNER)));
@@ -264,6 +311,7 @@ abstract class AbstractJdbcRepositoryTest {
         assertEquals(1, successfulConsumptions);
         assertFalse(await(tokens.consume(tokenId, PET_ID, OWNER, issuedAt.plusSeconds(3))));
         assertFalse(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
+        assertEquals(Optional.empty(), await(tokens.findUnconsumedByPet(PET_ID)));
     }
 
     @Test
@@ -291,12 +339,33 @@ abstract class AbstractJdbcRepositoryTest {
         await(pendingDeliveries.save(second));
         await(pendingDeliveries.save(first));
         await(pendingDeliveries.save(other));
+        await(pendingDeliveries.save(first));
 
         assertEquals(List.of(first, second), await(pendingDeliveries.findByOwner(OWNER)));
         assertEquals(List.of(other), await(pendingDeliveries.findByOwner(OTHER_OWNER)));
+        assertTrue(await(pendingDeliveries.claim(firstToken)));
+        assertFalse(await(pendingDeliveries.claim(firstToken)));
+        await(pendingDeliveries.releaseClaims(OTHER_OWNER));
+        assertFalse(await(pendingDeliveries.claim(firstToken)));
+        await(pendingDeliveries.releaseClaims(OWNER));
+        assertTrue(await(pendingDeliveries.claim(firstToken)));
         await(pendingDeliveries.delete(firstToken));
         await(pendingDeliveries.delete(firstToken));
         assertEquals(List.of(second), await(pendingDeliveries.findByOwner(OWNER)));
+    }
+
+    @Test
+    final void deathWorkPersistsPolicyAndSkillCheckpointByPet() throws Exception {
+        var started = new PetDeathWork(PET_ID, OWNER, false, false, CREATED_AT);
+        await(deathWork.save(started));
+
+        assertEquals(Optional.of(started), await(deathWork.findByPet(PET_ID)));
+        assertEquals(List.of(started), await(deathWork.findByOwner(OWNER)));
+
+        var handled = started.withSkillsHandled().withCompleted();
+        await(deathWork.save(handled));
+        assertEquals(Optional.of(handled), await(deathWork.findByPet(PET_ID)));
+        assertEquals(List.of(), await(deathWork.findByOwner(OTHER_OWNER)));
     }
 
     private static OwnedPet pet(PetId id, PlayerId owner, String variant) {
@@ -310,7 +379,7 @@ abstract class AbstractJdbcRepositoryTest {
                 CREATED_AT);
     }
 
-    private static <T> T await(java.util.concurrent.CompletableFuture<T> future) throws Exception {
+    private static <T> T await(CompletableFuture<T> future) throws Exception {
         return future.get(10, TimeUnit.SECONDS);
     }
 }

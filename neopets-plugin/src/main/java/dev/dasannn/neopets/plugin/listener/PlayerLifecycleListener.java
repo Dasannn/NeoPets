@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.bukkit.event.EventHandler;
@@ -45,6 +46,7 @@ public final class PlayerLifecycleListener implements Listener {
             ignored -> CompletableFuture.completedFuture(null);
     private java.util.function.Function<PlayerId, CompletableFuture<Void>> beforeRestore =
             ignored -> CompletableFuture.completedFuture(null);
+    private final Function<PlayerId, CompletableFuture<Void>> reconcileDeaths;
     private final ConcurrentHashMap<AsyncPlayerPreLoginEvent, Long> preLoginTokens = new ConcurrentHashMap<>();
 
     public PlayerLifecycleListener(
@@ -55,7 +57,8 @@ public final class PlayerLifecycleListener implements Listener {
             LocalizedMessages messages,
             Logger logger,
             Consumer<Runnable> scheduleLoginExpiry,
-            RuntimeWorkTracker work
+            RuntimeWorkTracker work,
+            Function<PlayerId, CompletableFuture<Void>> reconcileDeaths
     ) {
         this.cache = Objects.requireNonNull(cache, "cache");
         this.pets = Objects.requireNonNull(pets, "pets");
@@ -64,6 +67,7 @@ public final class PlayerLifecycleListener implements Listener {
         this.messages = Objects.requireNonNull(messages, "messages");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.work = Objects.requireNonNull(work, "work");
+        this.reconcileDeaths = Objects.requireNonNull(reconcileDeaths, "reconcileDeaths");
         pendingLogins = new PendingLoginSessions(scheduleLoginExpiry, this::cleanupRejectedLogin);
     }
 
@@ -119,7 +123,9 @@ public final class PlayerLifecycleListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         PlayerId playerId = new PlayerId(event.getPlayer().getUniqueId());
         pendingLogins.joined(playerId);
-        work.submit(() -> beforeRestore.apply(playerId).thenCompose(ready -> pets.findByOwner(playerId))
+        work.submit(() -> beforeRestore.apply(playerId)
+                .thenCompose(ready -> reconcileDeaths.apply(playerId))
+                .thenCompose(ready -> pets.findByOwner(playerId))
                 .thenCompose(owned -> all(owned.stream().filter(OwnedPet::active)
                         .filter(pet -> pet.status() == PetStatus.ALIVE)
                         .map(pet -> entities.spawn(pet.id())).toList())))

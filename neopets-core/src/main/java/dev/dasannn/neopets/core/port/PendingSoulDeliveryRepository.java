@@ -8,11 +8,20 @@ import java.util.concurrent.CompletableFuture;
 
 /** Asynchronous persistence for soul items waiting to reach an owner. */
 public interface PendingSoulDeliveryRepository {
-    /** Inserts the pending delivery identified by its unique token. */
+    /** Inserts or idempotently retains the pending delivery identified by its unique token. */
     CompletableFuture<Void> save(PendingSoulDelivery delivery);
 
     /** Returns every pending delivery for an owner in creation order. */
     CompletableFuture<List<PendingSoulDelivery>> findByOwner(PlayerId ownerId);
+
+    /** Atomically claims an unclaimed pending row before its item is handed to the owner. */
+    CompletableFuture<Boolean> claim(UUID tokenId);
+
+    /**
+     * Releases unfinished claims before retrying a serialized owner delivery batch.
+     * Call only inside the owner's shared operation sequence, with no delivery in flight.
+     */
+    CompletableFuture<Void> releaseClaims(PlayerId ownerId);
 
     /** Removes a delivery only after its item has reached the inventory or the owner's feet. */
     CompletableFuture<Void> delete(UUID tokenId);

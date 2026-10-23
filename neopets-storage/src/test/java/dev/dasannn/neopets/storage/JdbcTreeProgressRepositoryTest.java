@@ -57,6 +57,76 @@ class JdbcTreeProgressRepositoryTest {
         }
     }
 
+    @Test
+    void deathResetAndRefundAreDurableAndRepeatableAcrossRestart() throws Exception {
+        var settings = new StorageSettings(StorageType.SQLITE, temporaryDirectory.resolve("death.db"),
+                null, 0, null, null, null, 2, Duration.ofSeconds(5));
+        var petId = new PetId(UUID.randomUUID());
+        var owner = new PlayerId(UUID.randomUUID());
+        var definition = new SkillTreeDefinition(new PetTypeId("dog"), List.of(
+                new AttributeDefinition("scent", AttributeCategory.CUSTOM, 2,
+                        new CustomEffectReference("scent"), List.of(BigDecimal.ONE, BigDecimal.TEN),
+                        List.of(2, 3))));
+        var progress = TreeProgress.empty(petId, definition).withLevels("scent", 2, 2);
+        try (var bootstrap = new StorageBootstrap(settings)) {
+            await(new JdbcPetRepository(bootstrap).save(new OwnedPet(petId, owner, new VariantId("dog_pale"),
+                    Optional.empty(), PetStatus.DEAD, false, Instant.EPOCH)));
+            await(new JdbcPlayerRepository(bootstrap).save(
+                    new dev.dasannn.neopets.core.model.PlayerProfile(owner, 7, List.of())));
+            var trees = new JdbcTreeProgressRepository(bootstrap,
+                    ignored -> CompletableFuture.completedFuture(definition));
+            await(trees.save(progress));
+            await(new JdbcPetDeathWorkRepository(bootstrap).save(
+                    new dev.dasannn.neopets.core.pet.PetDeathWork(petId, owner, false, false, Instant.EPOCH)));
+            assertEquals(12, await(trees.resetForDeath(owner, TreeProgress.empty(petId, definition),
+                    progress.assignedSkillPoints(definition))));
+        }
+        try (var restarted = new StorageBootstrap(settings)) {
+            var trees = new JdbcTreeProgressRepository(restarted,
+                    ignored -> CompletableFuture.completedFuture(definition));
+            // Even a retry with the original refund must not credit SP twice.
+            assertEquals(12, await(trees.resetForDeath(owner, TreeProgress.empty(petId, definition), 5)));
+            assertEquals(Optional.empty(), await(trees.load(petId)));
+            org.junit.jupiter.api.Assertions.assertTrue(await(new JdbcPetDeathWorkRepository(restarted)
+                    .findByPet(petId)).orElseThrow().skillsHandled());
+            assertEquals(12, await(new JdbcPlayerRepository(restarted).findById(owner))
+                    .orElseThrow().skillPointBalance());
+        }
+    }
+
+    @Test
+    void failedRefundRollsBackProgressAndCheckpoint() throws Exception {
+        var settings = new StorageSettings(StorageType.SQLITE, temporaryDirectory.resolve("rollback.db"),
+                null, 0, null, null, null, 2, Duration.ofSeconds(5));
+        var petId = new PetId(UUID.randomUUID());
+        var owner = new PlayerId(UUID.randomUUID());
+        var definition = new SkillTreeDefinition(new PetTypeId("dog"), List.of(
+                new AttributeDefinition("scent", AttributeCategory.CUSTOM, 1,
+                        new CustomEffectReference("scent"), List.of(BigDecimal.ONE))));
+        var progress = TreeProgress.empty(petId, definition).withLevels("scent", 1, 1);
+        try (var bootstrap = new StorageBootstrap(settings)) {
+            await(new JdbcPetRepository(bootstrap).save(new OwnedPet(petId, owner, new VariantId("dog_pale"),
+                    Optional.empty(), PetStatus.DEAD, false, Instant.EPOCH)));
+            var players = new JdbcPlayerRepository(bootstrap);
+            await(players.save(new dev.dasannn.neopets.core.model.PlayerProfile(owner, Integer.MAX_VALUE, List.of())));
+            var trees = new JdbcTreeProgressRepository(bootstrap,
+                    ignored -> CompletableFuture.completedFuture(definition));
+            await(trees.save(progress));
+            var work = new JdbcPetDeathWorkRepository(bootstrap);
+            await(work.save(new dev.dasannn.neopets.core.pet.PetDeathWork(
+                    petId, owner, false, false, Instant.EPOCH)));
+
+            org.junit.jupiter.api.Assertions.assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> await(trees.resetForDeath(owner, TreeProgress.empty(petId, definition), 1)));
+
+            assertEquals(Optional.of(progress), await(trees.load(petId)));
+            org.junit.jupiter.api.Assertions.assertFalse(await(work.findByPet(petId)).orElseThrow().skillsHandled());
+            assertEquals(Integer.MAX_VALUE, await(players.findById(owner)).orElseThrow().skillPointBalance());
+            await(players.save(new dev.dasannn.neopets.core.model.PlayerProfile(owner, 3, List.of())));
+            assertEquals(4, await(trees.resetForDeath(owner, TreeProgress.empty(petId, definition), 1)));
+        }
+    }
+
     private static <T> T await(CompletableFuture<T> future) throws Exception {
         return future.get(10, TimeUnit.SECONDS);
     }

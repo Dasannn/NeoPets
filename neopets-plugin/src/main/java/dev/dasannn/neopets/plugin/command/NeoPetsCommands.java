@@ -4,14 +4,15 @@ import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.pet.GiveResult;
+import dev.dasannn.neopets.core.pet.ReviveResult;
 import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
+import dev.dasannn.neopets.plugin.listener.SoulItemIdentity;
 import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -30,12 +31,15 @@ import java.util.logging.Level;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 /** Registers the Paper command API entry points and keeps Bukkit command glue thin. */
 public final class NeoPetsCommands {
     private static final String USE = "neopets.use";
     private static final String GIVE = "neopets.admin.give";
     private static final String SP = "neopets.admin.sp";
+    private static final String ADMIN = "neopets.admin.gui";
+    private static final String REVIVE = "neopets.admin.revive";
     private static final String RELOAD = "neopets.admin.reload";
 
     private final NeoPetsPlugin plugin;
@@ -57,6 +61,10 @@ public final class NeoPetsCommands {
         public void execute(CommandSourceStack source, String[] args) {
             var rt = runtime.get();
             CommandSender sender = source.getSender();
+            if (args.length > 0 && args[0].equalsIgnoreCase("revive")) {
+                revive(rt, sender, args);
+                return;
+            }
             if (!allowed(sender, USE, rt)) {
                 return;
             }
@@ -73,6 +81,13 @@ public final class NeoPetsCommands {
 
         @Override
         public Collection<String> suggest(CommandSourceStack source, String[] args) {
+            if (args.length == 1 && source.getSender().hasPermission(REVIVE)) {
+                return prefix(List.of("revive"), args[0]);
+            }
+            if (args.length == 2 && args[0].equalsIgnoreCase("revive")
+                    && source.getSender().hasPermission(REVIVE)) {
+                return onlinePlayerNames(args[1]);
+            }
             return List.of();
         }
     }
@@ -91,6 +106,7 @@ public final class NeoPetsCommands {
                 case "dismiss" -> summonOrDismiss(rt, source.getSender(), args, false);
                 case "sp" -> skillPoints(rt, source.getSender(), args);
                 case "courier" -> courier(rt, source.getSender(), args);
+                case "admin" -> admin(rt, source.getSender(), args);
                 case "reload" -> reload(rt, source.getSender(), args);
                 default -> rt.messages().send(source.getSender(), MessageSpec.of("general.usage-neopet"));
             }
@@ -108,6 +124,9 @@ public final class NeoPetsCommands {
                 }
                 if (source.getSender().hasPermission(SP)) {
                     choices.add("sp");
+                }
+                if (source.getSender().hasPermission(ADMIN)) {
+                    choices.add("admin");
                 }
                 if (source.getSender().hasPermission(RELOAD)) {
                     choices.add("reload");
@@ -287,6 +306,96 @@ public final class NeoPetsCommands {
                 rt.messages().send(sender, SkillPointResultMessages.change(outcome, targetName)));
     }
 
+    private void revive(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, REVIVE, rt)) {
+            return;
+        }
+        if (args.length != 2) {
+            rt.messages().send(sender, MessageSpec.of("general.usage-revive"));
+            return;
+        }
+        Player target = plugin.getServer().getPlayerExact(args[1]);
+        if (target == null || !target.isOnline()) {
+            sendReviveOutcome(rt, sender, new ReviveCommandResult.PlayerOffline(args[1]), args[1], "");
+            return;
+        }
+
+        SoulItemIdentity.ReadResult read = SoulItemIdentity.read(target.getInventory().getItemInMainHand());
+        if (read instanceof SoulItemIdentity.ReadResult.Missing) {
+            sendReviveOutcome(rt, sender, new ReviveCommandResult.NoSoulItem(), target.getName(), "");
+            return;
+        }
+        if (read instanceof SoulItemIdentity.ReadResult.Invalid) {
+            sendReviveOutcome(rt, sender, new ReviveCommandResult.InvalidSoul(), target.getName(), "");
+            return;
+        }
+        SoulItemIdentity identity = ((SoulItemIdentity.ReadResult.Found) read).identity();
+        PlayerId playerId = new PlayerId(target.getUniqueId());
+        if (!identity.ownerId().equals(playerId)) {
+            sendReviveOutcome(rt, sender, new ReviveCommandResult.WrongOwner(), target.getName(), "");
+            return;
+        }
+
+        ItemStack reserved = reserveOneMainHandItem(target);
+        CompletableFuture<ReviveResult> result = rt.submit(() -> rt.petService().revive(
+                playerId, identity.petId(), identity.tokenId(), identity.ownerId(), rt.soulItems()));
+        result.whenComplete((coreResult, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (failure != null) {
+                restoreReservedItem(target, reserved);
+                plugin.getLogger().log(Level.WARNING, "NeoPets revive command failed", unwrap(failure));
+                rt.messages().send(sender, MessageSpec.of("errors.internal"));
+                return;
+            }
+            ReviveCommandResult outcome = ReviveCommandResult.fromCore(coreResult);
+            if (!(outcome instanceof ReviveCommandResult.Revived revived)) {
+                restoreReservedItem(target, reserved);
+                sendReviveOutcome(rt, sender, outcome, target.getName(), "");
+                return;
+            }
+            String petName = rt.petName(revived.pet());
+            rt.messages().send(target, new MessageSpec("pets.revived", Map.of("pet", petName)));
+            sendReviveOutcome(rt, sender, outcome, target.getName(), petName);
+        }));
+    }
+
+    private void sendReviveOutcome(
+            NeoPetsRuntime rt,
+            CommandSender sender,
+            ReviveCommandResult outcome,
+            String playerName,
+            String petName
+    ) {
+        rt.messages().send(sender, ReviveResultMessages.sender(outcome, playerName, petName));
+    }
+
+    private static ItemStack reserveOneMainHandItem(Player player) {
+        ItemStack held = player.getInventory().getItemInMainHand();
+        ItemStack reserved = held.clone();
+        reserved.setAmount(1);
+        if (held.getAmount() == 1) {
+            player.getInventory().setItemInMainHand(ItemStack.empty());
+        } else {
+            held.setAmount(held.getAmount() - 1);
+            player.getInventory().setItemInMainHand(held);
+        }
+        return reserved;
+    }
+
+    private static void restoreReservedItem(Player player, ItemStack reserved) {
+        if (!player.isOnline()) {
+            // A disconnected player's inventory may already have been saved.
+            player.getWorld().dropItem(player.getLocation(), reserved);
+            return;
+        }
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (held.isEmpty()) {
+            player.getInventory().setItemInMainHand(reserved);
+            return;
+        }
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(reserved);
+        leftovers.values().forEach(item -> player.getWorld().dropItem(player.getLocation(), item));
+    }
+
     private void reload(NeoPetsRuntime rt, CommandSender sender, String[] args) {
         if (!allowed(sender, RELOAD, rt)) {
             return;
@@ -295,13 +404,32 @@ public final class NeoPetsCommands {
             rt.messages().send(sender, MessageSpec.of("general.usage-neopet"));
             return;
         }
-        try {
-            rt.configuration().reload();
-            rt.messages().send(sender, MessageSpec.of("general.reloaded"));
-        } catch (IOException | ConfigurationLoadException exception) {
-            plugin.getLogger().log(Level.WARNING, "NeoPets configuration reload failed: " + exception.getMessage());
-            rt.messages().send(sender, MessageSpec.of("errors.config-invalid"));
+        rt.adminConfiguration().reload().whenComplete((ignored, failure) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (failure == null) {
+                        rt.messages().send(sender, MessageSpec.of("general.reloaded"));
+                        return;
+                    }
+                    Throwable cause = unwrap(failure);
+                    plugin.getLogger().log(Level.WARNING,
+                            "NeoPets configuration reload failed: " + cause.getMessage(), cause);
+                    rt.messages().send(sender, MessageSpec.of("errors.config-invalid"));
+                }));
+    }
+
+    private void admin(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, ADMIN, rt)) {
+            return;
         }
+        if (!(sender instanceof Player player)) {
+            rt.messages().send(sender, MessageSpec.of("errors.player-only"));
+            return;
+        }
+        if (args.length != 1) {
+            rt.messages().send(sender, MessageSpec.of("general.usage-neopet"));
+            return;
+        }
+        rt.adminMenu().open(player);
     }
 
     private boolean allowed(CommandSender sender, String permission, NeoPetsRuntime rt) {

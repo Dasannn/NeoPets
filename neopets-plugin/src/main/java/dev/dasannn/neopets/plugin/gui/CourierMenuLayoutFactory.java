@@ -48,7 +48,7 @@ public final class CourierMenuLayoutFactory {
         Paging.Page<PlayerEntry> page = Paging.page(onlinePlayers, requestedPage);
         var items = new LinkedHashMap<Integer, MenuItem>();
         addFrame(items);
-        items.put(4, new MenuItem("PLAYER_HEAD", text("gui.courier.picker-header"), List.of(
+        items.put(4, new MenuItem("DONKEY_SPAWN_EGG", text("gui.courier.picker-header"), List.of(
                 text("gui.courier.picker-count", "count", onlinePlayers.size()), pageNumber(page)),
                 false, 1, Optional.empty()));
         for (int index = 0; index < page.values().size(); index++) {

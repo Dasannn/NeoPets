@@ -5,6 +5,7 @@ import dev.dasannn.neopets.core.skilltree.AttributeCategory;
 import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
 import dev.dasannn.neopets.platform.paper.PetEffectApplier;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,7 +46,7 @@ public final class SkillTreePetEffectApplier implements PetEffectApplier {
     }
 
     @Override
-    public void remove(PetId petId, LivingEntity entity) {
+    public void remove(PetId petId) {
         abilities.deactivate(Objects.requireNonNull(petId, "petId"));
     }
 
@@ -53,12 +54,20 @@ public final class SkillTreePetEffectApplier implements PetEffectApplier {
         if (!state.progress().petId().equals(petId)) {
             throw new IllegalStateException("skill-tree state belongs to a different pet");
         }
+        var activeIds = new HashSet<String>();
         for (AttributeDefinition definition : state.definition().attributes()) {
             var levelProgress = state.progress().attributes().get(definition.id());
             if (levelProgress == null || levelProgress.maxLevel() != definition.maxLevel()) {
                 throw new IllegalStateException(
                         "skill-tree progress does not match attribute " + definition.id());
             }
+            if (definition.category() == AttributeCategory.CUSTOM && levelProgress.activeLevel() > 0) {
+                activeIds.add(((CustomEffectReference) definition.effect()).abilityId());
+            }
+        }
+        abilities.retain(petId, Set.copyOf(activeIds));
+        for (AttributeDefinition definition : state.definition().attributes()) {
+            var levelProgress = state.progress().attributes().get(definition.id());
             int activeLevel = levelProgress.activeLevel();
             if (definition.category() == AttributeCategory.VANILLA) {
                 vanillaEffects.apply(definition, activeLevel, entity);

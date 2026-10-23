@@ -13,6 +13,8 @@ import dev.dasannn.neopets.plugin.config.PluginSettings;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
+import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 class PetsMenuIconTest {
@@ -51,8 +53,11 @@ class PetsMenuIconTest {
         var features = new PluginSettings.Features(new PluginSettings.Death(true, false, true),
                 false, true, new PluginSettings.Reset(false, BigDecimal.ZERO));
         var abilities = new PluginSettings.Abilities(
-                new PluginSettings.Zarpazo(Duration.ofSeconds(10), 6, 4),
-                new PluginSettings.Vigia(Duration.ofSeconds(5), 16, Duration.ofSeconds(5)));
+                new PluginSettings.Zarpazo(true, Duration.ofSeconds(10), 6, 4),
+                new PluginSettings.Vigia(true, Duration.ofSeconds(5), 16, Duration.ofSeconds(5)),
+                new PluginSettings.Buscatesoros(
+                        true, Duration.ofSeconds(30), 16, Duration.ofSeconds(5), 32, 8192,
+                        Set.of(Material.DIAMOND_ORE)), true);
         var settings = new PluginSettings(1, storage, features, 20, abilities, Map.of("default",
                 new dev.dasannn.neopets.core.model.RankLimits(1, 3, 10)),
                 Duration.ofSeconds(30),

@@ -162,6 +162,13 @@ public final class PlayerDataCache {
         }
     }
 
+    /** Returns an immutable profile snapshot only when the player is currently loaded. */
+    public Optional<PlayerProfile> loadedProfile(PlayerId playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        CacheLookup<PlayerProfile> lookup = findProfile(playerId);
+        return lookup.hit() ? lookup.value() : Optional.empty();
+    }
+
     /** Returns a pet only when its owner's complete snapshot is currently loaded. */
     public Optional<OwnedPet> loadedPet(PetId petId) {
         Objects.requireNonNull(petId, "petId");
@@ -223,6 +230,23 @@ public final class PlayerDataCache {
             }
             return CacheLookup.hitOptional(data.treeProgress().getOrDefault(petId, Optional.empty()));
         }
+    }
+
+    CompletableFuture<Integer> resetForDeath(
+            PlayerId owner, TreeProgress zeroed, Supplier<CompletableFuture<Integer>> durableReset
+    ) {
+        return operations.submit(owner, () -> durableReset.get().thenApply(balance -> {
+            synchronized (monitor) {
+                var current = players.get(owner);
+                if (current != null) {
+                    var progress = new LinkedHashMap<>(current.treeProgress());
+                    progress.put(zeroed.petId(), Optional.of(zeroed));
+                    replace(owner, current, current.withProfile(current.profile().withSkillPointBalance(balance))
+                            .withTreeProgress(progress));
+                }
+            }
+            return balance;
+        }));
     }
 
     CompletableFuture<Void> saveProfile(PlayerProfile profile, Supplier<CompletableFuture<Void>> durableWrite) {

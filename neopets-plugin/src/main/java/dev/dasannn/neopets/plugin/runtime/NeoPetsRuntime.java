@@ -22,14 +22,21 @@ import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.api.NeoPetsApiImpl;
 import dev.dasannn.neopets.plugin.command.LocalizedMessages;
+import dev.dasannn.neopets.plugin.command.MessageSpec;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
+import dev.dasannn.neopets.plugin.config.AdminConfigurationService;
 import dev.dasannn.neopets.plugin.config.PluginSettings;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
+import dev.dasannn.neopets.plugin.integration.NeoPetsPlaceholders;
+import dev.dasannn.neopets.plugin.integration.PlaceholderApiIntegration;
+import dev.dasannn.neopets.plugin.integration.PlaceholderApiRegistration;
 import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
+import dev.dasannn.neopets.plugin.integration.RuntimePlaceholderDataSource;
 import dev.dasannn.neopets.plugin.gui.Menu;
 import dev.dasannn.neopets.plugin.gui.CourierSaddlebags;
+import dev.dasannn.neopets.plugin.gui.AdminMenu;
 import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
 import dev.dasannn.neopets.plugin.gui.SkillTreeMenu;
@@ -39,6 +46,7 @@ import dev.dasannn.neopets.plugin.listener.PlayerLifecycleListener;
 import dev.dasannn.neopets.plugin.listener.SoulDeliveryCoordinator;
 import dev.dasannn.neopets.plugin.listener.SoulItemDelivery;
 import dev.dasannn.neopets.plugin.listener.SoulItemFactory;
+import dev.dasannn.neopets.plugin.listener.SoulItemProtectionListener;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
 import dev.dasannn.neopets.platform.paper.OrphanCleaner;
 import dev.dasannn.neopets.platform.paper.PaperPetEntityGateway;
@@ -49,9 +57,13 @@ import dev.dasannn.neopets.platform.paper.PetProtectionListener;
 import dev.dasannn.neopets.platform.paper.PetSpawnData;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
 import dev.dasannn.neopets.platform.paper.PetTicker;
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
 import dev.dasannn.neopets.platform.paper.ability.CourierSaddlebagsAbility;
 import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingAbility;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingListener;
+import dev.dasannn.neopets.platform.paper.ability.FelineLandingPolicy;
 import dev.dasannn.neopets.platform.paper.ability.VigiaAbility;
 import dev.dasannn.neopets.platform.paper.ability.ZarpazoAbility;
 import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
@@ -60,6 +72,7 @@ import dev.dasannn.neopets.platform.paper.effect.SkillTreePetEffectApplier;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import dev.dasannn.neopets.storage.JdbcPetRepository;
 import dev.dasannn.neopets.storage.JdbcPendingSoulDeliveryRepository;
+import dev.dasannn.neopets.storage.JdbcPetDeathWorkRepository;
 import dev.dasannn.neopets.storage.JdbcPlayerRepository;
 import dev.dasannn.neopets.storage.JdbcSoulTokenRepository;
 import dev.dasannn.neopets.storage.JdbcSaddlebagRepository;
@@ -75,6 +88,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -92,9 +106,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
     private final PetService petService;
     private final SkillPointService skillPoints;
     private final SkillTreeService skillTrees;
+    private final SoulItemService soulItems;
     private final CachingPetRepository pets;
     private final PlayerLifecycleListener playerLifecycle;
     private final PetsMenu petsMenu;
+    private final AdminMenu adminMenu;
+    private final AdminConfigurationService adminConfiguration;
     private final PlayerDataCache cache;
     private final RuntimeWorkTracker work;
     private final CourierSaddlebags courierSaddlebags;
@@ -106,9 +123,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
             PetService petService,
             SkillPointService skillPoints,
             SkillTreeService skillTrees,
+            SoulItemService soulItems,
             CachingPetRepository pets,
             PlayerLifecycleListener playerLifecycle,
             PetsMenu petsMenu,
+            AdminMenu adminMenu,
+            AdminConfigurationService adminConfiguration,
             PlayerDataCache cache,
             RuntimeWorkTracker work,
             CourierSaddlebags courierSaddlebags
@@ -119,9 +139,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
         this.petService = petService;
         this.skillPoints = skillPoints;
         this.skillTrees = skillTrees;
+        this.soulItems = soulItems;
         this.pets = pets;
         this.playerLifecycle = playerLifecycle;
         this.petsMenu = petsMenu;
+        this.adminMenu = adminMenu;
+        this.adminConfiguration = adminConfiguration;
         this.cache = cache;
         this.work = work;
         this.courierSaddlebags = courierSaddlebags;
@@ -133,9 +156,12 @@ public final class NeoPetsRuntime implements AutoCloseable {
         var lifecycle = new RuntimeLifecycle();
         try {
             var spawner = new PetSpawner();
-            var configuration = new ConfigurationManager(new ConfigurationLoader(
+            var configurationLoader = new ConfigurationLoader(
                     plugin.getDataFolder().toPath(), spawner::validateAppearance,
-                    VanillaEffectCatalog.knownEffectIds()));
+                    VanillaEffectCatalog.knownEffectIds());
+            var configuration = new ConfigurationManager(configurationLoader);
+            var adminConfiguration = lifecycle.started(new AdminConfigurationService(
+                    plugin.getDataFolder().toPath(), configurationLoader, configuration));
             var messages = new LocalizedMessages(configuration);
 
             var storage = lifecycle.started(new StorageBootstrap(storageSettings(plugin, configuration)));
@@ -144,6 +170,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var jdbcSoulTokens = new JdbcSoulTokenRepository(storage);
             var pendingSoulDeliveries = new JdbcPendingSoulDeliveryRepository(storage);
             var saddlebags = new JdbcSaddlebagRepository(storage);
+            var petDeathWork = new JdbcPetDeathWorkRepository(storage);
             var jdbcTrees = new JdbcTreeProgressRepository(storage, petId -> jdbcPets.findById(petId).thenApply(pet -> {
                 OwnedPet owned = pet.orElseThrow(() -> new IllegalStateException("Unknown pet: " + petId));
                 PetVariant variant = configuration.current().variants().findById(owned.variant())
@@ -181,10 +208,17 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var effectCatalog = new VanillaEffectCatalog();
+            var felineLanding = new FelineLandingPolicy(
+                    () -> configuration.current().settings().abilities().felineLandingEnabled());
             var abilityRegistry = new DefaultAbilityRegistry(List.of(
                     new ZarpazoAbility(() -> zarpazoSettings(configuration)),
                     new VigiaAbility(() -> vigiaSettings(configuration)),
-                    new CourierSaddlebagsAbility()),
+                    new CourierSaddlebagsAbility(),
+                    new BuscatesorosAbility(
+                            () -> buscatesorosSettings(configuration),
+                            (owner, count) -> owner.sendActionBar(messages.render(new MessageSpec(
+                                    "abilities.buscatesoros.found", Map.of("count", Integer.toString(count)))))),
+                    new FelineLandingAbility(felineLanding)),
                     new CooldownTracker(), Clock.systemUTC());
             var effectApplier = new SkillTreePetEffectApplier(
                     petId -> effectState(cache, configuration, petId),
@@ -211,26 +245,48 @@ public final class NeoPetsRuntime implements AutoCloseable {
             economyPort.bind(EconomyProvider.resolve(plugin.getServer(), scheduler::runOnMain, plugin.getLogger()));
             rankPort.bind(RankLimitsResolverFactory.create(plugin, configuration));
 
-            var playerLifecycle = new PlayerLifecycleListener(
-                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
-                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work);
             var pluginManager = plugin.getServer().getPluginManager();
-            pluginManager.registerEvents(playerLifecycle, plugin);
+            var placeholderData = new RuntimePlaceholderDataSource(
+                    cache, livePets, rankPort, configuration,
+                    plugin.getServer().getOnlinePlayers().stream().map(player -> player.getUniqueId()).toList());
+            pluginManager.registerEvents(placeholderData, plugin);
+            var placeholders = new NeoPetsPlaceholders(
+                    placeholderData,
+                    () -> configuration.current().language()
+                            .find("placeholders.active-pet-empty").orElse("-"));
+            var placeholderRegistration = PlaceholderApiRegistration.registerIfPresent(
+                    pluginManager.isPluginEnabled("PlaceholderAPI"),
+                    () -> registerPlaceholderApi(plugin, placeholders));
+            placeholderRegistration.ifPresent(lifecycle::started);
+            if (placeholderRegistration.isEmpty()) {
+                plugin.getLogger().info("PlaceholderAPI is unavailable; placeholders are disabled");
+            }
             pluginManager.registerEvents(new OrphanCleanupListener(orphanCleaner, livePets), plugin);
             var damagePolicy = new PetDamagePolicy(
                     () -> configuration.current().settings().features().death().enabled(),
                     () -> configuration.current().settings().features().death().pvp());
             pluginManager.registerEvents(new PetProtectionListener(damagePolicy), plugin);
             var soulDeliveries = new SoulDeliveryCoordinator(
-                    plugin.getServer(), scheduler, pendingSoulDeliveries, pets,
+                    plugin.getServer(), scheduler, pendingSoulDeliveries, pets, soulItems, operations,
                     new SoulItemFactory(configuration, messages), new SoulItemDelivery<>(), messages,
                     work, plugin.getLogger());
             pluginManager.registerEvents(soulDeliveries, plugin);
+            var petDeathWorkflow = new dev.dasannn.neopets.plugin.listener.PetDeathWorkflow(
+                    pets, petDeathWork, petService, skillTrees, soulItems, soulDeliveries,
+                    () -> configuration.current().settings().features().death().keepSkills(), clock);
             pluginManager.registerEvents(new PetDeathListener(
-                    petService, skillTrees, soulItems, soulDeliveries, livePets,
-                    configuration, work, plugin.getLogger()), plugin);
+                    petDeathWorkflow, livePets, work, plugin.getLogger()), plugin);
+            var playerLifecycle = new PlayerLifecycleListener(
+                    cache, pets, gateway, configuration, messages, plugin.getLogger(), task ->
+                    plugin.getServer().getScheduler().runTaskLater(plugin, task, 20L * 30), work,
+                    petDeathWorkflow::reconcile);
+            pluginManager.registerEvents(playerLifecycle, plugin);
+            pluginManager.registerEvents(new FelineLandingListener(felineLanding), plugin);
+            pluginManager.registerEvents(new SoulItemProtectionListener(), plugin);
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
+            var adminMenu = new AdminMenu(plugin, menu, configuration, adminConfiguration,
+                    messages, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
             var petsMenuReference = new AtomicReference<PetsMenu>();
             var courierReference = new AtomicReference<CourierSaddlebags>();
@@ -279,7 +335,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             lifecycle.started((AutoCloseable) NeoPetsProvider::unregister);
 
             return new NeoPetsRuntime(lifecycle, configuration, messages, petService,
-                    skillPoints, skillTrees, pets, playerLifecycle, petsMenu, cache, work, courierSaddlebags);
+                    skillPoints, skillTrees, soulItems, pets, playerLifecycle, petsMenu, adminMenu,
+                    adminConfiguration, cache, work, courierSaddlebags);
         } catch (IOException | ConfigurationLoadException exception) {
             closeAfterFailure(lifecycle, exception);
             throw exception;
@@ -309,6 +366,10 @@ public final class NeoPetsRuntime implements AutoCloseable {
         return skillTrees;
     }
 
+    public SoulItemService soulItems() {
+        return soulItems;
+    }
+
     public CachingPetRepository pets() {
         return pets;
     }
@@ -324,6 +385,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
     /** Returns the courier interaction coordinator used by clickable request commands. */
     public CourierSaddlebags courierSaddlebags() {
         return courierSaddlebags;
+    }
+
+    public AdminMenu adminMenu() {
+        return adminMenu;
+    }
+
+    public AdminConfigurationService adminConfiguration() {
+        return adminConfiguration;
     }
 
     /** Starts work only while the runtime is accepting operations and tracks it through completion. */
@@ -402,12 +471,26 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     private static ZarpazoAbility.Settings zarpazoSettings(ConfigurationManager configuration) {
         PluginSettings.Zarpazo settings = configuration.current().settings().abilities().zarpazo();
-        return new ZarpazoAbility.Settings(settings.cooldown(), settings.radius(), settings.damage());
+        return new ZarpazoAbility.Settings(settings.enabled(), settings.cooldown(), settings.radius(), settings.damage());
     }
 
     private static VigiaAbility.Settings vigiaSettings(ConfigurationManager configuration) {
         PluginSettings.Vigia settings = configuration.current().settings().abilities().vigia();
-        return new VigiaAbility.Settings(settings.cooldown(), settings.radius(), settings.duration());
+        return new VigiaAbility.Settings(settings.enabled(), settings.cooldown(), settings.radius(), settings.duration());
+    }
+
+    private static BuscatesorosAbility.Settings buscatesorosSettings(ConfigurationManager configuration) {
+        PluginSettings.Buscatesoros settings = configuration.current().settings().abilities().buscatesoros();
+        return new BuscatesorosAbility.Settings(
+                settings.enabled(), settings.cooldown(), settings.baseRadius(), settings.duration(),
+                settings.maxTargets(), settings.maxScanBlocks(), settings.oreMaterials());
+    }
+
+    private static AutoCloseable registerPlaceholderApi(
+            NeoPetsPlugin plugin,
+            NeoPetsPlaceholders placeholders
+    ) {
+        return PlaceholderApiIntegration.register(plugin, placeholders);
     }
 
     private static void closeAfterFailure(RuntimeLifecycle lifecycle, Throwable startupFailure) {

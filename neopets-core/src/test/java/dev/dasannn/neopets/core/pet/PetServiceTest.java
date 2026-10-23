@@ -26,15 +26,18 @@ import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
+import dev.dasannn.neopets.core.port.SoulTokenRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -649,6 +652,104 @@ class PetServiceTest {
     }
 
     @Test
+    void soulReviveConsumesOneValidTokenAndRejectsItsDuplicateCopy() {
+        var player = player(164);
+        var dead = pet(1640, player, LIGHT.id(), PetStatus.DEAD, false);
+        var tokenId = new UUID(2, 1640);
+        var soulTokens = new FakeSoulTokens();
+        var souls = new SoulItemService(soulTokens, Clock.fixed(NOW, ZoneOffset.UTC), () -> tokenId);
+        pets.store(dead);
+        souls.issue(dead.id(), player).join();
+
+        var revived = assertInstanceOf(ReviveResult.Revived.class,
+                service.revive(player, dead.id(), tokenId, player, souls).join());
+
+        assertEquals(PetStatus.ALIVE, revived.pet().status());
+        assertEquals(new ReviveResult.InvalidSoul(dead.id()),
+                service.revive(player, dead.id(), tokenId, player, souls).join());
+        assertEquals(1, soulTokens.consumptions);
+        assertEquals(1, publishedEvents.size());
+    }
+
+    @Test
+    void soulReviveRejectsAnotherOwnerWithoutConsumingTheToken() {
+        var player = player(165);
+        var otherOwner = player(166);
+        var dead = pet(1650, otherOwner, LIGHT.id(), PetStatus.DEAD, false);
+        var tokenId = new UUID(2, 1650);
+        var soulTokens = new FakeSoulTokens();
+        var souls = new SoulItemService(soulTokens, Clock.fixed(NOW, ZoneOffset.UTC), () -> tokenId);
+        pets.store(dead);
+        souls.issue(dead.id(), otherOwner).join();
+
+        assertEquals(new ReviveResult.NotOwned(dead.id()),
+                service.revive(player, dead.id(), tokenId, otherOwner, souls).join());
+        assertEquals(0, soulTokens.consumptions);
+        assertEquals(PetStatus.DEAD, pets.stored.get(dead.id()).status());
+    }
+
+    @Test
+    void soulReviveRejectsAnAlivePetWithoutConsumingItsValidToken() {
+        var player = player(167);
+        var alive = pet(1670, player, LIGHT.id(), PetStatus.ALIVE, false);
+        var tokenId = new UUID(2, 1670);
+        var soulTokens = new FakeSoulTokens();
+        var souls = new SoulItemService(soulTokens, Clock.fixed(NOW, ZoneOffset.UTC), () -> tokenId);
+        pets.store(alive);
+        souls.issue(alive.id(), player).join();
+
+        assertEquals(new ReviveResult.AlreadyAlive(alive),
+                service.revive(player, alive.id(), tokenId, player, souls).join());
+        assertEquals(0, soulTokens.consumptions);
+        assertTrue(souls.isUsable(tokenId, alive.id(), player).join());
+    }
+
+    @Test
+    void concurrentDuplicateRevivesWaitForTheFirstPersistenceAndOnlyConsumeOnce() {
+        var player = player(168);
+        var dead = pet(1680, player, LIGHT.id(), PetStatus.DEAD, false);
+        var tokenId = new UUID(2, 1680);
+        var tokens = new FakeSoulTokens();
+        var souls = new SoulItemService(tokens, Clock.fixed(NOW, ZoneOffset.UTC), () -> tokenId);
+        pets.store(dead);
+        souls.issue(dead.id(), player).join();
+        var saved = new CompletableFuture<Void>();
+        pets.nextSave = saved;
+
+        var first = service.revive(player, dead.id(), tokenId, player, souls);
+        var duplicate = service.revive(player, dead.id(), tokenId, player, souls);
+
+        assertFalse(first.isDone());
+        assertFalse(duplicate.isDone());
+        assertEquals(1, tokens.consumptions);
+        saved.complete(null);
+        assertInstanceOf(ReviveResult.Revived.class, first.join());
+        assertInstanceOf(ReviveResult.InvalidSoul.class, duplicate.join());
+        assertEquals(1, tokens.consumptions);
+        assertEquals(1, publishedEvents.size());
+    }
+
+    @Test
+    void soulReviveRejectsMismatchedPetAndUnknownTokenWithoutChangingThePet() {
+        var player = player(169);
+        var dead = pet(1690, player, LIGHT.id(), PetStatus.DEAD, false);
+        var tokenId = new UUID(2, 1690);
+        var tokens = new FakeSoulTokens();
+        var souls = new SoulItemService(tokens, Clock.fixed(NOW, ZoneOffset.UTC), () -> tokenId);
+        pets.store(dead);
+        souls.issue(dead.id(), player).join();
+
+        assertInstanceOf(ReviveResult.InvalidSoul.class,
+                service.revive(player, petId(1691), tokenId, player, souls).join());
+        assertInstanceOf(ReviveResult.InvalidSoul.class,
+                service.revive(player, dead.id(), UUID.randomUUID(), player, souls).join());
+        assertEquals(0, tokens.consumptions);
+        assertTrue(souls.isUsable(tokenId, dead.id(), player).join());
+        assertEquals(PetStatus.DEAD, pets.stored.get(dead.id()).status());
+        assertTrue(publishedEvents.isEmpty());
+    }
+
+    @Test
     void concurrentDeathAndSummonAreSequencedWithoutResurrectingThePet() {
         var player = player(163);
         var active = pet(1630, player, LIGHT.id(), PetStatus.ALIVE, true);
@@ -832,5 +933,60 @@ class PetServiceTest {
         public CompletableFuture<Void> applyEffects(PetId petId) {
             return CompletableFuture.completedFuture(null);
         }
+    }
+
+    private static final class FakeSoulTokens implements SoulTokenRepository {
+        private final Map<UUID, Soul> tokens = new LinkedHashMap<>();
+        private final Set<UUID> delivered = new HashSet<>();
+        private int consumptions;
+
+        @Override
+        public CompletableFuture<Void> issue(UUID tokenId, PetId petId, PlayerId ownerId, Instant issuedAt) {
+            tokens.put(tokenId, new Soul(petId, ownerId, false));
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<Boolean> isUsable(UUID tokenId, PetId petId, PlayerId ownerId) {
+            Soul soul = tokens.get(tokenId);
+            return CompletableFuture.completedFuture(soul != null && !soul.consumed()
+                    && soul.petId().equals(petId) && soul.ownerId().equals(ownerId));
+        }
+
+        @Override
+        public CompletableFuture<Boolean> consume(
+                UUID tokenId, PetId petId, PlayerId ownerId, Instant consumedAt
+        ) {
+            boolean usable = isUsable(tokenId, petId, ownerId).join();
+            if (usable) {
+                Soul soul = tokens.get(tokenId);
+                tokens.put(tokenId, new Soul(soul.petId(), soul.ownerId(), true));
+                consumptions++;
+            }
+            return CompletableFuture.completedFuture(usable);
+        }
+
+        @Override
+        public CompletableFuture<Optional<SoulToken>> findUnconsumedByPet(PetId petId) {
+            return CompletableFuture.completedFuture(tokens.entrySet().stream()
+                    .filter(entry -> entry.getValue().petId().equals(petId) && !entry.getValue().consumed())
+                    .map(entry -> new SoulToken(entry.getKey(), petId, entry.getValue().ownerId(), Instant.EPOCH))
+                    .findFirst());
+        }
+
+        @Override
+        public CompletableFuture<Boolean> wasDelivered(UUID tokenId, PetId petId, PlayerId ownerId) {
+            return CompletableFuture.completedFuture(delivered.contains(tokenId));
+        }
+
+        @Override
+        public CompletableFuture<Boolean> markDelivered(
+                UUID tokenId, PetId petId, PlayerId ownerId, Instant deliveredAt
+        ) {
+            return CompletableFuture.completedFuture(tokens.containsKey(tokenId) && delivered.add(tokenId));
+        }
+    }
+
+    private record Soul(PetId petId, PlayerId ownerId, boolean consumed) {
     }
 }

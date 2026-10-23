@@ -59,6 +59,49 @@ final class PlayerDataCacheTest {
     }
 
     @Test
+    void deathResetWaitsForDurabilityBeforeQueuedUnload() throws Exception {
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 7, List.of()));
+        delegates.pets.put(PET, pet(PET, PLAYER, "dog_brown"));
+        delegates.progress.put(PET, progress(PET, 2, 2));
+        await(cache.load(PLAYER));
+        var zeroed = progress(PET, 0, 0);
+        var durable = new CompletableFuture<Integer>();
+        var reset = cache.resetForDeath(PLAYER, zeroed, () -> durable.thenApply(balance -> {
+            delegates.players.put(PLAYER, new PlayerProfile(PLAYER, balance, List.of()));
+            delegates.progress.put(PET, zeroed);
+            return balance;
+        }));
+        var unload = cache.unload(PLAYER);
+        assertFalse(unload.isDone());
+        assertEquals(7, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
+
+        durable.complete(9);
+        assertEquals(9, await(reset));
+        await(unload);
+
+        assertEquals(9, delegates.players.get(PLAYER).skillPointBalance());
+        assertEquals(zeroed, delegates.progress.get(PET));
+    }
+
+    @Test
+    void deathResetRefreshesCachedBalanceAndProgressOnlyAfterSuccess() throws Exception {
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 7, List.of()));
+        delegates.pets.put(PET, pet(PET, PLAYER, "dog_brown"));
+        var before = progress(PET, 2, 2);
+        delegates.progress.put(PET, before);
+        await(cache.load(PLAYER));
+        var zeroed = progress(PET, 0, 0);
+        assertThrows(ExecutionException.class, () -> await(cache.resetForDeath(PLAYER, zeroed,
+                () -> CompletableFuture.failedFuture(new IllegalStateException("refund failed")))));
+        assertEquals(7, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
+        assertEquals(Optional.of(before), await(trees.load(PET)));
+
+        await(cache.resetForDeath(PLAYER, zeroed, () -> CompletableFuture.completedFuture(9)));
+        assertEquals(9, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
+        assertEquals(Optional.of(zeroed), await(trees.load(PET)));
+    }
+
+    @Test
     void missesUseDelegatesAndLoadedReadsUseTheCompleteMemorySnapshot() throws Exception {
         var ownedPet = pet(PET, PLAYER, "dog_brown");
         var progress = progress(PET, 2, 1);
@@ -66,6 +109,7 @@ final class PlayerDataCacheTest {
         delegates.pets.put(PET, ownedPet);
         delegates.progress.put(PET, progress);
 
+        assertEquals(Optional.empty(), cache.loadedProfile(PLAYER));
         assertEquals(7, await(players.findById(PLAYER)).orElseThrow().skillPointBalance());
         assertEquals(List.of(ownedPet), await(pets.findByOwner(PLAYER)));
         assertEquals(Optional.of(progress), await(trees.load(PET)));
@@ -75,6 +119,7 @@ final class PlayerDataCacheTest {
 
         var loaded = await(cache.load(PLAYER));
         assertEquals(new PlayerProfile(PLAYER, 7, List.of(ownedPet)), loaded);
+        assertEquals(Optional.of(loaded), cache.loadedProfile(PLAYER));
         int playerReadsAfterLoad = delegates.playerReads.get();
         int ownerReadsAfterLoad = delegates.petOwnerReads.get();
         int petReadsAfterLoad = delegates.petReads.get();

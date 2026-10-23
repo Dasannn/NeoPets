@@ -1,9 +1,13 @@
 prefix: "<gradient:#57d6ff:#b56cff><bold>NeoPets</bold></gradient> <dark_gray>»</dark_gray>"
 
+placeholders:
+  active-pet-empty: "-"
+
 errors:
   no-permission: "<red>No tienes permiso para hacer eso.</red>"
   player-only: "<red>Este comando solo puede usarlo un jugador.</red>"
   player-not-found: "<red>No se encontró al jugador <yellow><player></yellow>.</red>"
+  player-offline: "<red>El jugador <yellow><player></yellow> debe estar conectado.</red>"
   invalid-amount: "<red>La cantidad debe ser un número entero positivo.</red>"
   config-invalid: "<red>No se pudo recargar la configuración. Revisa la consola.</red>"
   internal: "<red>Ha ocurrido un error inesperado.</red>"
@@ -12,7 +16,7 @@ errors:
 general:
   reloaded: "<green>Configuración de NeoPets recargada.</green>"
   usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
-  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|reload</white>.</gray>"
+  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|courier|admin|reload</white>.</gray>"
   usage-pet-action: '<gray>Uso: <white>/neopet summon|dismiss \<variante|id></white></gray>'
   usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
   usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
@@ -43,8 +47,11 @@ pets:
   rename-disabled: "<yellow>El renombrado de mascotas está desactivado.</yellow>"
   dead: "<red><pet> ha muerto. Su alma ha sido entregada a tu inventario.</red>"
   revived: "<green><pet> ha vuelto a la vida.</green>"
+  revived-admin: "<green>Reviviste a <pet> de <player>.</green>"
   soul-required: "<red>Debes sostener el alma válida de la mascota en la mano principal.</red>"
   soul-invalid: "<red>Esta alma no es válida o ya fue utilizada.</red>"
+  soul-wrong-owner: "<red>Esta alma pertenece a la mascota de otro jugador.</red>"
+  revive-not-dead: "<yellow>La mascota de esta alma no está muerta.</yellow>"
   soul-item-name: "<light_purple>Alma de <pet></light_purple>"
   soul-item-lore: "<gray>Úsala con una poción de revivir.</gray>"
   soul-delivered: "<red><pet> ha muerto.</red> <light_purple>Su alma está en tu inventario.</light_purple>"
@@ -69,6 +76,10 @@ skills:
   already-unlocked: "<yellow>Ese nodo ya está desbloqueado.</yellow>"
   already-active: "<yellow>Ese nodo ya está activo.</yellow>"
 
+abilities:
+  buscatesoros:
+    found: "<gold>Buscatesoros encontró <count> tesoros cercanos.</gold>"
+
 courier:
   request-sent: "<green>Solicitud de mensajería enviada a <player>.</green>"
   request-received: "<yellow><owner> quiere enviarte su burro.</yellow>"
@@ -91,7 +102,7 @@ courier:
 gui:
   pets-title: "Mis mascotas"
   skill-tree-title: "<dark_aqua>Árbol de <pet></dark_aqua>"
-  admin-title: "<dark_red>Administración de NeoPets</dark_red>"
+  admin-title: "Administración de NeoPets"
   courier-title: "<gold>Alforjas mensajeras</gold>"
   previous-page: "<yellow>Página anterior</yellow>"
   next-page: "<yellow>Página siguiente</yellow>"
@@ -289,8 +300,73 @@ gui:
         name: "<light_purple>Alforjas mensajeras</light_purple>"
         description: "<gray>Envía objetos a otro jugador.</gray>"
         effect: "<gray>Desbloquea Alforjas mensajeras</gray>"
+  admin:
+    header-name: "<gold><bold>NeoPets · Administración</bold></gold>"
+    header-count: "<gray>Ajustes disponibles: <white><count></white></gray>"
+    page-number: "<gray>Página <white><page></white>/<pages></gray>"
+    current-enabled: "<gray>Valor: <green>● Activado</green></gray>"
+    current-disabled: "<gray>Valor: <red>○ Desactivado</red></gray>"
+    current-number: "<gray>Valor: <white><value></white></gray>"
+    range: "<gray>Rango: <white><minimum></white> – <white><maximum></white></gray>"
+    toggle-action: "<yellow>Clic <dark_gray>» <gray>Alternar</gray></dark_gray></yellow>"
+    number-action: "<yellow>Clic izq. <dark_gray>» <gray>+<step>  ·  Clic der. » -<step>  ·  Shift » ×10</gray></dark_gray></yellow>"
+    previous-page: "<white>Página anterior</white>"
+    next-page: "<white>Página siguiente</white>"
+    close: "<red>Cerrar</red>"
+    help-name: "<aqua>Ayuda</aqua>"
+    help-lore: |-
+      <gray>Activa funciones y ajusta sus valores.</gray>
+      <gray>Los cambios se validan y recargan al instante.</gray>
+    help-message: "<gray>Los cambios válidos se guardan y recargan sin reiniciar el servidor.</gray>"
+    features:
+      death-enabled:
+        name: "<white>Muerte de mascotas</white>"
+        description: "<dark_gray>Permite que las mascotas mueran.</dark_gray>"
+      death-pvp:
+        name: "<white>Daño PvP</white>"
+        description: "<dark_gray>Permite que otros jugadores dañen mascotas.</dark_gray>"
+      death-keep-skills:
+        name: "<white>Conservar habilidades</white>"
+        description: "<dark_gray>Mantiene el progreso al revivir.</dark_gray>"
+      shop-enabled:
+        name: "<white>Tienda de mascotas</white>"
+        description: "<dark_gray>Permite comprar mascotas con dinero.</dark_gray>"
+      rename-enabled:
+        name: "<white>Renombrar mascotas</white>"
+        description: "<dark_gray>Permite que los jugadores cambien sus nombres.</dark_gray>"
+      reset-player-enabled:
+        name: "<white>Reinicio por jugadores</white>"
+        description: "<dark_gray>Permite reiniciar árboles de habilidades.</dark_gray>"
+      reset-cost:
+        name: "<white>Coste de reinicio</white>"
+        description: "<dark_gray>Precio de un reinicio de árbol.</dark_gray>"
+      courier-request-timeout:
+        name: "<white>Espera de mensajería</white>"
+        description: "<dark_gray>Segundos antes de expirar una solicitud.</dark_gray>"
+      courier-cooldown:
+        name: "<white>Recarga de mensajería</white>"
+        description: "<dark_gray>Segundos entre envíos del burro.</dark_gray>"
+      zarpazo-cooldown:
+        name: "<white>Recarga de Zarpazo</white>"
+        description: "<dark_gray>Segundos entre usos de Zarpazo.</dark_gray>"
+      zarpazo-radius:
+        name: "<white>Radio de Zarpazo</white>"
+        description: "<dark_gray>Alcance del daño en área en bloques.</dark_gray>"
+      zarpazo-damage:
+        name: "<white>Daño de Zarpazo</white>"
+        description: "<dark_gray>Daño infligido a cada objetivo cercano.</dark_gray>"
+      vigia-cooldown:
+        name: "<white>Recarga de Vigía</white>"
+        description: "<dark_gray>Segundos entre usos de Vigía.</dark_gray>"
+      vigia-radius:
+        name: "<white>Radio de Vigía</white>"
+        description: "<dark_gray>Alcance de detección en bloques.</dark_gray>"
+      vigia-duration:
+        name: "<white>Duración de Vigía</white>"
+        description: "<dark_gray>Segundos que permanecen marcados los enemigos.</dark_gray>"
 
 admin:
   feature-enabled: "<green><feature> activada.</green>"
   feature-disabled: "<yellow><feature> desactivada.</yellow>"
   value-updated: "<green><setting> ahora vale <value>.</green>"
+  edit-invalid: "<red>El cambio no es válido y no se guardó.</red>"

@@ -1,5 +1,6 @@
 package dev.dasannn.neopets.plugin.config;
 
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
@@ -11,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 10;
+    public static final int CURRENT_VERSION = 14;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -175,7 +176,80 @@ public final class ConfigurationMigrator {
 
             @Override
             public void apply(YamlConfiguration configuration) {
-                // Version 10 adds courier GUI and clickable-request language keys only.
+                // Version 10 adds Buscatesoros settings and its language message.
+                setIfMissing(configuration, "abilities.buscatesoros.cooldown-seconds", 30);
+                setIfMissing(configuration, "abilities.buscatesoros.base-radius", 16.0);
+                setIfMissing(configuration, "abilities.buscatesoros.duration-seconds", 5);
+                setIfMissing(configuration, "abilities.buscatesoros.max-targets", 32);
+                setIfMissing(configuration, "abilities.buscatesoros.max-scan-blocks", 8192);
+                setIfMissing(configuration, "abilities.buscatesoros.ore-materials",
+                        BuscatesorosAbility.defaultOreMaterials().stream()
+                                .map(Enum::name)
+                                .sorted()
+                                .toList());
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 10;
+            }
+
+            @Override
+            public int toVersion() {
+                return 11;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 11 adds administration-menu language keys only.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 11;
+            }
+
+            @Override
+            public int toVersion() {
+                return 12;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 12 adds an enable flag per unique ability.
+                for (String ability : List.of("zarpazo", "vigia", "buscatesoros", "aterrizaje-felino")) {
+                    setIfMissing(configuration, "abilities." + ability + ".enabled", true);
+                }
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 12;
+            }
+
+            @Override
+            public int toVersion() {
+                return 13;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 13 adds revive-command language keys only.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 13;
+            }
+
+            @Override
+            public int toVersion() {
+                return 14;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 14 adds courier GUI and clickable-request language keys only.
             }
         }));
     }

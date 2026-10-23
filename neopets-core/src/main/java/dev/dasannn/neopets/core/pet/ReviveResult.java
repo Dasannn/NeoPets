@@ -6,7 +6,8 @@ import java.util.Objects;
 
 /** Business outcome of changing a dead pet back to the alive, inactive state. */
 public sealed interface ReviveResult
-        permits ReviveResult.Revived, ReviveResult.AlreadyAlive, ReviveResult.NotOwned, ReviveResult.InTransit {
+        permits ReviveResult.Revived, ReviveResult.AlreadyAlive, ReviveResult.NotOwned,
+                ReviveResult.InTransit, ReviveResult.InvalidSoul {
     /** The pet was persisted as alive and inactive. */
     record Revived(OwnedPet pet) implements ReviveResult {
         public Revived {
@@ -32,6 +33,13 @@ public sealed interface ReviveResult
     record InTransit(OwnedPet pet) implements ReviveResult {
         public InTransit {
             Objects.requireNonNull(pet, "pet");
+        }
+    }
+
+    /** The supplied soul token was absent, mismatched, or had already been consumed. */
+    record InvalidSoul(PetId petId) implements ReviveResult {
+        public InvalidSoul {
+            Objects.requireNonNull(petId, "petId");
         }
     }
 }

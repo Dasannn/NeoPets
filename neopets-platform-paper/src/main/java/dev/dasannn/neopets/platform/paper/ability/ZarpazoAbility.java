@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper.ability;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import org.bukkit.Location;
 import org.bukkit.Particle;
@@ -16,10 +17,16 @@ public final class ZarpazoAbility implements Ability {
     public static final String ID = "claw_swipe";
 
     private final Supplier<Settings> settings;
+    private final BiConsumer<LivingEntity, Location> feedback;
 
     /** Creates a dynamically configured Zarpazo ability. */
     public ZarpazoAbility(Supplier<Settings> settings) {
+        this(settings, ZarpazoAbility::playFeedback);
+    }
+
+    ZarpazoAbility(Supplier<Settings> settings, BiConsumer<LivingEntity, Location> feedback) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
     }
 
     @Override
@@ -38,7 +45,7 @@ public final class ZarpazoAbility implements Ability {
     @Override
     public void tick(AbilityContext context) {
         Settings configured = Objects.requireNonNull(settings.get(), "zarpazo settings");
-        if (!context.claimCooldown(configured.cooldown())) {
+        if (!configured.enabled() || !context.claimCooldown(configured.cooldown())) {
             return;
         }
         Location origin = context.pet().getLocation();
@@ -55,14 +62,23 @@ public final class ZarpazoAbility implements Ability {
             return;
         }
         targets.forEach(target -> target.damage(configured.damage(), context.pet()));
-        context.pet().getWorld().spawnParticle(
+        feedback.accept(context.pet(), origin);
+    }
+
+    private static void playFeedback(LivingEntity pet, Location origin) {
+        pet.getWorld().spawnParticle(
                 Particle.SWEEP_ATTACK, origin.clone().add(0, 1, 0), 8, 0.8, 0.25, 0.8, 0.0);
-        context.pet().getWorld().playSound(
+        pet.getWorld().playSound(
                 origin, Sound.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.NEUTRAL, 1.0F, 0.8F);
     }
 
     /** Validated runtime settings for Zarpazo. */
-    public record Settings(Duration cooldown, double radius, double damage) {
+    public record Settings(boolean enabled, Duration cooldown, double radius, double damage) {
+        /** Creates enabled settings. */
+        public Settings(Duration cooldown, double radius, double damage) {
+            this(true, cooldown, radius, damage);
+        }
+
         public Settings {
             Objects.requireNonNull(cooldown, "cooldown");
             if (cooldown.isZero() || cooldown.isNegative()) {

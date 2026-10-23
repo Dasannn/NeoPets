@@ -23,6 +23,7 @@ final class MysqlJdbcRepositoryTest extends AbstractJdbcRepositoryTest {
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_pet_storage");
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_soul_token");
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_pending_soul_delivery");
+            AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_pet_death_work");
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_pet");
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_player");
             AbstractMigrationTest.execute(connection, "DROP TABLE IF EXISTS np_flyway_schema_history");

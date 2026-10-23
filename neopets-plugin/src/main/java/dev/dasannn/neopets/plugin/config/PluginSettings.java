@@ -6,6 +6,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import org.bukkit.Material;
 
 /** Immutable typed settings loaded from {@code config.yml}. */
 public record PluginSettings(
@@ -126,15 +128,16 @@ public record PluginSettings(
     }
 
     /** Settings for custom pet abilities. */
-    public record Abilities(Zarpazo zarpazo, Vigia vigia) {
+    public record Abilities(Zarpazo zarpazo, Vigia vigia, Buscatesoros buscatesoros, boolean felineLandingEnabled) {
         public Abilities {
             Objects.requireNonNull(zarpazo, "zarpazo");
             Objects.requireNonNull(vigia, "vigia");
+            Objects.requireNonNull(buscatesoros, "buscatesoros");
         }
     }
 
     /** Polar-bear Zarpazo settings. */
-    public record Zarpazo(Duration cooldown, double radius, double damage) {
+    public record Zarpazo(boolean enabled, Duration cooldown, double radius, double damage) {
         public Zarpazo {
             requirePositive(cooldown, "zarpazo cooldown");
             requirePositiveFinite(radius, "zarpazo radius");
@@ -143,11 +146,35 @@ public record PluginSettings(
     }
 
     /** Parrot Vigía settings. */
-    public record Vigia(Duration cooldown, double radius, Duration duration) {
+    public record Vigia(boolean enabled, Duration cooldown, double radius, Duration duration) {
         public Vigia {
             requirePositive(cooldown, "vigia cooldown");
             requirePositiveFinite(radius, "vigia radius");
             requirePositive(duration, "vigia duration");
+        }
+    }
+
+    /** Dog Buscatesoros settings and hard work/result limits. */
+    public record Buscatesoros(
+            boolean enabled,
+            Duration cooldown,
+            double baseRadius,
+            Duration duration,
+            int maxTargets,
+            int maxScanBlocks,
+            Set<Material> oreMaterials
+    ) {
+        public Buscatesoros {
+            requirePositive(cooldown, "buscatesoros cooldown");
+            requirePositiveFinite(baseRadius, "buscatesoros base radius");
+            requirePositive(duration, "buscatesoros duration");
+            if (maxTargets < 1 || maxScanBlocks < 1) {
+                throw new IllegalArgumentException("buscatesoros caps must be positive");
+            }
+            oreMaterials = Set.copyOf(Objects.requireNonNull(oreMaterials, "oreMaterials"));
+            if (oreMaterials.isEmpty()) {
+                throw new IllegalArgumentException("oreMaterials must not be empty");
+            }
         }
     }
 

@@ -11,6 +11,7 @@ import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
+import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
+import org.bukkit.block.BlockType;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -116,8 +118,28 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.description",
             "gui.skill-tree.attributes.courier_saddlebags.effect");
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
-            "pets.soul-delivered", "pets.soul-dropped");
-    private static final Set<String> VERSION_10_MESSAGES = Set.of(
+            "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
+    private static final Set<String> VERSION_10_MESSAGES = Set.of("abilities.buscatesoros.found");
+    private static final Set<String> VERSION_11_MESSAGES = adminMessages();
+
+    private static Set<String> adminMessages() {
+        var keys = new java.util.HashSet<>(Set.of(
+                "gui.admin.header-name", "gui.admin.header-count", "gui.admin.page-number",
+                "gui.admin.current-enabled", "gui.admin.current-disabled", "gui.admin.current-number",
+                "gui.admin.range", "gui.admin.toggle-action", "gui.admin.number-action",
+                "gui.admin.previous-page", "gui.admin.next-page", "gui.admin.close",
+                "gui.admin.help-name", "gui.admin.help-lore", "gui.admin.help-message", "admin.edit-invalid"));
+        for (var feature : FeatureRegistry.features()) {
+            keys.add(feature.nameKey());
+            keys.add(feature.descriptionKey());
+        }
+        return Set.copyOf(keys);
+    }
+
+    private static final Set<String> VERSION_13_MESSAGES = Set.of(
+            "errors.player-offline", "pets.revived-admin", "pets.soul-wrong-owner",
+            "pets.revive-not-dead");
+    private static final Set<String> VERSION_14_MESSAGES = Set.of(
             "general.usage-courier", "courier.accept-button", "courier.reject-button",
             "courier.accepted-recipient", "courier.picker-help-message", "courier.storage-help-message",
             "gui.pets.action-courier", "gui.courier.blank", "gui.courier.title", "gui.courier.header",
@@ -178,6 +200,9 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_6_MESSAGES);
         required.addAll(VERSION_9_MESSAGES);
         required.addAll(VERSION_10_MESSAGES);
+        required.addAll(VERSION_11_MESSAGES);
+        required.addAll(VERSION_13_MESSAGES);
+        required.addAll(VERSION_14_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -358,6 +383,15 @@ public final class ConfigurationLoader {
         if (sourceVersion < 10) {
             changed |= mergeMissing(language, defaults, VERSION_10_MESSAGES);
         }
+        if (sourceVersion < 11) {
+            changed |= mergeMissing(language, defaults, VERSION_11_MESSAGES);
+        }
+        if (sourceVersion < 14) {
+            changed |= mergeMissing(language, defaults, VERSION_14_MESSAGES);
+        }
+        if (sourceVersion < 13) {
+            changed |= mergeMissing(language, defaults, VERSION_13_MESSAGES);
+        }
         return changed;
     }
 
@@ -375,6 +409,18 @@ public final class ConfigurationLoader {
     }
 
     private record MigrationOutcome(int sourceVersion, boolean changed) {
+    }
+
+    /** Validates an in-memory copy of {@code config.yml} with the production root settings parser. */
+    public PluginSettings validateConfig(YamlConfiguration root) throws ConfigurationLoadException {
+        Objects.requireNonNull(root, "root");
+        var issues = new ArrayList<ConfigurationIssue>();
+        migrateRoot(root, issues);
+        PluginSettings settings = parseSettings(root, issues);
+        if (!issues.isEmpty()) {
+            throw new ConfigurationLoadException(issues);
+        }
+        return settings;
     }
 
     private PluginSettings parseSettings(YamlConfiguration root, List<ConfigurationIssue> issues) {
@@ -417,7 +463,8 @@ public final class ConfigurationLoader {
         boolean shopEnabled = valueOr(bool(root, file, "shop.enabled", issues), false);
         boolean renameEnabled = valueOr(bool(root, file, "rename.enabled", issues), true);
         boolean resetEnabled = valueOr(bool(root, file, "reset.player-enabled", issues), false);
-        BigDecimal resetCost = valueOr(decimal(root, file, "reset.cost", true, issues), BigDecimal.ZERO);
+        BigDecimal resetCost = valueOr(boundedDecimal(root, file, "reset.cost", BigDecimal.ZERO,
+                FeatureRegistry.MAX_FINITE_DECIMAL, issues), BigDecimal.ZERO);
         double teleportDistance = valueOr(decimal(root, file, "follow.teleport-distance", false, issues),
                 BigDecimal.valueOf(20)).doubleValue();
 
@@ -436,12 +483,28 @@ public final class ConfigurationLoader {
                 BigDecimal.valueOf(16)).doubleValue();
         int vigiaDuration = valueOr(integer(
                 root, file, "abilities.vigia.duration-seconds", 1, 3_600, issues), 5);
+        int buscatesorosCooldown = valueOr(integer(
+                root, file, "abilities.buscatesoros.cooldown-seconds", 1, 86_400, issues), 30);
+        double buscatesorosRadius = valueOr(boundedDecimal(
+                root, file, "abilities.buscatesoros.base-radius", BigDecimal.valueOf(128), issues),
+                BigDecimal.valueOf(16)).doubleValue();
+        int buscatesorosDuration = valueOr(integer(
+                root, file, "abilities.buscatesoros.duration-seconds", 1, 3_600, issues), 5);
+        int buscatesorosMaxTargets = valueOr(integer(
+                root, file, "abilities.buscatesoros.max-targets", 1, 512, issues), 32);
+        int buscatesorosMaxScanBlocks = valueOr(integer(
+                root, file, "abilities.buscatesoros.max-scan-blocks", 1, 262_144, issues), 8192);
+        Set<Material> buscatesorosOres = valueOr(blockMaterialSet(
+                        root, file, "abilities.buscatesoros.ore-materials", issues),
+                BuscatesorosAbility.defaultOreMaterials());
 
         var ranks = parseRanks(root, file, issues);
         int rankRefreshSeconds = valueOr(integer(
                 root, file, "rank-resolution.bukkit-refresh-interval-seconds", 1, 86_400, issues), 30);
-        long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
-        long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
+        long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1,
+                Long.MAX_VALUE, issues), 300L);
+        long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0,
+                Long.MAX_VALUE, issues), 900L);
         long loadTimeoutSeconds = valueOr(longInteger(
                 root, file, "player-data.load-timeout-seconds", 1, issues), 10L);
 
@@ -453,9 +516,17 @@ public final class ConfigurationLoader {
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
         var abilities = new PluginSettings.Abilities(
                 new PluginSettings.Zarpazo(
+                        valueOr(bool(root, file, "abilities.zarpazo.enabled", issues), true),
                         Duration.ofSeconds(zarpazoCooldown), zarpazoRadius, zarpazoDamage),
                 new PluginSettings.Vigia(
-                        Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)));
+                        valueOr(bool(root, file, "abilities.vigia.enabled", issues), true),
+                        Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)),
+                new PluginSettings.Buscatesoros(
+                        valueOr(bool(root, file, "abilities.buscatesoros.enabled", issues), true),
+                        Duration.ofSeconds(buscatesorosCooldown), buscatesorosRadius,
+                        Duration.ofSeconds(buscatesorosDuration), buscatesorosMaxTargets,
+                        buscatesorosMaxScanBlocks, buscatesorosOres),
+                valueOr(bool(root, file, "abilities.aterrizaje-felino.enabled", issues), true));
         return new PluginSettings(version, storage, features, teleportDistance, abilities, ranks,
                 Duration.ofSeconds(rankRefreshSeconds),
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
@@ -788,14 +859,19 @@ public final class ConfigurationLoader {
 
     private static Long longInteger(ConfigurationSection root, Path file, String path, long minimum,
                                     List<ConfigurationIssue> issues) {
+        return longInteger(root, file, path, minimum, Long.MAX_VALUE, issues);
+    }
+
+    private static Long longInteger(ConfigurationSection root, Path file, String path, long minimum, long maximum,
+                                    List<ConfigurationIssue> issues) {
         Object raw = root.get(path);
         if (!(raw instanceof Number number) || number.doubleValue() != number.longValue()) {
             issue(issues, file, path, raw == null ? "required integer is missing" : "must be an integer");
             return null;
         }
         long value = number.longValue();
-        if (value < minimum) {
-            issue(issues, file, path, "must be at least " + minimum);
+        if (value < minimum || value > maximum) {
+            issue(issues, file, path, "must be between " + minimum + " and " + maximum);
             return null;
         }
         return value;
@@ -833,9 +909,35 @@ public final class ConfigurationLoader {
             BigDecimal maximum,
             List<ConfigurationIssue> issues
     ) {
-        BigDecimal value = decimal(root, file, path, false, issues);
-        if (value != null && value.compareTo(maximum) > 0) {
-            issue(issues, file, path, "must be at most " + maximum.toPlainString());
+        return boundedDecimal(root, file, path, BigDecimal.ZERO, maximum, issues, false);
+    }
+
+    private static BigDecimal boundedDecimal(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            BigDecimal minimum,
+            BigDecimal maximum,
+            List<ConfigurationIssue> issues
+    ) {
+        return boundedDecimal(root, file, path, minimum, maximum, issues, true);
+    }
+
+    private static BigDecimal boundedDecimal(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            BigDecimal minimum,
+            BigDecimal maximum,
+            List<ConfigurationIssue> issues,
+            boolean inclusiveMinimum
+    ) {
+        BigDecimal value = decimal(root, file, path, inclusiveMinimum && minimum.signum() == 0, issues);
+        boolean below = value != null && (inclusiveMinimum
+                ? value.compareTo(minimum) < 0 : value.compareTo(minimum) <= 0);
+        if (below || value != null && value.compareTo(maximum) > 0) {
+            issue(issues, file, path, "must be between " + minimum.toPlainString()
+                    + " and " + maximum.toPlainString());
             return null;
         }
         return value;
@@ -915,6 +1017,41 @@ public final class ConfigurationLoader {
         return valid ? parsed : null;
     }
 
+    private static Set<Material> blockMaterialSet(
+            ConfigurationSection root,
+            Path file,
+            String path,
+            List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof List<?> values)) {
+            issue(issues, file, path, raw == null ? "required material list is missing" : "must be a material list");
+            return null;
+        }
+        if (values.isEmpty()) {
+            issue(issues, file, path, "must contain at least one material");
+            return null;
+        }
+        boolean valid = true;
+        var materials = new java.util.LinkedHashSet<Material>();
+        for (int index = 0; index < values.size(); index++) {
+            Object value = values.get(index);
+            if (!(value instanceof String name)) {
+                issue(issues, file, path + "[" + index + "]", "must be an uppercase material name");
+                valid = false;
+                continue;
+            }
+            Material material = Material.matchMaterial(name);
+            if (material == null || !material.name().equals(name) || !isBlockMaterial(material)) {
+                issue(issues, file, path + "[" + index + "]", "must name a valid uppercase block material");
+                valid = false;
+            } else {
+                materials.add(material);
+            }
+        }
+        return valid ? Set.copyOf(materials) : null;
+    }
+
     private record SkillPointCostSpec(List<Integer> perLevel, Integer uniform) {
         private List<Integer> forLevels(int levels) {
             return perLevel == null ? java.util.Collections.nCopies(levels, uniform) : perLevel;
@@ -951,6 +1088,15 @@ public final class ConfigurationLoader {
         }
         try {
             ItemType.class.getField(material.name());
+            return true;
+        } catch (NoSuchFieldException exception) {
+            return false;
+        }
+    }
+
+    private static boolean isBlockMaterial(Material material) {
+        try {
+            BlockType.class.getField(material.name());
             return true;
         } catch (NoSuchFieldException exception) {
             return false;

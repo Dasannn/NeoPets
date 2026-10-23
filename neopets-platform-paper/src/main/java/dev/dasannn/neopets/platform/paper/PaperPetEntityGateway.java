@@ -170,9 +170,7 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
             registry.register(petId, entity.getUniqueId());
         } catch (Throwable failure) {
             try {
-                if (entity instanceof LivingEntity livingEntity) {
-                    effectApplier.remove(petId, livingEntity);
-                }
+                effectApplier.remove(petId);
                 entity.remove();
             } catch (Throwable cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
@@ -182,12 +180,11 @@ public final class PaperPetEntityGateway implements PetEntityGateway {
     }
 
     private void despawnOnMain(PetId petId) {
-        registry.unregister(petId)
+        var entityId = registry.unregister(petId);
+        effectApplier.remove(petId);
+        entityId
                 .map(server::getEntity)
                 .ifPresent(entity -> {
-                    if (entity instanceof LivingEntity livingEntity) {
-                        effectApplier.remove(petId, livingEntity);
-                    }
                     if (entity.isValid()) {
                         entity.remove();
                     }

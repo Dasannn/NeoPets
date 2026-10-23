@@ -165,6 +165,43 @@ class PaperPetEntityGatewayTest {
         assertTrue(registry.entityId(petId).isEmpty());
     }
 
+    @Test
+    void despawnRemovesEffectsByPetIdDuringPendingRecovery() {
+        var petId = new PetId(UUID.randomUUID());
+        var ownerId = UUID.randomUUID();
+        var variantId = new VariantId("parrot_test");
+        var registry = new LivePetRegistry();
+        var unloadedEntityId = UUID.randomUUID();
+        registry.register(petId, unloadedEntityId);
+        assertTrue(registry.beginRecovery(petId, unloadedEntityId));
+        var removedEffects = new PetId[1];
+        var effects = new PetEffectApplier() {
+            @Override
+            public void apply(PetId ignoredPetId, LivingEntity ignoredEntity) {
+            }
+
+            @Override
+            public void remove(PetId removedPetId) {
+                removedEffects[0] = removedPetId;
+            }
+        };
+        var gateway = new PaperPetEntityGateway(
+                server(onlinePlayer(ownerId)),
+                new DirectScheduler(),
+                (location, ignoredOwnerId, ignoredPetId, ignoredVariant) -> {
+                    throw new AssertionError("despawn must not spawn");
+                },
+                registry,
+                ignored -> new PetSpawnData(ownerId, variantId),
+                ignored -> null,
+                effects);
+
+        gateway.despawn(petId).join();
+
+        assertEquals(petId, removedEffects[0]);
+        assertFalse(registry.isRecoveryPending(petId));
+    }
+
     private static final class GatewayFixture {
         private final PetId petId = new PetId(UUID.randomUUID());
         private final UUID ownerId = UUID.randomUUID();

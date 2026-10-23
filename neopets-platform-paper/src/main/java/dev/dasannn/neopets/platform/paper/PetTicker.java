@@ -150,6 +150,7 @@ public final class PetTicker implements AutoCloseable, Listener {
     }
 
     private void tickAll() {
+        abilities.maintain();
         registry.pendingRecoveriesSnapshot().forEach(this::requestRecovery);
         for (var entry : registry.snapshot().entrySet()) {
             var entity = server.getEntity(entry.getValue());

@@ -21,6 +21,11 @@ public final class JdbcPendingSoulDeliveryRepository extends JdbcRepository
             INSERT INTO np_pending_soul_delivery (token_id, pet_id, owner, created_at)
             VALUES (?, ?, ?, ?)
             """;
+    private static final String UPDATE = """
+            UPDATE np_pending_soul_delivery
+            SET pet_id = ?, owner = ?, created_at = ?
+            WHERE token_id = ?
+            """;
     private static final String FIND_BY_OWNER = """
             SELECT token_id, pet_id, owner, created_at
             FROM np_pending_soul_delivery
@@ -39,12 +44,20 @@ public final class JdbcPendingSoulDeliveryRepository extends JdbcRepository
         Objects.requireNonNull(delivery, "delivery");
         return submit(() -> {
             try (var connection = dataSource.getConnection();
-                    var statement = connection.prepareStatement(SAVE)) {
-                statement.setString(1, delivery.tokenId().toString());
-                statement.setString(2, delivery.petId().toString());
-                statement.setString(3, delivery.ownerId().toString());
-                statement.setTimestamp(4, Timestamp.from(delivery.createdAt()), utcCalendar());
-                statement.executeUpdate();
+                    var update = connection.prepareStatement(UPDATE)) {
+                update.setString(1, delivery.petId().toString());
+                update.setString(2, delivery.ownerId().toString());
+                update.setTimestamp(3, Timestamp.from(delivery.createdAt()), utcCalendar());
+                update.setString(4, delivery.tokenId().toString());
+                if (update.executeUpdate() == 0) {
+                    try (var insert = connection.prepareStatement(SAVE)) {
+                        insert.setString(1, delivery.tokenId().toString());
+                        insert.setString(2, delivery.petId().toString());
+                        insert.setString(3, delivery.ownerId().toString());
+                        insert.setTimestamp(4, Timestamp.from(delivery.createdAt()), utcCalendar());
+                        insert.executeUpdate();
+                    }
+                }
             }
             return null;
         });
@@ -69,6 +82,35 @@ public final class JdbcPendingSoulDeliveryRepository extends JdbcRepository
                 }
             }
             return List.copyOf(deliveries);
+        });
+    }
+
+    @Override
+    public CompletableFuture<Boolean> claim(UUID tokenId) {
+        Objects.requireNonNull(tokenId, "tokenId");
+        return submit(() -> {
+            try (var connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement("""
+                            UPDATE np_pending_soul_delivery SET claimed = TRUE
+                            WHERE token_id = ? AND claimed = FALSE
+                            """)) {
+                statement.setString(1, tokenId.toString());
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> releaseClaims(PlayerId ownerId) {
+        Objects.requireNonNull(ownerId, "ownerId");
+        return submit(() -> {
+            try (var connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement(
+                            "UPDATE np_pending_soul_delivery SET claimed = FALSE WHERE owner = ?")) {
+                statement.setString(1, ownerId.toString());
+                statement.executeUpdate();
+            }
+            return null;
         });
     }
 

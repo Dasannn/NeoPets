@@ -83,7 +83,8 @@ final class PaperPluginDescriptorTest {
                     () -> assertFalse(hasEntryUnder(entries, "com/zaxxer/hikari/")),
                     () -> assertFalse(hasEntryUnder(entries, "com/mysql/")),
                     () -> assertFalse(hasEntryUnder(entries, "org/sqlite/")),
-                    () -> assertFalse(hasEntryUnder(entries, "org/flywaydb/")));
+                    () -> assertFalse(hasEntryUnder(entries, "org/flywaydb/")),
+                    () -> assertFalse(hasEntryUnder(entries, "me/clip/placeholderapi/")));
         }
     }
 
