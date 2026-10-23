@@ -1,65 +1,64 @@
 package dev.dasannn.neopets.plugin;
 
-import dev.dasannn.neopets.core.port.Economy;
-import dev.dasannn.neopets.core.port.RankLimitsResolver;
-import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
-import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
-import dev.dasannn.neopets.plugin.integration.EconomyProvider;
-import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
-import java.io.IOException;
-import java.util.concurrent.Executor;
-import org.bukkit.Bukkit;
+import dev.dasannn.neopets.plugin.command.NeoPetsCommands;
+import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import java.util.logging.Level;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/**
- * Main entry point for NeoPets.
- */
+/** Main entry point and owner of the NeoPets composition root. */
 public final class NeoPetsPlugin extends JavaPlugin {
-    private ConfigurationManager configurationManager;
-    private Economy economy;
-    private RankLimitsResolver rankLimitsResolver;
+    private NeoPetsRuntime runtime;
+
+    @Override
+    public void onLoad() {
+        getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS,
+                event -> new NeoPetsCommands(this, this::runtime).register(event.registrar()));
+    }
 
     @Override
     public void onEnable() {
         try {
-            configurationManager = new ConfigurationManager(new ConfigurationLoader(getDataFolder().toPath()));
-        } catch (IOException | ConfigurationLoadException exception) {
-            getLogger().severe(exception.getMessage());
+            runtime = NeoPetsRuntime.start(this);
+            getLogger().info("NeoPets enabled (version " + getPluginMeta().getVersion() + ")");
+        } catch (Throwable failure) {
+            getLogger().log(Level.SEVERE, "NeoPets could not start: " + conciseMessage(failure));
             getServer().getPluginManager().disablePlugin(this);
-            return;
         }
-        Executor mainThreadExecutor = task -> {
-            if (Bukkit.isPrimaryThread()) {
-                task.run();
-            } else {
-                getServer().getScheduler().runTask(this, task);
-            }
-        };
-        economy = EconomyProvider.resolve(getServer(), mainThreadExecutor, getLogger());
-        rankLimitsResolver = RankLimitsResolverFactory.create(this, configurationManager);
-        getLogger().info("NeoPets enabled (version " + getPluginMeta().getVersion() + ")");
     }
 
     @Override
     public void onDisable() {
-        economy = null;
+        NeoPetsRuntime current = runtime;
+        runtime = null;
+        if (current != null) {
+            try {
+                current.close();
+            } catch (Exception failure) {
+                getLogger().log(Level.SEVERE, "NeoPets shutdown did not complete cleanly: "
+                        + conciseMessage(failure));
+            }
+        }
         getLogger().info("NeoPets disabled");
     }
 
-    /** Returns the live configuration manager after the plugin has enabled successfully. */
-    public ConfigurationManager configurationManager() {
-        if (configurationManager == null) {
-            throw new IllegalStateException("NeoPets configuration is not loaded");
+    /** Returns the active runtime. */
+    public NeoPetsRuntime runtime() {
+        if (runtime == null) {
+            throw new IllegalStateException("NeoPets runtime is not available");
         }
-        return configurationManager;
+        return runtime;
     }
 
-    /** Returns the configured rank-limits resolver after the plugin has enabled successfully. */
-    public RankLimitsResolver rankLimitsResolver() {
-        if (rankLimitsResolver == null) {
-            throw new IllegalStateException("NeoPets rank limits resolver is not initialized");
-        }
-        return rankLimitsResolver;
+    /** Returns the live configuration manager after successful enablement. */
+    public ConfigurationManager configurationManager() {
+        return runtime().configuration();
+    }
+
+    private static String conciseMessage(Throwable failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank() ? failure.getClass().getSimpleName()
+                : message.lines().findFirst().orElse(failure.getClass().getSimpleName());
     }
 }

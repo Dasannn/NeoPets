@@ -41,11 +41,16 @@ public final class ConfigurationLoader {
     private static final Pattern LOWERCASE_KEY = Pattern.compile("[a-z0-9]+(?:_[a-z0-9]+)*");
     private static final Set<String> REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
-            "errors.invalid-amount", "errors.config-invalid", "errors.internal", "general.reloaded",
-            "general.usage-neopets", "general.usage-give", "general.usage-sp", "general.usage-revive",
+            "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
+            "general.reloaded",
+            "general.usage-neopets", "general.usage-neopet", "general.usage-pet-action",
+            "general.usage-give", "general.usage-sp", "general.usage-revive",
             "pets.none-owned", "pets.given", "pets.given-admin", "pets.already-owned", "pets.all-owned",
             "pets.unknown-variant", "pets.unknown-type", "pets.summoned", "pets.dismissed",
-            "pets.active-limit", "pets.renamed", "pets.rename-disabled", "pets.dead", "pets.revived",
+            "pets.active-limit", "pets.already-active", "pets.already-inactive", "pets.not-owned",
+            "pets.in-transit", "pets.dead-unavailable", "pets.list-header", "pets.list-entry",
+            "pets.action-summon", "pets.action-dismiss",
+            "pets.renamed", "pets.rename-disabled", "pets.dead", "pets.revived",
             "pets.soul-required", "pets.soul-invalid", "pets.soul-item-name", "pets.soul-item-lore",
             "pets.shop-disabled", "skills.points", "skills.points-changed", "skills.node-unlocked",
             "skills.node-activated", "skills.previous-level-required", "skills.not-enough-money",
@@ -189,6 +194,8 @@ public final class ConfigurationLoader {
         var ranks = parseRanks(root, file, issues);
         long timeoutSeconds = valueOr(longInteger(root, file, "courier.request-timeout-seconds", 1, issues), 300L);
         long cooldownSeconds = valueOr(longInteger(root, file, "courier.cooldown-seconds", 0, issues), 900L);
+        long loadTimeoutSeconds = valueOr(longInteger(
+                root, file, "player-data.load-timeout-seconds", 1, issues), 10L);
 
         var mysql = new PluginSettings.Mysql(mysqlHost, mysqlPort, mysqlDatabase, mysqlUsername, mysqlPassword);
         var storage = new PluginSettings.Storage(storageType, sqliteFile, mysql);
@@ -196,7 +203,8 @@ public final class ConfigurationLoader {
         var reset = new PluginSettings.Reset(resetEnabled, resetCost);
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
         return new PluginSettings(version, storage, features, teleportDistance, ranks,
-                new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)));
+                new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),
+                Duration.ofSeconds(loadTimeoutSeconds));
     }
 
     private Map<String, RankLimits> parseRanks(

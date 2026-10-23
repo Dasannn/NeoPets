@@ -13,6 +13,10 @@ storage:
     username: neopets
     password: "change-me"
 
+player-data:
+  # Maximum database wait during asynchronous pre-login profile loading.
+  load-timeout-seconds: 10
+
 death:
   enabled: true
   pvp: false
