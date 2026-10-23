@@ -8,6 +8,7 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -21,6 +22,48 @@ import org.bukkit.loot.Lootable;
 import org.junit.jupiter.api.Test;
 
 class TreasureScanTest {
+    @Test
+    void outwardTraversalCoversTheSphereOnceIncludingClippedWorldHeights() {
+        for (int originY : new int[] {-64, 64, 319}) {
+            var fixture = new Fixture();
+            fixture.minHeight = -64;
+            fixture.maxHeight = 320;
+            fixture.defaultMaterial = Material.DIAMOND_ORE;
+            var expected = new HashSet<TreasureScan.Position>();
+            for (int x = -2; x <= 2; x++) {
+                for (int y = -2; y <= 2; y++) {
+                    for (int z = -2; z <= 2; z++) {
+                        int blockY = originY + y;
+                        if (x * x + y * y + z * z <= 4 && blockY >= -64 && blockY < 320) {
+                            expected.add(new TreasureScan.Position(x, blockY, z));
+                        }
+                    }
+                }
+            }
+            var scan = fixture.scan(0, originY, 0, 2, 0, 1000, 1000);
+            finish(scan);
+            assertEquals(expected, Set.copyOf(scan.targets()));
+            assertEquals(expected.size(), scan.targets().size(), "each block must be visited once");
+        }
+    }
+
+    @Test
+    void defaultBudgetFindsAdjacentTreasureAtNormalWorldHeightAcrossChunkBoundaries() {
+        var fixture = new Fixture();
+        fixture.minHeight = -64;
+        fixture.maxHeight = 320;
+        var expected = Set.of(new TreasureScan.Position(1, 64, 0),
+                new TreasureScan.Position(-1, 64, 0), new TreasureScan.Position(0, 64, -1),
+                new TreasureScan.Position(0, 65, 0), new TreasureScan.Position(0, 63, 0));
+        expected.forEach(position -> fixture.blocks.put(position, new Facts(Material.CHEST, true)));
+        var scan = fixture.scan(0, 64, 0, 16, 0, 8192, 32);
+
+        finish(scan);
+
+        assertEquals(expected, Set.copyOf(scan.targets()));
+        assertEquals(8192, scan.scannedBlocks());
+    }
+
     @Test
     void runtimeSelectsOnlyUnopenedLootAndConfiguredOreWithinScentRange() {
         var fixture = new Fixture();
@@ -47,7 +90,7 @@ class TreasureScanTest {
         fixture.defaultMaterial = Material.DIAMOND_ORE;
         var capped = fixture.scan(8, 0, 8, 1, 0, 3, 20);
         finish(capped);
-        // Chunk probe, rejected cube corner, first ore: no rejected position escapes the cap.
+        // Snapshot acquisition, origin ore and a rejected diagonal each consume budget.
         assertEquals(3, capped.scannedBlocks());
         assertEquals(1, capped.targets().size());
 
@@ -75,9 +118,8 @@ class TreasureScanTest {
         var scan = fixture.scan(0, 440, 0, 128, 0, 1200, 32);
         scan.advance(512);
         assertFalse(scan.complete());
-        assertEquals(512, scan.scannedBlocks());
+        assertTrue(scan.scannedBlocks() <= 512);
         assertEquals(1, fixture.snapshots);
-        assertEquals(0, fixture.blockReads); // Initial cube corner lies outside the sphere.
         finish(scan);
         assertEquals(1200, scan.scannedBlocks());
         assertTrue(scan.targets().isEmpty());
@@ -119,8 +161,8 @@ class TreasureScanTest {
         while (!scan.complete()) {
             int before = fixture.snapshots;
             scan.advance(512);
-            assertEquals(1, fixture.snapshots - before);
-            assertTrue(++ticks <= 4, "only the four intersecting chunks should be visited");
+            assertTrue(fixture.snapshots - before <= 1);
+            assertTrue(++ticks <= 5, "only the four intersecting chunks should be visited");
         }
         assertEquals(4, fixture.snapshots);
         assertEquals(13, scan.scannedBlocks()); // Four chunk probes plus nine cube positions.

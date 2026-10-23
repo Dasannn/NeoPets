@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper.ability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import dev.dasannn.neopets.core.model.PetId;
 import java.lang.reflect.Proxy;
@@ -87,6 +88,107 @@ class BuscatesorosAbilityTest {
                     petId, pet, owner, 1, Instant.EPOCH.plusSeconds(30).plusMillis(tick), cooldowns, 0, ability.id()));
         }
         assertEquals(2, notifications[0]);
+    }
+
+    @Test
+    void particlesStartAfterTraversalExpireOnTimeAndCooldownDelaysTheNextScan() {
+        var fixture = new ScanFixture();
+        int completedAt = fixture.finishScan(0);
+        assertEquals(1, fixture.notifications);
+        assertEquals(1, fixture.particles);
+        fixture.tick(completedAt + 4);
+        assertEquals(2, fixture.particles);
+        fixture.tick(completedAt + 5);
+        fixture.tick(29);
+        assertEquals(2, fixture.particles, "no particles at or after the expiry instant");
+        assertEquals(1, fixture.notifications);
+        int snapshots = fixture.snapshots;
+        fixture.tick(30);
+        assertTrue(fixture.snapshots > snapshots, "cooldown is ready exactly at 30 seconds");
+        fixture.finishScan(31);
+        assertEquals(2, fixture.notifications);
+    }
+
+    @Test
+    void deactivationDiscardsPendingTraversalAndActiveMarkers() {
+        var fixture = new ScanFixture();
+        fixture.tick(0);
+        assertEquals(0, fixture.notifications);
+        fixture.ability.onDeactivate(fixture.pet, fixture.owner, 1);
+        fixture.tick(1);
+        assertEquals(0, fixture.notifications);
+        assertEquals(0, fixture.particles);
+        fixture.finishScan(30);
+        int particles = fixture.particles;
+        fixture.ability.onDeactivate(fixture.pet, fixture.owner, 1);
+        fixture.tick(35);
+        assertEquals(1, fixture.notifications);
+        assertEquals(particles, fixture.particles);
+    }
+
+    private static final class ScanFixture {
+        private int notifications;
+        private int particles;
+        private int snapshots;
+        private final PetId petId = new PetId(UUID.randomUUID());
+        private final UUID entityId = UUID.randomUUID();
+        private final CooldownTracker cooldowns = new CooldownTracker();
+        private final World world = proxy(World.class, (object, method, args) -> switch (method.getName()) {
+            case "getMinHeight" -> -64;
+            case "getMaxHeight" -> 320;
+            case "isChunkLoaded" -> true;
+            case "getChunkAt" -> {
+                int chunkX = (int) args[0];
+                int chunkZ = (int) args[1];
+                yield proxy(Chunk.class, (chunk, chunkMethod, chunkArgs) -> {
+                    assertEquals("getChunkSnapshot", chunkMethod.getName());
+                    snapshots++;
+                    return proxy(ChunkSnapshot.class, (snapshot, snapshotMethod, coordinates) -> {
+                        assertEquals("getBlockType", snapshotMethod.getName());
+                        return chunkX == 0 && chunkZ == 0 && (int) coordinates[0] == 0
+                                && (int) coordinates[1] == 64 && (int) coordinates[2] == 0
+                                ? Material.DIAMOND_ORE : Material.AIR;
+                    });
+                });
+            }
+            default -> throw new AssertionError(method);
+        });
+        private final LivingEntity pet = proxy(LivingEntity.class, (object, method, args) -> switch (method.getName()) {
+            case "getUniqueId" -> entityId;
+            case "getLocation" -> new Location(world, 0, 64, 0);
+            default -> throw new AssertionError(method);
+        });
+        private final Player owner = proxy(Player.class, (object, method, args) -> {
+            assertEquals("spawnParticle", method.getName());
+            particles++;
+            return null;
+        });
+        private final BuscatesorosAbility ability = new BuscatesorosAbility(
+                () -> new BuscatesorosAbility.Settings(Duration.ofSeconds(30), 16,
+                        Duration.ofSeconds(5), 32, 1300, Set.of(Material.DIAMOND_ORE)),
+                (player, count) -> {
+                    assertSame(owner, player);
+                    assertEquals(1, count);
+                    notifications++;
+                });
+
+        private void tick(int seconds) {
+            ability.tick(new AbilityContext(petId, pet, owner, 1,
+                    Instant.EPOCH.plusSeconds(seconds), cooldowns, 0, ability.id()));
+        }
+
+        private int finishScan(int start) {
+            int previous = notifications;
+            int previousParticles = particles;
+            for (int second = start; second < start + 20; second++) {
+                tick(second);
+                if (notifications > previous) {
+                    return second;
+                }
+                assertEquals(previousParticles, particles, "no markers before the scan finishes");
+            }
+            throw new AssertionError("scan did not finish");
+        }
     }
 
     @SuppressWarnings("unchecked")

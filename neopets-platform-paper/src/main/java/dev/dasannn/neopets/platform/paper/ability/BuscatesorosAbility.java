@@ -59,7 +59,6 @@ public final class BuscatesorosAbility implements Ability {
         }
         ScanState scan = scans.get(entityId);
         if (scan != null) {
-            scan.emitParticles(context.owner());
             if (!scan.complete()) {
                 scan.advance(context.now());
                 if (scan.complete() && !scan.targets().isEmpty()) {
@@ -69,6 +68,8 @@ public final class BuscatesorosAbility implements Ability {
             if (scan.expired(context.now())) {
                 scans.remove(entityId);
                 scan = null;
+            } else if (scan.complete()) {
+                scan.emitParticles(context.owner());
             }
         }
 
@@ -82,6 +83,7 @@ public final class BuscatesorosAbility implements Ability {
             started.advance(context.now());
             if (started.complete() && !started.targets().isEmpty()) {
                 foundNotifier.accept(context.owner(), started.targets().size());
+                started.emitParticles(context.owner());
             }
         }
     }
