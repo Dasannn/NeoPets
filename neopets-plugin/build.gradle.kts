@@ -17,6 +17,7 @@ dependencies {
     api(project(":neopets-platform-paper"))
     api(project(":neopets-storage"))
     compileOnly(libs.paper.api)
+    compileOnly(libs.luckperms.api)
     testImplementation(libs.paper.api)
 
     // Internal modules (and, transitively, core and api) are merged into the plugin jar.
