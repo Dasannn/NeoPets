@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.bukkit.Server;
@@ -50,6 +51,7 @@ public final class PetsMenu {
     private final RankLimitsResolver ranks;
     private final PetService petService;
     private final PetRenameListener renames;
+    private final BiConsumer<Player, PetId> skillTreeOpener;
     private final Logger logger;
 
     public PetsMenu(
@@ -63,6 +65,7 @@ public final class PetsMenu {
             RankLimitsResolver ranks,
             PetService petService,
             PetRenameListener renames,
+            BiConsumer<Player, PetId> skillTreeOpener,
             Logger logger
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
@@ -76,6 +79,7 @@ public final class PetsMenu {
         this.ranks = Objects.requireNonNull(ranks, "ranks");
         this.petService = Objects.requireNonNull(petService, "petService");
         this.renames = Objects.requireNonNull(renames, "renames");
+        this.skillTreeOpener = Objects.requireNonNull(skillTreeOpener, "skillTreeOpener");
         this.logger = Objects.requireNonNull(logger, "logger");
     }
 
@@ -145,7 +149,7 @@ public final class PetsMenu {
             return;
         }
         if (click.isRightClick()) {
-            messages.send(player, MessageSpec.of("gui.pets.coming-soon"));
+            skillTreeOpener.accept(player, petId);
             return;
         }
         if (!click.isLeftClick() || state.loading) {

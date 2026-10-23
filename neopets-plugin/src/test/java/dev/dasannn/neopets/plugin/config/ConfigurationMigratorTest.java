@@ -40,7 +40,7 @@ class ConfigurationMigratorTest {
         var migrator = new ConfigurationMigrator();
         var configuration = new YamlConfiguration();
 
-        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 7));
+        assertThrows(IllegalArgumentException.class, () -> migrator.migrate(configuration, 8));
         assertThrows(IllegalArgumentException.class,
                 () -> new ConfigurationMigrator(2, List.of()).migrate(configuration, 1));
     }

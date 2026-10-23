@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 6
+config-version: 7
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.

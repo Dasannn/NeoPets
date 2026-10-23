@@ -28,6 +28,7 @@ import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
 import dev.dasannn.neopets.plugin.gui.Menu;
 import dev.dasannn.neopets.plugin.gui.PetRenameListener;
 import dev.dasannn.neopets.plugin.gui.PetsMenu;
+import dev.dasannn.neopets.plugin.gui.SkillTreeMenu;
 import dev.dasannn.neopets.plugin.listener.OrphanCleanupListener;
 import dev.dasannn.neopets.plugin.listener.PlayerLifecycleListener;
 import dev.dasannn.neopets.platform.paper.LivePetRegistry;
@@ -62,6 +63,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
 /** Owns the complete manually wired NeoPets runtime. */
@@ -185,8 +187,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
             pluginManager.registerEvents(ticker, plugin);
             var menu = new Menu(plugin, plugin.getLogger());
             var renames = new PetRenameListener(plugin, petService, configuration, messages, plugin.getLogger());
+            var petsMenuReference = new AtomicReference<PetsMenu>();
+            var skillTreeMenu = new SkillTreeMenu(plugin, menu, configuration, messages, pets, trees,
+                    skillPoints, rankPort, economyPort, skillTrees,
+                    player -> Objects.requireNonNull(petsMenuReference.get(), "pets menu").open(player),
+                    plugin.getLogger());
             var petsMenu = new PetsMenu(plugin, menu, configuration, messages, pets, trees, skillPoints,
-                    rankPort, petService, renames, plugin.getLogger());
+                    rankPort, petService, renames, skillTreeMenu::open, plugin.getLogger());
+            petsMenuReference.set(petsMenu);
             pluginManager.registerEvents(menu, plugin);
             pluginManager.registerEvents(renames, plugin);
 

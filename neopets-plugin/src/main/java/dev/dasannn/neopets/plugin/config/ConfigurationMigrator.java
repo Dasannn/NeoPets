@@ -11,7 +11,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 6;
+    public static final int CURRENT_VERSION = 7;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -95,6 +95,22 @@ public final class ConfigurationMigrator {
 
             @Override
             public void apply(YamlConfiguration configuration) {
+                // Version 6 adds skill-tree GUI language keys only.
+            }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() {
+                return 6;
+            }
+
+            @Override
+            public int toVersion() {
+                return 7;
+            }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 7 makes the fallback Bukkit permission refresh interval configurable.
                 if (!configuration.isSet("rank-resolution.bukkit-refresh-interval-seconds")) {
                     configuration.set("rank-resolution.bukkit-refresh-interval-seconds", 30);
                 }
