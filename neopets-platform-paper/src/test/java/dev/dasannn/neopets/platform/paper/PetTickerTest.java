@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
 import java.lang.reflect.Proxy;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Logger;
 import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -58,13 +61,17 @@ class PetTickerTest {
         registry.register(petId, unloadedEntityId);
         var scheduler = new RecordingScheduler();
         var gateway = new RecordingGateway(registry, replacementEntityId, 1);
-        var ticker = ticker(scheduler, registry, gateway);
+        var warnings = new ArrayList<String>();
+        var reporter = new RecoveryFailureReporter(
+                Duration.ofMinutes(1), () -> 1L, (message, failure) -> warnings.add(message));
+        var ticker = ticker(scheduler, registry, gateway, reporter);
         ticker.start();
 
         ticker.recoverUnloaded(List.of(taggedEntity(petId, unloadedEntityId)));
 
         assertEquals(1, gateway.spawnCount);
         assertTrue(registry.isRecoveryPending(petId));
+        assertEquals(1, warnings.size());
 
         scheduler.task.runnable.run();
 
@@ -113,15 +120,35 @@ class PetTickerTest {
             LivePetRegistry registry,
             PetEntityGateway gateway
     ) {
+        return ticker(scheduler, registry, gateway, null);
+    }
+
+    private static PetTicker ticker(
+            RecordingScheduler scheduler,
+            LivePetRegistry registry,
+            PetEntityGateway gateway,
+            RecoveryFailureReporter recoveryFailureReporter
+    ) {
         var server = (Server) Proxy.newProxyInstance(
                 PetTickerTest.class.getClassLoader(),
                 new Class<?>[] {Server.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getEntity" -> null;
+                    case "getLogger" -> Logger.getLogger("PetTickerTest");
                     case "toString" -> "test server";
                     default -> throw new AssertionError("Unexpected server call: " + method);
                 });
-        return new PetTicker(server, scheduler, registry, new PetBrain(4.0, 16.0, 1.0), gateway);
+        if (recoveryFailureReporter == null) {
+            return new PetTicker(server, scheduler, registry, new PetBrain(4.0, 16.0, 1.0), gateway);
+        }
+        return new PetTicker(
+                server,
+                scheduler,
+                registry,
+                new PetBrain(4.0, 16.0, 1.0),
+                gateway,
+                PetTicker.DEFAULT_PERIOD_TICKS,
+                recoveryFailureReporter);
     }
 
     private static Entity taggedEntity(PetId petId, UUID entityId) {
