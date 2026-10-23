@@ -307,11 +307,13 @@ public final class NeoPetsRuntime implements AutoCloseable {
                     petsMenu::open, cache::loadedPet,
                     pet -> pet.customName().orElseGet(() -> variants.findById(pet.variant())
                             .map(PetVariant::displayNameKey).orElse(pet.variant().value())),
-                    petId -> cache.loadedPet(petId).flatMap(pet -> variants.findById(pet.variant()))
-                            .filter(variant -> variant.type().value().equals("donkey")).isPresent()
-                            && cache.loadedTreeProgress(petId)
-                            .map(progress -> progress.attributes().get("courier_saddlebags"))
-                            .map(attribute -> attribute.activeLevel() > 0).orElse(false),
+                    petId -> cache.loadedPet(petId)
+                            .flatMap(pet -> configuration.current().variants().findById(pet.variant()))
+                            .filter(variant -> variant.type().value().equals("donkey"))
+                            .flatMap(variant -> configuration.current().skillTree(variant.type()))
+                            .map(definition -> cache.loadedTreeProgress(petId)
+                                    .map(progress -> progress.hasActiveAbility(definition, "courier_saddlebags"))
+                                    .orElse(false)).orElse(false),
                     plugin.getLogger());
             courierReference.set(courierSaddlebags);
             playerLifecycle.beforeRestore(courier::recover);

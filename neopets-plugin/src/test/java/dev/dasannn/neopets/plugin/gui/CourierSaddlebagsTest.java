@@ -63,6 +63,12 @@ class CourierSaddlebagsTest {
     private boolean online = true;
     private int opened;
     private CourierSaddlebags coordinator;
+    private CourierService courier;
+    private OwnedPet persistedPet = pet;
+    private CompletableFuture<Void> transitSave;
+    private Player recipient;
+    private boolean recipientOnline = true;
+    private boolean failPlayerSave;
     private final SaddlebagContentsCodec codec = new SaddlebagContentsCodec(new SaddlebagContentsCodec.ItemSerialization() {
         public byte[] serialize(ItemStack item) { return new byte[] {(byte) item.getAmount()}; }
         public ItemStack deserialize(byte[] bytes) { return new Stack(Byte.toUnsignedInt(bytes[0])); }
@@ -96,21 +102,41 @@ class CourierSaddlebagsTest {
             case "getOpenInventory" -> view();
             case "openInventory" -> { top = (Inventory) a[0]; opened++; yield view(); }
             case "closeInventory" -> { top = null; yield null; }
-            case "saveData" -> { order.add("player"); yield null; }
+            case "saveData" -> {
+                if (failPlayerSave) throw new IllegalStateException("player save failed");
+                order.add("player"); yield null;
+            }
+            default -> fallback(m.getReturnType());
+        });
+        recipient = proxy(Player.class, (p, m, a) -> switch (m.getName()) {
+            case "getUniqueId" -> new UUID(0, 2);
+            case "isOnline" -> recipientOnline;
+            case "getName" -> "Recipient";
+            case "getOpenInventory" -> view();
+            case "equals" -> p == a[0];
             default -> fallback(m.getReturnType());
         });
         Server server = proxy(Server.class, (p, m, a) -> switch (m.getName()) {
             case "getScheduler" -> scheduler;
+            case "getPlayer" -> recipient;
             case "isPrimaryThread" -> true;
             case "createInventory" -> { holder = (InventoryHolder) a[0]; yield inventory; }
             default -> fallback(m.getReturnType());
         });
         Plugin plugin = proxy(Plugin.class, (p, m, a) -> m.getName().equals("getServer") ? server : fallback(m.getReturnType()));
         var operations = new PlayerOperationQueue();
-        var pets = proxy(PetRepository.class, (p, m, a) -> CompletableFuture.completedFuture(
-                m.getName().equals("findById") ? Optional.of(pet) : m.getName().equals("findByOwner") ? List.of(pet) : null));
+        var pets = proxy(PetRepository.class, (p, m, a) -> {
+            if (m.getName().equals("save")) {
+                OwnedPet changed = (OwnedPet) a[0];
+                CompletableFuture<Void> saved = transitSave != null && changed.status() == PetStatus.IN_TRANSIT
+                        ? transitSave : CompletableFuture.completedFuture(null);
+                return saved.thenRun(() -> persistedPet = changed);
+            }
+            return CompletableFuture.completedFuture(m.getName().equals("findById")
+                    ? Optional.of(persistedPet) : List.of(persistedPet));
+        });
         var entities = proxy(PetEntityGateway.class, (p, m, a) -> CompletableFuture.completedFuture(null));
-        var courier = new CourierService(pets, entities, operations, Clock.systemUTC(),
+        courier = new CourierService(pets, entities, operations, Clock.systemUTC(),
                 () -> Duration.ofMinutes(5), () -> Duration.ofMinutes(15));
         SaddlebagRepository repository = new SaddlebagRepository() {
             public CompletableFuture<Saddlebag> loadOrCreate(PetId pet, PlayerId owner, byte[] empty) {
@@ -213,6 +239,74 @@ class CourierSaddlebagsTest {
         writes.getFirst().completeExceptionally(new IllegalStateException("storage unavailable"));
         coordinator.openOwner(player, pet);
         assertEquals(1, opened);
+    }
+
+    @Test void failedTransferStopsBlockingPlayerButRetainsPetLease() {
+        coordinator.openOwner(player, pet);
+        bag[10] = new Stack(12);
+        transfer(true, 0);
+        assertPlayerInventoryBlocked(true);
+        writes.getFirst().completeExceptionally(new IllegalStateException("ambiguous storage failure"));
+        assertNull(playerItems[0]);
+        assertEquals(1, writes.size(), "must not overwrite an ambiguous commit");
+        assertPlayerInventoryBlocked(false);
+        online = false;
+        coordinator.onQuit(new PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED));
+        online = true;
+        assertPlayerInventoryBlocked(false);
+        coordinator.openOwner(player, pet);
+        assertEquals(1, opened, "failed pet must remain locked");
+    }
+
+    @Test void failedPlayerCreditStopsBlockingPlayerButRetainsPetLease() {
+        coordinator.openOwner(player, pet);
+        bag[10] = new Stack(12);
+        transfer(true, 0);
+        failPlayerSave = true;
+        finish(0);
+        assertPlayerInventoryBlocked(false);
+        coordinator.openOwner(player, pet);
+        assertEquals(1, opened);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"quit", "reconnect", "world-change"})
+    void recipientUnavailableDuringRequestSaveReturnsImmediatelyAfterCommit(String change) throws Exception {
+        transitSave = new CompletableFuture<>();
+        var send = CourierSaddlebags.class.getDeclaredMethod("send", Player.class, OwnedPet.class, String.class);
+        send.setAccessible(true);
+        send.invoke(coordinator, player, pet, recipient.getUniqueId().toString());
+        assertTrue(courier.activeRequests().isEmpty());
+        if (change.equals("world-change")) {
+            coordinator.onWorldChange(new org.bukkit.event.player.PlayerChangedWorldEvent(recipient,
+                    proxy(org.bukkit.World.class, (p, m, a) -> fallback(m.getReturnType()))));
+        } else {
+            recipientOnline = false;
+            coordinator.onQuit(new PlayerQuitEvent(recipient, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED));
+            if (change.equals("reconnect")) recipientOnline = true;
+        }
+        transitSave.complete(null);
+        assertEquals(PetStatus.ALIVE, persistedPet.status());
+        assertTrue(courier.activeRequests().isEmpty());
+    }
+
+    private void assertPlayerInventoryBlocked(boolean expected) {
+        top = proxy(Inventory.class, (p, m, a) -> m.getName().equals("getSize") ? 54 : fallback(m.getReturnType()));
+        var click = new org.bukkit.event.inventory.InventoryClickEvent(view(),
+                org.bukkit.event.inventory.InventoryType.SlotType.CONTAINER, 54,
+                org.bukkit.event.inventory.ClickType.LEFT, org.bukkit.event.inventory.InventoryAction.PICKUP_ALL);
+        coordinator.onClick(click);
+        assertEquals(expected, click.isCancelled());
+        var swap = new org.bukkit.event.player.PlayerSwapHandItemsEvent(player, new Stack(0), new Stack(0));
+        coordinator.onSwap(swap);
+        assertEquals(expected, swap.isCancelled());
+        var item = proxy(org.bukkit.entity.Item.class, (p, m, a) -> fallback(m.getReturnType()));
+        var drop = new org.bukkit.event.player.PlayerDropItemEvent(player, item);
+        coordinator.onDrop(drop);
+        assertEquals(expected, drop.isCancelled());
+        var pickup = new org.bukkit.event.entity.EntityPickupItemEvent(player, item, 0);
+        coordinator.onPickup(pickup);
+        assertEquals(expected, pickup.isCancelled());
     }
 
     private void finish(int index) {

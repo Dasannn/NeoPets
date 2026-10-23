@@ -230,8 +230,7 @@ public final class PetsMenu {
                 iconMaterial(snapshot, variant),
                 variant.baby(), pet.status(), pet.active(), progress.map(TreeProgress::unlockedNodes).orElse(0),
                 progress.map(value -> value.assignedSkillPoints(definition)).orElse(0),
-                progress.map(value -> value.attributes().get("courier_saddlebags"))
-                        .map(attribute -> attribute.activeLevel() > 0).orElse(false)));
+                progress.map(value -> value.hasActiveAbility(definition, "courier_saddlebags")).orElse(false)));
     }
 
     private PetsMenuLayoutFactory.BuiltLayout build(PetsMenuData data, ViewState state) {

@@ -30,6 +30,18 @@ public record TreeProgress(PetId petId, Map<String, AttributeLevelProgress> attr
         return new TreeProgress(petId, attributes);
     }
 
+    /** Resolves active custom abilities by their configured effect, independently of attribute ids. */
+    public boolean hasActiveAbility(SkillTreeDefinition definition, String abilityId) {
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(abilityId, "abilityId");
+        return definition.attributes().stream()
+                .filter(attribute -> attribute.effect() instanceof CustomEffectReference effect
+                        && effect.abilityId().equals(abilityId))
+                .map(attribute -> attributes.get(attribute.id()))
+                .filter(Objects::nonNull)
+                .anyMatch(progress -> progress.activeLevel() > 0);
+    }
+
     /** Returns the number of purchased nodes. */
     public int unlockedNodes() {
         return attributes.values().stream().mapToInt(AttributeLevelProgress::unlockedLevel).sum();

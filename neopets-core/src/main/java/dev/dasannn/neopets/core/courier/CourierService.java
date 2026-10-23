@@ -74,7 +74,14 @@ public final class CourierService {
             CourierRequest request = new CourierRequest(UUID.randomUUID(), petId, owner, recipient,
                     now.plus(requestTimeout), false, pet.active());
             OwnedPet travelling = pet.withStatus(PetStatus.IN_TRANSIT);
-            return entities.despawn(petId).thenCompose(ignored -> pets.save(travelling))
+            return pets.save(travelling).thenCompose(ignored -> entities.despawn(petId)
+                    .exceptionallyCompose(failure -> pets.save(pet)
+                            .thenCompose(restored -> pet.active() ? entities.spawn(petId)
+                                    : CompletableFuture.completedFuture(null))
+                            .handle((restored, recoveryFailure) -> {
+                                if (recoveryFailure != null) failure.addSuppressed(recoveryFailure);
+                                throw new java.util.concurrent.CompletionException(failure);
+                            })))
                     .thenApply(ignored -> {
                         synchronized (this) {
                             requests.put(petId, request);
