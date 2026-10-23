@@ -58,18 +58,19 @@ public final class VigiaAbility implements Ability {
     @Override
     public void tick(AbilityContext context) {
         Settings configured = Objects.requireNonNull(settings.get(), "vigia settings");
-        if (!context.claimCooldown(configured.cooldown())) {
+        if (!configured.enabled() || !context.claimCooldown(configured.cooldown())) {
             return;
         }
+        double radius = configured.radius() + context.detectionRadiusBonus();
         var origin = context.owner().getLocation();
         var current = AbilityTargetSelector.selectHostileEntities(
                         context.owner().getNearbyEntities(
-                                configured.radius(), configured.radius(), configured.radius()),
+                                radius, radius, radius),
                         context.owner().getUniqueId())
                 .stream()
                 .filter(target -> target.getWorld().equals(origin.getWorld()))
                 .filter(target -> target.getLocation().distanceSquared(origin)
-                        <= configured.radius() * configured.radius())
+                        <= radius * radius)
                 .toList();
         Set<UUID> currentIds = current.stream()
                 .map(LivingEntity::getUniqueId)
@@ -102,7 +103,12 @@ public final class VigiaAbility implements Ability {
     }
 
     /** Validated runtime settings for Vigía. */
-    public record Settings(Duration cooldown, double radius, Duration duration) {
+    public record Settings(boolean enabled, Duration cooldown, double radius, Duration duration) {
+        /** Creates enabled settings. */
+        public Settings(Duration cooldown, double radius, Duration duration) {
+            this(true, cooldown, radius, duration);
+        }
+
         public Settings {
             Objects.requireNonNull(cooldown, "cooldown");
             Objects.requireNonNull(duration, "duration");

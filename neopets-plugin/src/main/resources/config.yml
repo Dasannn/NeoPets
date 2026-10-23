@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 10
+config-version: 11
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -46,16 +46,21 @@ rank-resolution:
   bukkit-refresh-interval-seconds: 30
 
 abilities:
+  aterrizaje-felino:
+    enabled: true
   zarpazo:
+    enabled: true
     cooldown-seconds: 10
     radius: 6.0
     damage: 4.0
   vigia:
+    enabled: true
     cooldown-seconds: 5
     radius: 16.0
     # Paper 26.3 has no supported per-player glow API; this vanilla glow is visible to everyone nearby.
     duration-seconds: 5
   buscatesoros:
+    enabled: true
     cooldown-seconds: 30
     base-radius: 16.0
     duration-seconds: 5

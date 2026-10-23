@@ -459,13 +459,17 @@ public final class ConfigurationLoader {
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
         var abilities = new PluginSettings.Abilities(
                 new PluginSettings.Zarpazo(
+                        valueOr(bool(root, file, "abilities.zarpazo.enabled", issues), true),
                         Duration.ofSeconds(zarpazoCooldown), zarpazoRadius, zarpazoDamage),
                 new PluginSettings.Vigia(
+                        valueOr(bool(root, file, "abilities.vigia.enabled", issues), true),
                         Duration.ofSeconds(vigiaCooldown), vigiaRadius, Duration.ofSeconds(vigiaDuration)),
                 new PluginSettings.Buscatesoros(
+                        valueOr(bool(root, file, "abilities.buscatesoros.enabled", issues), true),
                         Duration.ofSeconds(buscatesorosCooldown), buscatesorosRadius,
                         Duration.ofSeconds(buscatesorosDuration), buscatesorosMaxTargets,
-                        buscatesorosMaxScanBlocks, buscatesorosOres));
+                        buscatesorosMaxScanBlocks, buscatesorosOres),
+                valueOr(bool(root, file, "abilities.aterrizaje-felino.enabled", issues), true));
         return new PluginSettings(version, storage, features, teleportDistance, abilities, ranks,
                 Duration.ofSeconds(rankRefreshSeconds),
                 new PluginSettings.Courier(Duration.ofSeconds(timeoutSeconds), Duration.ofSeconds(cooldownSeconds)),

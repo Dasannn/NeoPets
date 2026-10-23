@@ -55,7 +55,12 @@ public final class BuscatesorosAbility implements Ability {
 
     @Override
     public void tick(AbilityContext context) {
+        Settings configured = Objects.requireNonNull(settings.get(), "buscatesoros settings");
         UUID entityId = context.pet().getUniqueId();
+        if (!configured.enabled()) {
+            scans.remove(entityId);
+            return;
+        }
         ScanState scan = scans.get(entityId);
         if (scan != null) {
             scan.emitParticles(context.owner());
@@ -71,7 +76,6 @@ public final class BuscatesorosAbility implements Ability {
             }
         }
 
-        Settings configured = Objects.requireNonNull(settings.get(), "buscatesoros settings");
         if (scan == null && context.claimCooldown(configured.cooldown())) {
             ScanState started = ScanState.start(
                     context.pet().getLocation(),
@@ -96,6 +100,7 @@ public final class BuscatesorosAbility implements Ability {
 
     /** Validated runtime settings for Buscatesoros. */
     public record Settings(
+            boolean enabled,
             Duration cooldown,
             double baseRadius,
             Duration duration,
@@ -103,6 +108,12 @@ public final class BuscatesorosAbility implements Ability {
             int maxScanBlocks,
             Set<Material> oreMaterials
     ) {
+        /** Creates enabled settings. */
+        public Settings(Duration cooldown, double baseRadius, Duration duration, int maxTargets,
+                int maxScanBlocks, Set<Material> oreMaterials) {
+            this(true, cooldown, baseRadius, duration, maxTargets, maxScanBlocks, oreMaterials);
+        }
+
         public Settings {
             Objects.requireNonNull(cooldown, "cooldown");
             Objects.requireNonNull(duration, "duration");

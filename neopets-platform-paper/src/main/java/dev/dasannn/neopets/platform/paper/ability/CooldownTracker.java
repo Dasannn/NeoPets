@@ -45,6 +45,14 @@ public final class CooldownTracker {
         nextUses.keySet().removeIf(key -> key.petId().equals(petId));
     }
 
+    /** Evicts elapsed entries, including dismissed pets, while preserving pending cooldowns. */
+    public int evictExpired(Instant now) {
+        Objects.requireNonNull(now, "now");
+        int previousSize = nextUses.size();
+        nextUses.values().removeIf(nextUse -> !now.isBefore(nextUse));
+        return previousSize - nextUses.size();
+    }
+
     /** Clears all tracked cooldowns. */
     public void clear() {
         nextUses.clear();

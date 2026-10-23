@@ -6,9 +6,22 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /** Constant-time owner lookup for live cats with active feline landing. */
 public final class FelineLandingPolicy {
+    private final BooleanSupplier enabled;
+
+    /** Creates an enabled policy. */
+    public FelineLandingPolicy() {
+        this(() -> true);
+    }
+
+    /** Creates a policy that consults the current configuration on every damage event. */
+    public FelineLandingPolicy(BooleanSupplier enabled) {
+        this.enabled = Objects.requireNonNull(enabled, "enabled");
+    }
+
     private final Map<UUID, Set<UUID>> activeCatsByOwner = new HashMap<>();
     private final Map<UUID, UUID> ownersByCat = new HashMap<>();
 
@@ -54,6 +67,6 @@ public final class FelineLandingPolicy {
     /** Returns whether the owner currently has at least one qualifying cat. */
     public boolean preventsFallDamage(UUID ownerId) {
         Set<UUID> cats = activeCatsByOwner.get(Objects.requireNonNull(ownerId, "ownerId"));
-        return cats != null && !cats.isEmpty();
+        return enabled.getAsBoolean() && cats != null && !cats.isEmpty();
     }
 }

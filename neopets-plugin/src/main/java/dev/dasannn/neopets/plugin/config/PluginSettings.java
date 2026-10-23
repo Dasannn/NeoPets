@@ -128,7 +128,7 @@ public record PluginSettings(
     }
 
     /** Settings for custom pet abilities. */
-    public record Abilities(Zarpazo zarpazo, Vigia vigia, Buscatesoros buscatesoros) {
+    public record Abilities(Zarpazo zarpazo, Vigia vigia, Buscatesoros buscatesoros, boolean felineLandingEnabled) {
         public Abilities {
             Objects.requireNonNull(zarpazo, "zarpazo");
             Objects.requireNonNull(vigia, "vigia");
@@ -137,7 +137,7 @@ public record PluginSettings(
     }
 
     /** Polar-bear Zarpazo settings. */
-    public record Zarpazo(Duration cooldown, double radius, double damage) {
+    public record Zarpazo(boolean enabled, Duration cooldown, double radius, double damage) {
         public Zarpazo {
             requirePositive(cooldown, "zarpazo cooldown");
             requirePositiveFinite(radius, "zarpazo radius");
@@ -146,7 +146,7 @@ public record PluginSettings(
     }
 
     /** Parrot Vigía settings. */
-    public record Vigia(Duration cooldown, double radius, Duration duration) {
+    public record Vigia(boolean enabled, Duration cooldown, double radius, Duration duration) {
         public Vigia {
             requirePositive(cooldown, "vigia cooldown");
             requirePositiveFinite(radius, "vigia radius");
@@ -156,6 +156,7 @@ public record PluginSettings(
 
     /** Dog Buscatesoros settings and hard work/result limits. */
     public record Buscatesoros(
+            boolean enabled,
             Duration cooldown,
             double baseRadius,
             Duration duration,

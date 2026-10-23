@@ -10,7 +10,8 @@ import org.bukkit.entity.Player;
 /**
  * Immutable context supplied to an ability by the shared pet ticker.
  *
- * <p>The detection-radius bonus is the current additive modifier applied by the dog's {@code scent} branch. It is
+ * <p>The detection-radius bonus is the current additive modifier from the dog's {@code scent} or parrot's
+ * {@code alert_range} branch. It is
  * exposed explicitly because custom abilities must not rediscover skill-tree state or duplicate effect rules.</p>
  */
 public record AbilityContext(

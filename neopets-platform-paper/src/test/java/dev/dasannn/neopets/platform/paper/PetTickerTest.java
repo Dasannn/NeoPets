@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.destroystokyo.paper.entity.Pathfinder;
 import com.destroystokyo.paper.entity.ai.Goal;
 import com.destroystokyo.paper.entity.ai.GoalKey;
 import com.destroystokyo.paper.entity.ai.GoalType;
@@ -12,24 +13,128 @@ import com.destroystokyo.paper.entity.ai.VanillaGoal;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
+import dev.dasannn.neopets.platform.paper.ability.Ability;
+import dev.dasannn.neopets.platform.paper.ability.AbilityContext;
+import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
+import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
 import java.lang.reflect.Proxy;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
+import org.bukkit.entity.Player;
+import org.bukkit.entity.Sittable;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.Test;
 
 class PetTickerTest {
+    @Test
+    void sharedTaskTicksActiveAbilitiesAndStopsOnInvalidEntityAndShutdown() {
+        var petId = new PetId(UUID.randomUUID());
+        UUID entityId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        var valid = new AtomicBoolean(true);
+        var owner = (Player) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Player.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getUniqueId" -> ownerId;
+                    case "isOnline" -> true;
+                    case "equals" -> proxy == args[0];
+                    default -> throw new AssertionError(method);
+                });
+        var data = (PersistentDataContainer) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {PersistentDataContainer.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "has" -> true;
+                    case "get" -> args[0].equals(PetKeys.OWNER) ? ownerId.toString() : petId.toString();
+                    default -> throw new AssertionError(method);
+                });
+        var pathfinder = (Pathfinder) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Pathfinder.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("stopPathfinding")) {
+                        return null;
+                    }
+                    throw new AssertionError(method);
+                });
+        var pet = (Mob) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Mob.class, Sittable.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getUniqueId" -> entityId;
+                    case "isValid" -> valid.get();
+                    case "getPersistentDataContainer" -> data;
+                    case "getTarget" -> null;
+                    case "isSitting" -> true;
+                    case "getPathfinder" -> pathfinder;
+                    default -> throw new AssertionError(method);
+                });
+        var server = (Server) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Server.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getEntity" -> pet;
+                    case "getPlayer" -> owner;
+                    case "getLogger" -> Logger.getLogger("PetTickerTest");
+                    default -> throw new AssertionError(method);
+                });
+        var calls = new ArrayList<String>();
+        var ability = new Ability() {
+            @Override
+            public String id() {
+                return "test";
+            }
+
+            @Override
+            public void onActivate(LivingEntity entity, Player player, int level) {
+                calls.add("activate");
+            }
+
+            @Override
+            public void onDeactivate(LivingEntity entity, Player player, int level) {
+                calls.add("deactivate");
+            }
+
+            @Override
+            public void tick(AbilityContext context) {
+                calls.add("tick");
+            }
+        };
+        var abilities = new DefaultAbilityRegistry(
+                List.of(ability), new CooldownTracker(),
+                Clock.systemUTC(), ignored -> Optional.of(owner));
+        var live = new LivePetRegistry();
+        live.register(petId, entityId);
+        abilities.update("test", petId, pet, 1, Map.of());
+        var scheduler = new RecordingScheduler();
+        var ticker = new PetTicker(server, scheduler, live, new PetBrain(4, 16, 1),
+                new RecordingGateway(null, null), abilities);
+        ticker.start();
+        ticker.start();
+        scheduler.task.runnable.run();
+        valid.set(false);
+        scheduler.task.runnable.run();
+        scheduler.task.runnable.run();
+        assertEquals(List.of("activate", "tick", "deactivate"), calls);
+        assertEquals(0, live.size());
+        // Shutdown also deactivates still-live abilities before stopping the single task.
+        valid.set(true);
+        live.register(petId, entityId);
+        abilities.update("test", petId, pet, 1, Map.of());
+        scheduler.task.runnable.run();
+        ticker.close();
+        assertEquals(List.of("activate", "tick", "deactivate", "activate", "tick", "deactivate"), calls);
+        assertEquals(1, scheduler.scheduledCount);
+        assertTrue(scheduler.task.cancelled);
+    }
+
     @Test
     void repeatedStartSchedulesOneTaskAndCloseCancelsIt() {
         var scheduler = new RecordingScheduler();

@@ -6,21 +6,66 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetId;
+import dev.dasannn.neopets.platform.paper.effect.AttributeEffectAdapter;
 import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
 class DefaultAbilityRegistryTest {
+    @Test
+    void radiusBonusReadsActiveScentAndAlertRangeModifiers() {
+        var modifiers = new HashMap<NamespacedKey, AttributeModifier>();
+        var instance = (AttributeInstance) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {AttributeInstance.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getModifier")) {
+                        return modifiers.get(args[0]);
+                    }
+                    throw new AssertionError(method);
+                });
+        assertEquals(0, DefaultAbilityRegistry.detectionRadiusBonus(instance));
+        for (String branch : List.of("scent", "alert_range")) {
+            var key = AttributeEffectAdapter.modifierKey(branch);
+            for (double amount : new double[] {4, 8, 12, 16, 20}) {
+                modifiers.put(key, new AttributeModifier(key, amount,
+                        AttributeModifier.Operation.ADD_NUMBER));
+                assertEquals(amount, DefaultAbilityRegistry.detectionRadiusBonus(instance));
+            }
+            modifiers.remove(key);
+            assertEquals(0, DefaultAbilityRegistry.detectionRadiusBonus(instance));
+        }
+        assertEquals(0, DefaultAbilityRegistry.detectionRadiusBonus((AttributeInstance) null));
+    }
+
+    @Test
+    void maintenanceEvictsExpiredDismissedPetCooldownsAndPreservesPendingOnes() {
+        var cooldowns = new CooldownTracker();
+        var expired = new PetId(UUID.randomUUID());
+        var pending = new PetId(UUID.randomUUID());
+        cooldowns.claim(expired, "lookout", Duration.ofSeconds(5), Instant.EPOCH);
+        cooldowns.claim(pending, "lookout", Duration.ofSeconds(10), Instant.EPOCH);
+        var registry = new DefaultAbilityRegistry(List.of(), cooldowns,
+                Clock.fixed(Instant.EPOCH.plusSeconds(5), ZoneOffset.UTC));
+        registry.deactivate(expired);
+        registry.deactivate(pending);
+        registry.maintain();
+        assertEquals(0, cooldowns.evictExpired(Instant.EPOCH.plusSeconds(5)));
+        assertFalse(cooldowns.claim(pending, "lookout", Duration.ofSeconds(10), Instant.EPOCH.plusSeconds(5)));
+    }
+
     @Test
     void knownAbilityActivatesTicksAndDeactivatesOnlyAtPositiveLevels() {
         var ability = new RecordingAbility("test");

@@ -1,6 +1,7 @@
 package dev.dasannn.neopets.plugin.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,6 +10,19 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
 class ConfigurationMigratorTest {
+    @Test
+    void versionElevenAddsAbilityFlagsAndPreservesExplicitChoices() {
+        var configuration = new YamlConfiguration();
+        configuration.set("config-version", 10);
+        configuration.set("abilities.vigia.enabled", false);
+        new ConfigurationMigrator().migrate(configuration, 10);
+        assertEquals(11, configuration.getInt("config-version"));
+        assertTrue(configuration.getBoolean("abilities.zarpazo.enabled"));
+        assertFalse(configuration.getBoolean("abilities.vigia.enabled"));
+        assertTrue(configuration.getBoolean("abilities.buscatesoros.enabled"));
+        assertTrue(configuration.getBoolean("abilities.aterrizaje-felino.enabled"));
+    }
+
     @Test
     void appliesRegisteredAdjacentMigrationsAndUpdatesVersion() {
         var migration = new ConfigMigration() {

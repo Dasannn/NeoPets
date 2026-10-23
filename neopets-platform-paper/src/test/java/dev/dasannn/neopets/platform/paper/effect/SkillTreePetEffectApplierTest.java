@@ -9,17 +9,104 @@ import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
+import dev.dasannn.neopets.platform.paper.ability.Ability;
+import dev.dasannn.neopets.platform.paper.ability.AbilityContext;
+import dev.dasannn.neopets.platform.paper.ability.CooldownTracker;
+import dev.dasannn.neopets.platform.paper.ability.DefaultAbilityRegistry;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
 class SkillTreePetEffectApplierTest {
+    @Test
+    void definitionReloadAndResetRemoveObsoleteActivations() {
+        var petId = new PetId(UUID.randomUUID());
+        UUID entityId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        var entity = (LivingEntity) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {LivingEntity.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getUniqueId" -> entityId;
+                    default -> throw new AssertionError(method);
+                });
+        var owner = (Player) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Player.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getUniqueId" -> ownerId;
+                    default -> throw new AssertionError(method);
+                });
+        var calls = new ArrayList<String>();
+        var registry = new DefaultAbilityRegistry(
+                List.of(recordingAbility("old", calls), recordingAbility("new", calls)),
+                new CooldownTracker(), Clock.systemUTC(),
+                ignored -> Optional.of(owner));
+        var state = new AtomicReference<PetSkillTreeState>();
+        var applier = new SkillTreePetEffectApplier(ignored -> Optional.ofNullable(state.get()),
+                new AttributeEffectAdapter(new VanillaEffectCatalog()), registry, ignored -> { });
+        state.set(state(petId, "old", 1));
+        applier.apply(petId, entity);
+        registry.tick(petId, entity, owner);
+        state.set(state(petId, "new", 1));
+        applier.apply(petId, entity);
+        registry.tick(petId, entity, owner);
+        // Reapplying an unchanged tree must not restart the ability.
+        applier.apply(petId, entity);
+        state.set(state(petId, "new", 0));
+        applier.apply(petId, entity);
+        registry.tick(petId, entity, owner);
+        state.set(state(petId, "old", 1));
+        applier.apply(petId, entity);
+        var replacement = new SkillTreeDefinition(new PetTypeId("cat"), List.of(customAbility()));
+        state.set(new PetSkillTreeState(replacement, TreeProgress.empty(petId, replacement)));
+        applier.apply(petId, entity);
+        registry.tick(petId, entity, owner);
+        state.set(state(petId, "new", 1));
+        applier.apply(petId, entity);
+        state.set(null);
+        applier.apply(petId, entity);
+        registry.tick(petId, entity, owner);
+        assertEquals(List.of("old+", "old tick", "old-", "new+", "new tick", "new-",
+                "old+", "old-", "new+", "new-"), calls);
+    }
+
+    private static PetSkillTreeState state(PetId petId, String id, int level) {
+        var definition = new SkillTreeDefinition(new PetTypeId("cat"), List.of(new AttributeDefinition(
+                "ability", AttributeCategory.CUSTOM, 1, new CustomEffectReference(id), List.of(BigDecimal.ZERO))));
+        return new PetSkillTreeState(definition, TreeProgress.empty(petId, definition).withLevels("ability", 1, level));
+    }
+
+    private static Ability recordingAbility(
+            String id, List<String> calls) {
+        return new Ability() {
+            @Override
+            public String id() {
+                return id;
+            }
+
+            @Override
+            public void onActivate(LivingEntity pet, Player owner, int level) {
+                calls.add(id + "+");
+            }
+
+            @Override
+            public void onDeactivate(LivingEntity pet, Player owner, int level) {
+                calls.add(id + "-");
+            }
+
+            @Override
+            public void tick(AbilityContext context) {
+                calls.add(id + " tick");
+            }
+        };
+    }
+
     @Test
     void delegatesCustomLevelsAndParametersToAbilityRegistry() {
         PetId petId = new PetId(UUID.randomUUID());

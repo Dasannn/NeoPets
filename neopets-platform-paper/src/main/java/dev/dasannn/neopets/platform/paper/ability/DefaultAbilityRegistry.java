@@ -19,6 +19,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.ToDoubleFunction;
 import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
@@ -142,6 +143,25 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
     }
 
     @Override
+    public void retain(PetId petId, Set<String> activeIds) {
+        Objects.requireNonNull(petId, "petId");
+        Objects.requireNonNull(activeIds, "activeIds");
+        Map<String, Activation> petAbilities = active.get(petId);
+        if (petAbilities != null) {
+            for (String id : Set.copyOf(petAbilities.keySet())) {
+                if (!activeIds.contains(id)) {
+                    deactivate(petId, id, petAbilities, petAbilities.get(id));
+                }
+            }
+        }
+    }
+
+    @Override
+    public void maintain() {
+        cooldowns.evictExpired(clock.instant());
+    }
+
+    @Override
     public void deactivate(PetId petId) {
         Objects.requireNonNull(petId, "petId");
         Map<String, Activation> removed = active.remove(petId);
@@ -193,12 +213,18 @@ public final class DefaultAbilityRegistry implements AbilityRegistry {
     private static double detectionRadiusBonus(LivingEntity entity) {
         var attribute = RegistryAccess.registryAccess().getRegistry(RegistryKey.ATTRIBUTE)
                 .getOrThrow(NamespacedKey.minecraft("follow_range"));
-        var instance = entity.getAttribute(attribute);
+        return detectionRadiusBonus(entity.getAttribute(attribute));
+    }
+
+    static double detectionRadiusBonus(AttributeInstance instance) {
         if (instance == null) {
             return 0.0;
         }
-        var modifier = instance.getModifier(AttributeEffectAdapter.modifierKey("scent"));
-        return modifier == null ? 0.0 : Math.max(0.0, modifier.getAmount());
+        return java.util.stream.Stream.of("scent", "alert_range")
+                .map(id -> instance.getModifier(AttributeEffectAdapter.modifierKey(id)))
+                .filter(Objects::nonNull)
+                .mapToDouble(modifier -> Math.max(0.0, modifier.getAmount()))
+                .sum();
     }
 
     private record Activation(Ability ability, LivingEntity pet, Player owner, int level) {

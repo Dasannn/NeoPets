@@ -176,7 +176,8 @@ public final class NeoPetsRuntime implements AutoCloseable {
             var scheduler = new PaperTaskScheduler(plugin);
             var livePets = new LivePetRegistry();
             var effectCatalog = new VanillaEffectCatalog();
-            var felineLanding = new FelineLandingPolicy();
+            var felineLanding = new FelineLandingPolicy(
+                    () -> configuration.current().settings().abilities().felineLandingEnabled());
             var abilityRegistry = new DefaultAbilityRegistry(List.of(
                     new ZarpazoAbility(() -> zarpazoSettings(configuration)),
                     new VigiaAbility(() -> vigiaSettings(configuration)),
@@ -375,18 +376,18 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     private static ZarpazoAbility.Settings zarpazoSettings(ConfigurationManager configuration) {
         PluginSettings.Zarpazo settings = configuration.current().settings().abilities().zarpazo();
-        return new ZarpazoAbility.Settings(settings.cooldown(), settings.radius(), settings.damage());
+        return new ZarpazoAbility.Settings(settings.enabled(), settings.cooldown(), settings.radius(), settings.damage());
     }
 
     private static VigiaAbility.Settings vigiaSettings(ConfigurationManager configuration) {
         PluginSettings.Vigia settings = configuration.current().settings().abilities().vigia();
-        return new VigiaAbility.Settings(settings.cooldown(), settings.radius(), settings.duration());
+        return new VigiaAbility.Settings(settings.enabled(), settings.cooldown(), settings.radius(), settings.duration());
     }
 
     private static BuscatesorosAbility.Settings buscatesorosSettings(ConfigurationManager configuration) {
         PluginSettings.Buscatesoros settings = configuration.current().settings().abilities().buscatesoros();
         return new BuscatesorosAbility.Settings(
-                settings.cooldown(), settings.baseRadius(), settings.duration(),
+                settings.enabled(), settings.cooldown(), settings.baseRadius(), settings.duration(),
                 settings.maxTargets(), settings.maxScanBlocks(), settings.oreMaterials());
     }
 
