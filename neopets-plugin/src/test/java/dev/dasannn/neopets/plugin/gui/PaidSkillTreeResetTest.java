@@ -2,6 +2,7 @@ package dev.dasannn.neopets.plugin.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PlayerId;
@@ -65,6 +66,39 @@ class PaidSkillTreeResetTest {
         var result = paidReset.reset(PLAYER, PET, BigDecimal.valueOf(500)).join();
 
         assertInstanceOf(PaidResetResult.Completed.class, result);
+        assertEquals(1, economy.withdrawals);
+        assertEquals(1, economy.deposits);
+        assertEquals(1_000, economy.balance);
+    }
+
+    @Test
+    void synchronousResetFailureAfterWithdrawalRefundsPayment() {
+        var economy = new FakeEconomy(1_000);
+        var failure = new IllegalStateException("queue rejected");
+        var paidReset = new PaidSkillTreeReset(economy, (player, pet) -> {
+            throw failure;
+        });
+
+        var result = assertInstanceOf(PaidResetResult.Failed.class,
+                paidReset.reset(PLAYER, PET, BigDecimal.valueOf(500)).join());
+
+        assertSame(failure, result.cause());
+        assertEquals(1, economy.withdrawals);
+        assertEquals(1, economy.deposits);
+        assertEquals(1_000, economy.balance);
+    }
+
+    @Test
+    void exceptionalResetFutureAfterWithdrawalRefundsPayment() {
+        var economy = new FakeEconomy(1_000);
+        var failure = new IllegalStateException("write failed");
+        var paidReset = new PaidSkillTreeReset(economy, (player, pet) ->
+                CompletableFuture.failedFuture(failure));
+
+        var result = assertInstanceOf(PaidResetResult.Failed.class,
+                paidReset.reset(PLAYER, PET, BigDecimal.valueOf(500)).join());
+
+        assertSame(failure, result.cause());
         assertEquals(1, economy.withdrawals);
         assertEquals(1, economy.deposits);
         assertEquals(1_000, economy.balance);

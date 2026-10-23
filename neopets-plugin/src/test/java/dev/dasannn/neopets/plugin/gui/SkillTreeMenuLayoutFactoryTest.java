@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.skilltree.AttributeCategory;
 import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
+import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -51,8 +53,10 @@ class SkillTreeMenuLayoutFactoryTest {
                 SkillTreeMenuLayoutFactory.nodeView(normal, health, 1).state());
         assertEquals(SkillNodeState.UNLOCKED,
                 SkillTreeMenuLayoutFactory.nodeView(normal, health, 2).state());
-        assertEquals(SkillNodeState.LOCKED,
+        assertEquals(SkillNodeState.UNLOCKED,
                 SkillTreeMenuLayoutFactory.nodeView(normal, health, 3).state());
+        assertEquals(SkillNodeReason.PREVIOUS_ACTIVATION,
+                SkillTreeMenuLayoutFactory.nodeView(normal, health, 3).reason());
         assertEquals(SkillNodeState.NEXT_UNLOCKABLE,
                 SkillTreeMenuLayoutFactory.nodeView(normal, health, 4).state());
         assertEquals(SkillNodeReason.PREVIOUS_LEVEL,
@@ -70,6 +74,31 @@ class SkillTreeMenuLayoutFactoryTest {
         SkillTreeMenuData spLimit = data(progress, 5, 1, 1, 3, 22, Optional.of(BigDecimal.TEN));
         assertEquals(SkillNodeReason.SKILL_POINT_LIMIT,
                 SkillTreeMenuLayoutFactory.nodeView(spLimit, health, 2).reason());
+    }
+
+    @Test
+    void freeNextNodeDoesNotRequireEconomyButPaidNextNodeDoes() {
+        var attribute = new AttributeDefinition("health", AttributeCategory.VANILLA, 2,
+                new VanillaEffectReference("max_health", List.of(BigDecimal.valueOf(2), BigDecimal.valueOf(4))),
+                List.of(BigDecimal.ZERO, BigDecimal.TEN));
+        var definition = new SkillTreeDefinition(new PetTypeId("polar_bear"), List.of(attribute));
+        var freshProgress = TreeProgress.empty(PET_ID, definition);
+        var fresh = new SkillTreeMenuData(PET_ID.toString(), "Nieve", "polar_bear", "SNOWBALL",
+                false, 3, 0, 3, 0, 2, Optional.empty(), definition, freshProgress,
+                true, BigDecimal.valueOf(5_000));
+
+        SkillNodeView free = SkillTreeMenuLayoutFactory.nodeView(fresh, attribute, 1);
+
+        assertEquals(SkillNodeState.NEXT_UNLOCKABLE, free.state());
+        assertEquals(Optional.of("skills:unlock:health"), free.actionId());
+
+        var paidProgress = freshProgress.withUnlockedLevel("health", 1);
+        var paid = new SkillTreeMenuData(PET_ID.toString(), "Nieve", "polar_bear", "SNOWBALL",
+                false, 3, 0, 3, 1, 2, Optional.empty(), definition, paidProgress,
+                true, BigDecimal.valueOf(5_000));
+
+        assertEquals(SkillNodeReason.ECONOMY_UNAVAILABLE,
+                SkillTreeMenuLayoutFactory.nodeView(paid, attribute, 2).reason());
     }
 
     @Test
@@ -115,7 +144,9 @@ class SkillTreeMenuLayoutFactoryTest {
         assertEquals("LIME_DYE", layout.items().get(11).material());
         assertTrue(layout.items().get(11).glint());
         assertEquals("YELLOW_DYE", layout.items().get(12).material());
-        assertEquals("GRAY_DYE", layout.items().get(13).material());
+        assertEquals("YELLOW_DYE", layout.items().get(13).material());
+        assertEquals("Activa primero el nivel anterior", plain(layout.items().get(13).lore().getLast()));
+        assertTrue(layout.items().get(13).actionId().isEmpty());
         assertEquals("ORANGE_DYE", layout.items().get(14).material());
 
         SkillTreeMenuData noMoney = data(progress, 5, 1, 22, 3, 22, Optional.of(BigDecimal.ZERO));
