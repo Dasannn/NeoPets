@@ -21,7 +21,8 @@ abstract class AbstractMigrationTest {
             "np_pet", Set.of("id", "owner", "variant_id", "name", "status", "active", "created_at"),
             "np_pet_attribute", Set.of("pet_id", "attribute_id", "unlocked_level", "active_level"),
             "np_soul_token", Set.of("token_id", "pet_id", "owner", "issued_at", "consumed_at"),
-            "np_pet_storage", Set.of("pet_id", "contents"));
+            "np_pet_storage", Set.of("pet_id", "contents"),
+            "np_pending_soul_delivery", Set.of("token_id", "pet_id", "owner", "created_at"));
 
     abstract StorageSettings settings();
 
@@ -40,16 +41,20 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_attribute"));
             assertEquals(Set.of("consumed_at"), nullableColumns(metadata, "np_soul_token"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_storage"));
+            assertEquals(Set.of(), nullableColumns(metadata, "np_pending_soul_delivery"));
 
             assertEquals(Set.of("uuid"), primaryKey(metadata, "np_player"));
             assertEquals(Set.of("id"), primaryKey(metadata, "np_pet"));
             assertEquals(Set.of("pet_id", "attribute_id"), primaryKey(metadata, "np_pet_attribute"));
             assertEquals(Set.of("token_id"), primaryKey(metadata, "np_soul_token"));
             assertEquals(Set.of("pet_id"), primaryKey(metadata, "np_pet_storage"));
+            assertEquals(Set.of("token_id"), primaryKey(metadata, "np_pending_soul_delivery"));
             assertTrue(indexedColumns(metadata, "np_pet").contains(Set.of("owner")));
             assertTrue(indexedColumns(metadata, "np_soul_token").contains(Set.of("owner")));
+            assertTrue(indexedColumns(metadata, "np_pending_soul_delivery").contains(Set.of("owner")));
             assertTrue(tableExists(metadata, "np_flyway_schema_history"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
         }
     }
 
@@ -123,6 +128,7 @@ abstract class AbstractMigrationTest {
             assertTrue(tableExists(metadata, "np_flyway_schema_history"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '0' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
         }
     }
 
@@ -148,7 +154,7 @@ abstract class AbstractMigrationTest {
                 assertEquals(17, result.getInt("sp_balance"));
             }
             assertEquals(1, countWhere(
-                    connection, "np_flyway_schema_history", "version = '1' AND success = 1"));
+                    connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
         }
     }
 

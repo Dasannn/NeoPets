@@ -14,6 +14,7 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.model.PlayerProfile;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.port.DuplicatePetVariantException;
+import dev.dasannn.neopets.core.pet.PendingSoulDelivery;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +40,7 @@ abstract class AbstractJdbcRepositoryTest {
     private JdbcPlayerRepository players;
     private JdbcSoulTokenRepository tokens;
     private JdbcPetStorageRepository petStorage;
+    private JdbcPendingSoulDeliveryRepository pendingDeliveries;
 
     abstract StorageSettings settings();
 
@@ -53,6 +55,7 @@ abstract class AbstractJdbcRepositoryTest {
         players = new JdbcPlayerRepository(bootstrap);
         tokens = new JdbcSoulTokenRepository(bootstrap);
         petStorage = new JdbcPetStorageRepository(bootstrap);
+        pendingDeliveries = new JdbcPendingSoulDeliveryRepository(bootstrap);
     }
 
     @AfterEach
@@ -227,6 +230,26 @@ abstract class AbstractJdbcRepositoryTest {
         assertInstanceOf(java.sql.SQLException.class, exception.getCause());
         assertTrue(await(tokens.isUsable(tokenId, PET_ID, OWNER)));
         assertFalse(await(tokens.isUsable(tokenId, OTHER_PET_ID, OTHER_OWNER)));
+    }
+
+    @Test
+    final void pendingSoulDeliveriesPersistByOwnerUntilExplicitlyDelivered() throws Exception {
+        var firstToken = UUID.fromString("30000000-0000-0000-0000-000000000010");
+        var secondToken = UUID.fromString("30000000-0000-0000-0000-000000000011");
+        var otherToken = UUID.fromString("30000000-0000-0000-0000-000000000012");
+        var first = new PendingSoulDelivery(firstToken, PET_ID, OWNER, CREATED_AT);
+        var second = new PendingSoulDelivery(secondToken, OTHER_PET_ID, OWNER, CREATED_AT.plusSeconds(1));
+        var other = new PendingSoulDelivery(otherToken, OTHER_PET_ID, OTHER_OWNER, CREATED_AT);
+
+        await(pendingDeliveries.save(second));
+        await(pendingDeliveries.save(first));
+        await(pendingDeliveries.save(other));
+
+        assertEquals(List.of(first, second), await(pendingDeliveries.findByOwner(OWNER)));
+        assertEquals(List.of(other), await(pendingDeliveries.findByOwner(OTHER_OWNER)));
+        await(pendingDeliveries.delete(firstToken));
+        await(pendingDeliveries.delete(firstToken));
+        assertEquals(List.of(second), await(pendingDeliveries.findByOwner(OWNER)));
     }
 
     private static OwnedPet pet(PetId id, PlayerId owner, String variant) {

@@ -1,5 +1,5 @@
 # Incremented only when NeoPets changes the configuration schema.
-config-version: 8
+config-version: 9
 
 storage:
   # sqlite is isolated and safe for development/test servers; use mysql in production networks.
@@ -21,6 +21,12 @@ death:
   enabled: true
   pvp: false
   keep-skills: true
+  soul-item:
+    material: ECHO_SHARD
+    name: "<light_purple>Alma de <pet></light_purple>"
+    lore:
+      - "<gray>Tipo: <type></gray>"
+      - "<gray>Úsala con una poción de revivir</gray>"
 
 shop:
   enabled: false

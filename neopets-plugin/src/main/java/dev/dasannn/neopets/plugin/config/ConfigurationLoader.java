@@ -115,6 +115,8 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.name",
             "gui.skill-tree.attributes.courier_saddlebags.description",
             "gui.skill-tree.attributes.courier_saddlebags.effect");
+    private static final Set<String> VERSION_7_MESSAGES = Set.of(
+            "pets.soul-delivered", "pets.soul-dropped");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
             "errors.invalid-amount", "errors.config-invalid", "errors.internal", "errors.profile-load",
@@ -163,6 +165,7 @@ public final class ConfigurationLoader {
     private static Set<String> requiredMessages() {
         var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
         required.addAll(VERSION_6_MESSAGES);
+        required.addAll(VERSION_7_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -337,6 +340,9 @@ public final class ConfigurationLoader {
         if (sourceVersion < 6) {
             changed |= mergeMissing(language, defaults, VERSION_6_MESSAGES);
         }
+        if (sourceVersion < 7) {
+            changed |= mergeMissing(language, defaults, VERSION_7_MESSAGES);
+        }
         return changed;
     }
 
@@ -378,6 +384,21 @@ public final class ConfigurationLoader {
         boolean deathEnabled = valueOr(bool(root, file, "death.enabled", issues), true);
         boolean deathPvp = valueOr(bool(root, file, "death.pvp", issues), false);
         boolean deathKeepSkills = valueOr(bool(root, file, "death.keep-skills", issues), true);
+        String soulMaterial = valueOr(string(root, file, "death.soul-item.material", issues), "ECHO_SHARD");
+        Material parsedSoulMaterial = Material.matchMaterial(soulMaterial);
+        if (!soulMaterial.equals(soulMaterial.toUpperCase(Locale.ROOT))
+                || parsedSoulMaterial == null || !isInventoryItem(parsedSoulMaterial)) {
+            issue(issues, file, "death.soul-item.material",
+                    "must name a valid uppercase, non-air inventory item material");
+        }
+        String soulName = valueOr(string(root, file, "death.soul-item.name", issues),
+                "<light_purple>Alma de <pet></light_purple>");
+        List<String> soulLore = valueOr(stringList(root, file, "death.soul-item.lore", issues), List.of());
+        validateMiniMessage(soulName, file, "death.soul-item.name", issues);
+        for (int index = 0; index < soulLore.size(); index++) {
+            validateMiniMessage(soulLore.get(index), file,
+                    "death.soul-item.lore[" + index + "]", issues);
+        }
         boolean shopEnabled = valueOr(bool(root, file, "shop.enabled", issues), false);
         boolean renameEnabled = valueOr(bool(root, file, "rename.enabled", issues), true);
         boolean resetEnabled = valueOr(bool(root, file, "reset.player-enabled", issues), false);
@@ -411,7 +432,8 @@ public final class ConfigurationLoader {
 
         var mysql = new PluginSettings.Mysql(mysqlHost, mysqlPort, mysqlDatabase, mysqlUsername, mysqlPassword);
         var storage = new PluginSettings.Storage(storageType, sqliteFile, mysql);
-        var death = new PluginSettings.Death(deathEnabled, deathPvp, deathKeepSkills);
+        var soulItem = new PluginSettings.SoulItem(soulMaterial, soulName, soulLore);
+        var death = new PluginSettings.Death(deathEnabled, deathPvp, deathKeepSkills, soulItem);
         var reset = new PluginSettings.Reset(resetEnabled, resetCost);
         var features = new PluginSettings.Features(death, shopEnabled, renameEnabled, reset);
         var abilities = new PluginSettings.Abilities(
@@ -701,6 +723,37 @@ public final class ConfigurationLoader {
             return null;
         }
         return value;
+    }
+
+    private static List<String> stringList(
+            ConfigurationSection root, Path file, String path, List<ConfigurationIssue> issues
+    ) {
+        Object raw = root.get(path);
+        if (!(raw instanceof List<?> values)) {
+            issue(issues, file, path, raw == null ? "required string list is missing" : "must be a string list");
+            return null;
+        }
+        var parsed = new ArrayList<String>(values.size());
+        boolean valid = true;
+        for (int index = 0; index < values.size(); index++) {
+            if (!(values.get(index) instanceof String value) || value.isBlank()) {
+                issue(issues, file, path + "[" + index + "]", "must be a non-blank string");
+                valid = false;
+            } else {
+                parsed.add(value);
+            }
+        }
+        return valid ? List.copyOf(parsed) : null;
+    }
+
+    private static void validateMiniMessage(
+            String source, Path file, String path, List<ConfigurationIssue> issues
+    ) {
+        try {
+            MiniMessage.builder().strict(true).build().deserialize(source);
+        } catch (RuntimeException exception) {
+            issue(issues, file, path, "invalid MiniMessage: " + conciseMessage(exception));
+        }
     }
 
     private static Integer integer(ConfigurationSection root, Path file, String path, int minimum, int maximum,

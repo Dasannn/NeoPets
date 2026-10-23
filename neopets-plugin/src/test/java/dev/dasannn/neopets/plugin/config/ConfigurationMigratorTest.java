@@ -67,12 +67,26 @@ class ConfigurationMigratorTest {
 
         assertTrue(new ConfigurationMigrator().migrate(configuration, 7));
 
-        assertEquals(8, configuration.getInt("config-version"));
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, configuration.getInt("config-version"));
         assertEquals(9.5, configuration.getDouble("abilities.zarpazo.radius"));
         assertEquals(10, configuration.getInt("abilities.zarpazo.cooldown-seconds"));
         assertEquals(4.0, configuration.getDouble("abilities.zarpazo.damage"));
         assertEquals(5, configuration.getInt("abilities.vigia.cooldown-seconds"));
         assertEquals(16.0, configuration.getDouble("abilities.vigia.radius"));
         assertEquals(5, configuration.getInt("abilities.vigia.duration-seconds"));
+    }
+
+    @Test
+    void versionNineAddsSoulItemDefaultsWithoutOverwritingCustomValues() {
+        var configuration = new YamlConfiguration();
+        configuration.set("config-version", 8);
+        configuration.set("death.soul-item.material", "NETHER_STAR");
+
+        assertTrue(new ConfigurationMigrator().migrate(configuration, 8));
+
+        assertEquals(9, configuration.getInt("config-version"));
+        assertEquals("NETHER_STAR", configuration.getString("death.soul-item.material"));
+        assertEquals("<light_purple>Alma de <pet></light_purple>", configuration.getString("death.soul-item.name"));
+        assertEquals(2, configuration.getStringList("death.soul-item.lore").size());
     }
 }

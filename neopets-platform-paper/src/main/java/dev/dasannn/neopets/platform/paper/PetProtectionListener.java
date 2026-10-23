@@ -12,6 +12,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityBreedEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.PlayerLeashEntityEvent;
@@ -20,15 +21,17 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 /** Enforces ownership protections for PDC-tagged pet entities. */
 public final class PetProtectionListener implements Listener {
     private final PlayerPetDamagePolicy damagePolicy;
+    private final PetDamagePolicy petDamagePolicy;
 
-    /** Creates a listener with owner self-damage protection and no third-party PvP rule yet. */
+    /** Creates a listener with owner self-damage protection and pet death enabled. */
     public PetProtectionListener() {
-        this(PlayerPetDamagePolicy.ownerCannotDamage());
+        this(PetDamagePolicy.defaults());
     }
 
     /** Creates a listener with an injectable player-versus-pet damage policy. */
     public PetProtectionListener(PlayerPetDamagePolicy damagePolicy) {
         this.damagePolicy = Objects.requireNonNull(damagePolicy, "damagePolicy");
+        this.petDamagePolicy = damagePolicy instanceof PetDamagePolicy configured ? configured : null;
     }
 
     /** Prevents a non-owner from leashing a pet. */
@@ -86,6 +89,19 @@ public final class PetProtectionListener implements Listener {
                 && damagePolicy.denies(ownerId.orElseThrow(), attackerId.orElseThrow())) {
             event.setCancelled(true);
         }
+    }
+
+    /** Stops lethal damage and leaves the pet at one health while pet death is disabled. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onLethalDamage(EntityDamageEvent event) {
+        if (petDamagePolicy == null
+                || !(event.getEntity() instanceof org.bukkit.entity.LivingEntity pet)
+                || !PetEntityMetadata.isPet(pet)
+                || !petDamagePolicy.preventsDeath(pet.getHealth(), event.getFinalDamage())) {
+            return;
+        }
+        event.setCancelled(true);
+        pet.setHealth(1.0);
     }
 
     private static boolean isOtherPlayer(Entity pet, Player player) {
