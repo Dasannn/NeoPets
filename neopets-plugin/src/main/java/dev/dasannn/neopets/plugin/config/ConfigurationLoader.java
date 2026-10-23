@@ -115,7 +115,7 @@ public final class ConfigurationLoader {
             "gui.skill-tree.attributes.courier_saddlebags.name",
             "gui.skill-tree.attributes.courier_saddlebags.description",
             "gui.skill-tree.attributes.courier_saddlebags.effect");
-    private static final Set<String> VERSION_7_MESSAGES = Set.of(
+    private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped");
     private static final Set<String> BASE_REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
@@ -165,7 +165,7 @@ public final class ConfigurationLoader {
     private static Set<String> requiredMessages() {
         var required = new java.util.HashSet<>(BASE_REQUIRED_MESSAGES);
         required.addAll(VERSION_6_MESSAGES);
-        required.addAll(VERSION_7_MESSAGES);
+        required.addAll(VERSION_9_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -340,8 +340,8 @@ public final class ConfigurationLoader {
         if (sourceVersion < 6) {
             changed |= mergeMissing(language, defaults, VERSION_6_MESSAGES);
         }
-        if (sourceVersion < 7) {
-            changed |= mergeMissing(language, defaults, VERSION_7_MESSAGES);
+        if (sourceVersion < 9) {
+            changed |= mergeMissing(language, defaults, VERSION_9_MESSAGES);
         }
         return changed;
     }

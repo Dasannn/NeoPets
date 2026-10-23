@@ -296,10 +296,10 @@ class ConfigurationLoaderTest {
     }
 
     @Test
-    void versionSixInstallReceivesSoulItemSettingsAndDeliveryMessages() throws Exception {
+    void versionEightInstallReceivesSoulItemSettingsAndDeliveryMessages() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
-        replace("config.yml", "config-version: 7", "config-version: 6");
+        replace("config.yml", "config-version: 9", "config-version: 8");
         String configuration = Files.readString(temporaryDirectory.resolve("config.yml"));
         int soulItem = configuration.indexOf("  soul-item:\n");
         int shop = configuration.indexOf("\nshop:\n", soulItem);
@@ -312,7 +312,7 @@ class ConfigurationLoaderTest {
 
         ConfigurationSnapshot upgraded = loader.load();
 
-        assertEquals(7, upgraded.settings().configVersion());
+        assertEquals(9, upgraded.settings().configVersion());
         assertEquals("ECHO_SHARD", upgraded.settings().features().death().soulItem().material());
         assertTrue(upgraded.language().find("pets.soul-delivered").isPresent());
         assertTrue(upgraded.language().find("pets.soul-dropped").isPresent());
