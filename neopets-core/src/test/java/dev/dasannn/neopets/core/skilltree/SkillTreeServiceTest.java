@@ -10,6 +10,7 @@ import dev.dasannn.neopets.core.concurrent.PlayerOperationQueue;
 import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.event.NodeActivated;
 import dev.dasannn.neopets.core.event.NodeUnlocked;
+import dev.dasannn.neopets.core.event.TreeReset;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetStatus;
@@ -365,6 +366,8 @@ class SkillTreeServiceTest {
         var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
         fixture.progressRepository.progress = Optional.of(progress(2, 2, 1, 1));
         fixture.economy.balance = 75.0;
+        var events = new ArrayList<TreeReset>();
+        fixture.eventBus.subscribe(TreeReset.class, events::add);
 
         var result = assertInstanceOf(ResetResult.Reset.class,
                 fixture.service.reset(PLAYER, PET_ID, true).join());
@@ -376,6 +379,7 @@ class SkillTreeServiceTest {
         assertEquals(1, fixture.progressRepository.saveCount);
         assertEquals(List.of(), fixture.economy.withdrawals);
         assertEquals(List.of(), fixture.economy.deposits);
+        assertEquals(List.of(new TreeReset(PET_ID)), events);
     }
 
     @Test
@@ -407,6 +411,8 @@ class SkillTreeServiceTest {
         var fixture = new Fixture(alivePet(), 2, new RankLimits(1, 10, 10));
         fixture.progressRepository.progress = Optional.of(progress(1, 1, 0, 0));
         fixture.progressRepository.saveFailure = new IllegalStateException("write failed");
+        var events = new ArrayList<TreeReset>();
+        fixture.eventBus.subscribe(TreeReset.class, events::add);
 
         var result = assertInstanceOf(ResetResult.Failed.class,
                 fixture.service.reset(PLAYER, PET_ID, true).join());
@@ -415,6 +421,7 @@ class SkillTreeServiceTest {
         assertEquals(2, fixture.playerRepository.profile.skillPointBalance());
         assertEquals(0, fixture.playerRepository.saveCount);
         assertEquals(1, fixture.progress().activeNodes());
+        assertEquals(List.of(), events);
     }
 
     @Test

@@ -8,7 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.model.PetTypeId;
+import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
 import dev.dasannn.neopets.platform.paper.PetSpawner;
+import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,6 +67,30 @@ class ConfigurationLoaderTest {
         assertEquals(List.of(), issues);
         assertTrue(snapshot.variants().findByType(new PetTypeId("parrot")).stream()
                 .noneMatch(variant -> variant.baby()));
+    }
+
+    @Test
+    void everyShippedVanillaEffectIdExistsInThePlatformCatalog() throws Exception {
+        ConfigurationSnapshot snapshot = new ConfigurationLoader(temporaryDirectory).load();
+
+        var configuredEffectIds = snapshot.skillTrees().values().stream()
+                .flatMap(tree -> tree.attributes().stream())
+                .filter(attribute -> attribute.effect() instanceof VanillaEffectReference)
+                .map(attribute -> ((VanillaEffectReference) attribute.effect()).catalogEffectId())
+                .collect(java.util.stream.Collectors.toSet());
+
+        assertTrue(VanillaEffectCatalog.knownEffectIds().containsAll(configuredEffectIds));
+    }
+
+    @Test
+    void unknownVanillaEffectIdIsReportedAtItsConfigurationPath() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("skilltrees/cat.yml", "effect: max_health", "effect: unsupported_health");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "skilltrees/cat.yml", "attributes.health.effect");
     }
 
     @Test

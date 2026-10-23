@@ -11,6 +11,7 @@ import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
 import dev.dasannn.neopets.core.skilltree.CustomEffectReference;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
+import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -75,17 +76,29 @@ public final class ConfigurationLoader {
     private final ClassLoader resources;
     private final AppearanceValidator appearanceValidator;
     private final ConfigurationMigrator migrator;
+    private final Set<String> knownVanillaEffectIds;
 
     /** Creates a loader backed by this class's bundled resources and permissive appearance validation. */
     public ConfigurationLoader(Path dataDirectory) {
         this(dataDirectory, ConfigurationLoader.class.getClassLoader(),
-                AppearanceValidator.acceptingAll(), new ConfigurationMigrator());
+                AppearanceValidator.acceptingAll(), new ConfigurationMigrator(),
+                VanillaEffectCatalog.knownEffectIds());
     }
 
     /** Creates a loader with the platform's appearance validator. */
     public ConfigurationLoader(Path dataDirectory, AppearanceValidator appearanceValidator) {
         this(dataDirectory, ConfigurationLoader.class.getClassLoader(),
-                appearanceValidator, new ConfigurationMigrator());
+                appearanceValidator, new ConfigurationMigrator(), VanillaEffectCatalog.knownEffectIds());
+    }
+
+    /** Creates a loader with explicit platform validators. */
+    public ConfigurationLoader(
+            Path dataDirectory,
+            AppearanceValidator appearanceValidator,
+            Set<String> knownVanillaEffectIds
+    ) {
+        this(dataDirectory, ConfigurationLoader.class.getClassLoader(), appearanceValidator,
+                new ConfigurationMigrator(), knownVanillaEffectIds);
     }
 
     /** Creates a fully injectable loader for tests and future migration registrations. */
@@ -95,10 +108,24 @@ public final class ConfigurationLoader {
             AppearanceValidator appearanceValidator,
             ConfigurationMigrator migrator
     ) {
+        this(dataDirectory, resources, appearanceValidator, migrator,
+                VanillaEffectCatalog.knownEffectIds());
+    }
+
+    /** Creates a fully injectable loader including the vanilla effect catalog identifiers. */
+    public ConfigurationLoader(
+            Path dataDirectory,
+            ClassLoader resources,
+            AppearanceValidator appearanceValidator,
+            ConfigurationMigrator migrator,
+            Set<String> knownVanillaEffectIds
+    ) {
         this.dataDirectory = Objects.requireNonNull(dataDirectory, "dataDirectory");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.appearanceValidator = Objects.requireNonNull(appearanceValidator, "appearanceValidator");
         this.migrator = Objects.requireNonNull(migrator, "migrator");
+        this.knownVanillaEffectIds = Set.copyOf(
+                Objects.requireNonNull(knownVanillaEffectIds, "knownVanillaEffectIds"));
     }
 
     /** Copies missing defaults and returns a new immutable snapshot if the whole set is valid. */
@@ -408,6 +435,9 @@ public final class ConfigurationLoader {
         };
         int levels = valueOr(integer(yaml, file, base + ".max-level", 1, Integer.MAX_VALUE, issues), 1);
         String effect = valueOr(string(yaml, file, base + ".effect", issues), "invalid");
+        if (category == AttributeCategory.VANILLA && !knownVanillaEffectIds.contains(effect)) {
+            issue(issues, file, base + ".effect", "unknown vanilla effect id: " + effect);
+        }
         List<BigDecimal> costs = decimalList(yaml, file, base + ".money-costs", levels, false, issues);
         List<BigDecimal> values = category == AttributeCategory.VANILLA
                 ? decimalList(yaml, file, base + ".values", levels, true, issues)

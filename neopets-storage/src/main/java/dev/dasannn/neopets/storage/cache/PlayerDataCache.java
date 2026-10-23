@@ -139,6 +139,13 @@ public final class PlayerDataCache {
         return lookup.hit() ? lookup.value() : Optional.empty();
     }
 
+    /** Returns tree progress only when its pet owner's complete snapshot is currently loaded. */
+    public Optional<TreeProgress> loadedTreeProgress(PetId petId) {
+        Objects.requireNonNull(petId, "petId");
+        CacheLookup<TreeProgress> lookup = findTreeProgress(petId);
+        return lookup.hit() ? lookup.value() : Optional.empty();
+    }
+
     CacheLookup<PlayerProfile> findProfile(PlayerId playerId) {
         synchronized (monitor) {
             var data = players.get(playerId);
