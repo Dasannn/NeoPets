@@ -4,4 +4,5 @@ plugins {
 
 dependencies {
     api(project(":neopets-core"))
+    testImplementation(libs.archunit)
 }
