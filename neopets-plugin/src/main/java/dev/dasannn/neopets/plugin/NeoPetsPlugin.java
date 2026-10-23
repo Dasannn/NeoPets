@@ -1,10 +1,12 @@
 package dev.dasannn.neopets.plugin;
 
 import dev.dasannn.neopets.core.port.Economy;
+import dev.dasannn.neopets.core.port.RankLimitsResolver;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
 import dev.dasannn.neopets.plugin.integration.EconomyProvider;
+import dev.dasannn.neopets.plugin.integration.RankLimitsResolverFactory;
 import java.io.IOException;
 import java.util.concurrent.Executor;
 import org.bukkit.Bukkit;
@@ -16,6 +18,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class NeoPetsPlugin extends JavaPlugin {
     private ConfigurationManager configurationManager;
     private Economy economy;
+    private RankLimitsResolver rankLimitsResolver;
 
     @Override
     public void onEnable() {
@@ -34,6 +37,7 @@ public final class NeoPetsPlugin extends JavaPlugin {
             }
         };
         economy = EconomyProvider.resolve(getServer(), mainThreadExecutor, getLogger());
+        rankLimitsResolver = RankLimitsResolverFactory.create(this, configurationManager);
         getLogger().info("NeoPets enabled (version " + getPluginMeta().getVersion() + ")");
     }
 
@@ -49,5 +53,13 @@ public final class NeoPetsPlugin extends JavaPlugin {
             throw new IllegalStateException("NeoPets configuration is not loaded");
         }
         return configurationManager;
+    }
+
+    /** Returns the configured rank-limits resolver after the plugin has enabled successfully. */
+    public RankLimitsResolver rankLimitsResolver() {
+        if (rankLimitsResolver == null) {
+            throw new IllegalStateException("NeoPets rank limits resolver is not initialized");
+        }
+        return rankLimitsResolver;
     }
 }
