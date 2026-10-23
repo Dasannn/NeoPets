@@ -33,14 +33,22 @@ public final class PetDeathListener implements Listener {
         this.logger = Objects.requireNonNull(logger, "logger");
     }
 
-    /** Removes vanilla rewards immediately, then persists the sequenced death workflow asynchronously. */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onDeath(EntityDeathEvent event) {
-        if (!PetEntityMetadata.isPet(event.getEntity())) {
+    /** Removes vanilla rewards for tagged pets before the final death observation. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRewards(EntityDeathEvent event) {
+        if (event.isCancelled() || !PetEntityMetadata.isPet(event.getEntity())) {
             return;
         }
         event.getDrops().clear();
         event.setDroppedExp(0);
+    }
+
+    /** Persists the sequenced death workflow after handlers that can cancel the death. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDeath(EntityDeathEvent event) {
+        if (event.isCancelled() || !PetEntityMetadata.isPet(event.getEntity())) {
+            return;
+        }
         var petId = PetEntityMetadata.petId(event.getEntity());
         var ownerId = PetEntityMetadata.ownerId(event.getEntity()).map(PlayerId::new);
         petId.ifPresent(id -> livePets.unregister(id, event.getEntity().getUniqueId()));

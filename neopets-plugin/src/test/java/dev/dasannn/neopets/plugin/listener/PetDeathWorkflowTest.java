@@ -1,22 +1,33 @@
 package dev.dasannn.neopets.plugin.listener;
 
+import static dev.dasannn.neopets.plugin.listener.SoulItemTestItems.proxy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.dasannn.neopets.core.event.DomainEventBus;
 import dev.dasannn.neopets.core.model.OwnedPet;
 import dev.dasannn.neopets.core.model.PetId;
 import dev.dasannn.neopets.core.model.PetStatus;
 import dev.dasannn.neopets.core.model.PlayerId;
+import dev.dasannn.neopets.core.model.RankLimits;
 import dev.dasannn.neopets.core.model.VariantId;
 import dev.dasannn.neopets.core.pet.DeathResult;
+import dev.dasannn.neopets.core.pet.DismissResult;
+import dev.dasannn.neopets.core.pet.InMemoryVariantCatalog;
 import dev.dasannn.neopets.core.pet.PetDeathWork;
+import dev.dasannn.neopets.core.pet.PetService;
 import dev.dasannn.neopets.core.pet.SoulToken;
+import dev.dasannn.neopets.core.pet.SummonResult;
 import dev.dasannn.neopets.core.port.PetDeathWorkRepository;
+import dev.dasannn.neopets.core.port.PetEntityGateway;
 import dev.dasannn.neopets.core.port.PetRepository;
-import dev.dasannn.neopets.core.skilltree.ResetResult;
 import dev.dasannn.neopets.core.skilltree.AttributeLevelProgress;
+import dev.dasannn.neopets.core.skilltree.ResetResult;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
+import dev.dasannn.neopets.platform.paper.LivePetRegistry;
+import dev.dasannn.neopets.plugin.runtime.RuntimeWorkTracker;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -30,6 +41,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
+import org.bukkit.damage.DamageSource;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.junit.jupiter.api.Test;
 
 class PetDeathWorkflowTest {
@@ -161,6 +177,99 @@ class PetDeathWorkflowTest {
         assertEquals(List.of(TOKEN_ID), fixture.deliveredTokens);
     }
 
+    @Test
+    void cancelledDeathPreservesEntityRewardsAndDomainState() throws NoSuchMethodException {
+        var fixture = new Fixture(false);
+        fixture.assignedPoints.set(4);
+        var livePets = new LivePetRegistry();
+        var entityId = UUID.randomUUID();
+        livePets.register(PET_ID, entityId);
+        var listener = new PetDeathListener(fixture.workflow, livePets,
+                new RuntimeWorkTracker(),
+                Logger.getAnonymousLogger());
+        var entity = proxy(LivingEntity.class, (proxy, method, args) -> {
+            throw new AssertionError("Cancelled deaths must not inspect or change the entity");
+        });
+        var drops = new ArrayList<>(List.of(SoulItemTestItems.item(Map.of())));
+        var event = new EntityDeathEvent(entity,
+                proxy(DamageSource.class, (proxy, method, args) -> null), drops, 7);
+        event.setCancelled(true);
+
+        listener.onRewards(event);
+        listener.onDeath(event);
+
+        var handler = PetDeathListener.class.getMethod("onDeath", EntityDeathEvent.class)
+                .getAnnotation(EventHandler.class);
+        assertTrue(handler.ignoreCancelled());
+        assertEquals(org.bukkit.event.EventPriority.MONITOR, handler.priority());
+        assertEquals(Optional.of(entityId), livePets.entityId(PET_ID));
+        assertEquals(1, event.getDrops().size());
+        assertEquals(7, event.getDroppedExp());
+        assertEquals(PetStatus.ALIVE, fixture.pets.pet.status());
+        assertEquals(4, fixture.assignedPoints.get());
+        assertTrue(fixture.work.entries.isEmpty());
+        assertTrue(fixture.issuedTokens.isEmpty());
+        assertTrue(fixture.deliveredTokens.isEmpty());
+    }
+
+    @Test
+    void delayedIntentBlocksDismissAndResummonAndRemovesTheLiveEntity() {
+        var fixture = new Fixture(true);
+        var live = new AtomicBoolean(true);
+        var spawns = new AtomicInteger();
+        var despawns = new AtomicInteger();
+        var gateway = new PetEntityGateway() {
+            @Override
+            public CompletableFuture<Void> spawn(PetId petId) {
+                spawns.incrementAndGet();
+                live.set(true);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> despawn(PetId petId) {
+                despawns.incrementAndGet();
+                live.set(false);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> applyEffects(PetId petId) {
+                return CompletableFuture.completedFuture(null);
+            }
+        };
+        var petService = new PetService(
+                new InMemoryVariantCatalog(List.of()),
+                fixture.pets, gateway, owner -> new RankLimits(1, 3, 10),
+                new DomainEventBus(), () -> 0.0,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        var workflow = fixture.newWorkflow(petService::die);
+        var persisted = new CompletableFuture<Void>();
+        fixture.work.nextSave = persisted;
+
+        var death = workflow.start(OWNER, PET_ID);
+        var dismiss = petService.dismiss(OWNER, PET_ID);
+        var summon = petService.summon(OWNER, PET_ID);
+
+        assertFalse(death.isDone());
+        assertFalse(dismiss.isDone(), "dismiss must wait for the death intent and transition");
+        assertFalse(summon.isDone(), "summon must wait for the death intent and transition");
+        assertEquals(PetStatus.ALIVE, fixture.pets.pet.status());
+        assertTrue(live.get());
+
+        persisted.complete(null);
+        death.join();
+        assertInstanceOf(DismissResult.Dead.class, dismiss.join());
+        assertInstanceOf(SummonResult.Dead.class, summon.join());
+        assertEquals(PetStatus.DEAD, fixture.pets.pet.status());
+        assertFalse(fixture.pets.pet.active());
+        assertFalse(live.get());
+        assertEquals(1, despawns.get());
+        assertEquals(0, spawns.get());
+        assertTrue(fixture.work.entries.get(PET_ID).completed());
+        assertEquals(List.of(TOKEN_ID), fixture.deliveredTokens);
+    }
+
     private static final class Fixture {
         private final FakePets pets = new FakePets(alivePet());
         private final FakeDeathWork work = new FakeDeathWork();
@@ -184,16 +293,21 @@ class PetDeathWorkflowTest {
         }
 
         private PetDeathWorkflow newWorkflow() {
+            return newWorkflow(null);
+        }
+
+        private PetDeathWorkflow newWorkflow(PetDeathWorkflow.DeathTransition transition) {
             return new PetDeathWorkflow(
                     pets,
                     work,
-                    (ownerId, petId) -> {
-                        if (failFirstDeath.compareAndSet(true, false)) {
-                            return CompletableFuture.failedFuture(new IllegalStateException("death write failed"));
-                        }
-                        pets.pet = pets.pet.withStatus(PetStatus.DEAD).withActive(false);
-                        return CompletableFuture.completedFuture(new DeathResult.Died(pets.pet));
-                    },
+                    transition != null ? transition : (ownerId, petId, prepareDeath) ->
+                            prepareDeath.apply(pets.pet).thenCompose(ignored -> {
+                                if (failFirstDeath.compareAndSet(true, false)) {
+                                    return CompletableFuture.failedFuture(new IllegalStateException("death write failed"));
+                                }
+                                pets.pet = pets.pet.withStatus(PetStatus.DEAD).withActive(false);
+                                return CompletableFuture.completedFuture(new DeathResult.Died(pets.pet));
+                            }),
                     (ownerId, petId) -> {
                         if (failFirstReset.compareAndSet(true, false)) {
                             return CompletableFuture.completedFuture(new ResetResult.Failed(
@@ -255,11 +369,13 @@ class PetDeathWorkflowTest {
 
     private static final class FakeDeathWork implements PetDeathWorkRepository {
         private final Map<PetId, PetDeathWork> entries = new HashMap<>();
+        private CompletableFuture<Void> nextSave;
 
         @Override
         public CompletableFuture<Void> save(PetDeathWork deathWork) {
-            entries.put(deathWork.petId(), deathWork);
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<Void> saved = nextSave == null ? CompletableFuture.completedFuture(null) : nextSave;
+            nextSave = null;
+            return saved.thenRun(() -> entries.put(deathWork.petId(), deathWork));
         }
 
         @Override
