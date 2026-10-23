@@ -3,6 +3,7 @@ package dev.dasannn.neopets.storage;
 import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -11,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 
 /**
  * Owns the migrated storage data source and its dedicated database executor.
@@ -94,14 +96,22 @@ public final class StorageBootstrap implements AutoCloseable {
     }
 
     private static void migrate(DataSource dataSource) {
-        Flyway.configure()
+        // Plugin class loaders are not the thread context class loader, so Flyway must be told
+        // explicitly where to find the bundled migrations.
+        var flyway = Flyway.configure(StorageBootstrap.class.getClassLoader())
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .table(SCHEMA_HISTORY_TABLE)
                 .baselineOnMigrate(true)
                 .baselineVersion("0")
-                .load()
-                .migrate();
+                .load();
+        flyway.migrate();
+        boolean schemaApplied = Arrays.stream(flyway.info().applied())
+                .anyMatch(migration -> migration.getVersion() != null
+                        && migration.getVersion().compareTo(MigrationVersion.fromVersion("1")) >= 0);
+        if (!schemaApplied) {
+            throw new IllegalStateException("NeoPets database schema was not created: no migrations found on the classpath");
+        }
     }
 
     private static final class DatabaseThreadFactory implements ThreadFactory {
