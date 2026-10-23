@@ -30,6 +30,8 @@ class PetVariantTest {
     void appearanceRejectsNulls() {
         assertThrows(NullPointerException.class, () -> new VariantAppearance(null));
         assertThrows(NullPointerException.class,
+                () -> new VariantAppearance(java.util.Collections.singletonMap(null, "red")));
+        assertThrows(NullPointerException.class,
                 () -> new VariantAppearance(java.util.Collections.singletonMap("color", null)));
     }
 
