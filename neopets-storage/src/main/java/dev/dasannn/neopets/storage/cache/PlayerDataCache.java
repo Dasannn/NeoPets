@@ -37,6 +37,7 @@ public final class PlayerDataCache {
     private final Map<PlayerId, CachedPlayerData> players = new HashMap<>();
     private final Map<PetId, PlayerId> petOwners = new HashMap<>();
     private final KeyedSequencer<PlayerId> operations = new KeyedSequencer<>();
+    private final KeyedSequencer<PetId> ownerResolvingOperations = new KeyedSequencer<>();
     private final PlayerRepository playerDelegate;
     private final PetRepository petDelegate;
     private final TreeProgressRepository treeDelegate;
@@ -94,7 +95,7 @@ public final class PlayerDataCache {
      * method does not issue duplicate repository operations or evict online-player snapshots.
      */
     public CompletableFuture<Void> flushAll() {
-        return operations.awaitAll();
+        return CompletableFuture.allOf(operations.awaitAll(), ownerResolvingOperations.awaitAll());
     }
 
     /** Returns whether the player's complete snapshot is currently cached. */
@@ -180,20 +181,22 @@ public final class PlayerDataCache {
 
     CompletableFuture<Void> deletePet(PetId petId, Supplier<CompletableFuture<Void>> durableWrite) {
         Objects.requireNonNull(petId, "petId");
-        return resolveOwner(petId).thenCompose(owner -> owner
+        return ownerResolvingOperations.submit(petId, () -> resolveOwner(petId).thenCompose(owner -> owner
                 .map(playerId -> operations.submit(
                         playerId, () -> writeThrough(() -> deletePet(playerId, petId), durableWrite)))
-                .orElseGet(() -> invoke(durableWrite)));
+                .orElseGet(() -> invoke(durableWrite))));
     }
 
     CompletableFuture<Void> saveTreeProgress(
             TreeProgress progress, Supplier<CompletableFuture<Void>> durableWrite
     ) {
         Objects.requireNonNull(progress, "progress");
-        return resolveOwner(progress.petId()).thenCompose(owner -> owner
-                .map(playerId -> operations.submit(
-                        playerId, () -> writeThrough(() -> saveTreeProgress(playerId, progress), durableWrite)))
-                .orElseGet(() -> invoke(durableWrite)));
+        return ownerResolvingOperations.submit(progress.petId(), () -> resolveOwner(progress.petId())
+                .thenCompose(owner -> owner
+                        .map(playerId -> operations.submit(
+                                playerId, () -> writeThrough(
+                                        () -> saveTreeProgress(playerId, progress), durableWrite)))
+                        .orElseGet(() -> invoke(durableWrite))));
     }
 
     private CompletableFuture<PlayerProfile> loadFromDelegates(PlayerId playerId) {
