@@ -19,6 +19,7 @@ import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.core.skilltree.AttributeLevelProgress;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -323,6 +324,35 @@ final class PlayerDataCacheTest {
         await(unload);
         assertFalse(cache.isLoaded(PLAYER));
         assertEquals(changedProgress, delegates.progress.get(PET));
+    }
+
+    @Test
+    void unloadWaitsForEveryQueuedTreeWriteOfTheSamePet() throws Exception {
+        var ownedPet = pet(PET, PLAYER, "cat_black");
+        var firstProgress = progress(PET, 1, 0);
+        var secondProgress = progress(PET, 2, 1);
+        delegates.players.put(PLAYER, new PlayerProfile(PLAYER, 0, List.of()));
+        delegates.pets.put(PET, ownedPet);
+        await(cache.load(PLAYER));
+        var firstGate = new CompletableFuture<Void>();
+        var secondGate = new CompletableFuture<Void>();
+        var gates = new ArrayDeque<>(List.of(firstGate, secondGate));
+        delegates.treeSave = progress -> gates.poll().thenRun(() -> delegates.progress.put(progress.petId(), progress));
+
+        var firstWrite = trees.save(firstProgress);
+        var secondWrite = trees.save(secondProgress);
+        var unload = cache.unload(PLAYER);
+
+        firstGate.complete(null);
+        await(firstWrite);
+        assertFalse(unload.isDone());
+        assertTrue(cache.isLoaded(PLAYER));
+
+        secondGate.complete(null);
+        await(secondWrite);
+        await(unload);
+        assertFalse(cache.isLoaded(PLAYER));
+        assertEquals(secondProgress, delegates.progress.get(PET));
     }
 
     @Test
