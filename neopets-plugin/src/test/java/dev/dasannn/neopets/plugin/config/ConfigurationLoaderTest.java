@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -40,6 +42,9 @@ class ConfigurationLoaderTest {
                     .allMatch(cost -> cost == 1), type);
         }
         assertEquals(snapshot.variants().findAll().size(), snapshot.variantIcons().size());
+        String usage = snapshot.language().find("general.usage-give").orElseThrow();
+        assertEquals("Uso: /neopet give <jugador> <id|ids|random> [tipo]",
+                PlainTextComponentSerializer.plainText().serialize(MiniMessage.miniMessage().deserialize(usage)));
     }
 
     @Test
@@ -85,6 +90,42 @@ class ConfigurationLoaderTest {
                         && issue.path().equals("variants.dog_pale.appearance")
                         && issue.reason().equals("unsupported test appearance")));
         assertTrue(failure.issues().stream().anyMatch(issue -> issue.file().toString().equals("pets/cat.yml")));
+    }
+
+    @Test
+    void enormousMaxLevelReportsListLengthsWithoutAllocatingPadding() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("skilltrees/cat.yml", "max-level: 5", "max-level: 2147483647");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "skilltrees/cat.yml", "attributes.health.money-costs");
+        assertIssue(failure, "skilltrees/cat.yml", "attributes.health.values");
+    }
+
+    @Test
+    void variantIconsMustBeNonAirInventoryItems() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("pets/dog.yml", "icon: BONE", "icon: WATER");
+        replace("pets/cat.yml", "icon: COD", "icon: AIR");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "pets/dog.yml", "variants.dog_pale.icon");
+        assertIssue(failure, "pets/cat.yml", "variants.cat_tabby.icon");
+    }
+
+    @Test
+    void everyShippedMessageIsRequired() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("lang/es.yml", "  pets-title: \"<dark_purple>Mis mascotas</dark_purple>\"\n", "");
+
+        ConfigurationLoadException failure = assertThrows(ConfigurationLoadException.class, loader::load);
+
+        assertIssue(failure, "lang/es.yml", "gui.pets-title");
     }
 
     private void replace(String relativePath, String target, String replacement) throws IOException {

@@ -20,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +32,7 @@ import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.inventory.ItemType;
 
 /** Copies, parses and validates the complete NeoPets YAML configuration set. */
 public final class ConfigurationLoader {
@@ -41,15 +41,24 @@ public final class ConfigurationLoader {
     private static final Pattern LOWERCASE_KEY = Pattern.compile("[a-z0-9]+(?:_[a-z0-9]+)*");
     private static final Set<String> REQUIRED_MESSAGES = Set.of(
             "prefix", "errors.no-permission", "errors.player-only", "errors.player-not-found",
-            "errors.invalid-amount", "errors.config-invalid", "general.reloaded", "pets.none-owned",
-            "pets.given", "pets.already-owned", "pets.all-owned", "pets.summoned", "pets.dismissed",
+            "errors.invalid-amount", "errors.config-invalid", "errors.internal", "general.reloaded",
+            "general.usage-neopets", "general.usage-give", "general.usage-sp", "general.usage-revive",
+            "pets.none-owned", "pets.given", "pets.given-admin", "pets.already-owned", "pets.all-owned",
+            "pets.unknown-variant", "pets.unknown-type", "pets.summoned", "pets.dismissed",
             "pets.active-limit", "pets.renamed", "pets.rename-disabled", "pets.dead", "pets.revived",
-            "pets.soul-required", "skills.points", "skills.points-changed", "skills.node-unlocked",
-            "skills.node-activated", "skills.not-enough-money", "skills.not-enough-points",
-            "skills.node-limit", "skills.point-limit", "skills.reset", "skills.reset-disabled",
+            "pets.soul-required", "pets.soul-invalid", "pets.soul-item-name", "pets.soul-item-lore",
+            "pets.shop-disabled", "skills.points", "skills.points-changed", "skills.node-unlocked",
+            "skills.node-activated", "skills.previous-level-required", "skills.not-enough-money",
+            "skills.not-enough-points", "skills.node-limit", "skills.point-limit", "skills.reset",
+            "skills.reset-disabled", "skills.reset-cost", "skills.already-unlocked", "skills.already-active",
             "courier.request-sent", "courier.request-received", "courier.accepted", "courier.rejected",
-            "courier.returned", "courier.timed-out", "courier.cooldown", "gui.previous-page",
-            "gui.next-page", "gui.close", "gui.back");
+            "courier.returned", "courier.timed-out", "courier.cooldown", "courier.recipient-offline",
+            "courier.unavailable", "courier.inventory-in-use", "courier.send", "courier.return",
+            "gui.pets-title", "gui.skill-tree-title", "gui.admin-title", "gui.courier-title",
+            "gui.previous-page", "gui.next-page", "gui.close", "gui.back", "gui.summoned",
+            "gui.dismissed", "gui.dead", "gui.locked-node", "gui.unlocked-node", "gui.active-node",
+            "gui.unavailable-node", "gui.rank-limits", "admin.feature-enabled", "admin.feature-disabled",
+            "admin.value-updated");
 
     private final Path dataDirectory;
     private final ClassLoader resources;
@@ -242,8 +251,12 @@ public final class ConfigurationLoader {
             double weight = valueOr(decimal(yaml, file, base + ".weight", false, issues), BigDecimal.ONE).doubleValue();
             String displayName = valueOr(string(yaml, file, base + ".display-name", issues), idText);
             String icon = valueOr(string(yaml, file, base + ".icon", issues), "BARRIER");
-            if (!icon.equals(icon.toUpperCase(Locale.ROOT)) || Material.matchMaterial(icon) == null) {
-                issue(issues, file, base + ".icon", "must name a valid uppercase Minecraft material");
+            Material iconMaterial = Material.matchMaterial(icon);
+            if (!icon.equals(icon.toUpperCase(Locale.ROOT))
+                    || iconMaterial == null
+                    || !isInventoryItem(iconMaterial)) {
+                issue(issues, file, base + ".icon",
+                        "must name a valid uppercase, non-air inventory item material");
             }
             VariantAppearance appearance = appearance(yaml, file, base + ".appearance", issues);
             List<String> appearanceFailures;
@@ -345,15 +358,19 @@ public final class ConfigurationLoader {
         int levels = valueOr(integer(yaml, file, base + ".max-level", 1, Integer.MAX_VALUE, issues), 1);
         String effect = valueOr(string(yaml, file, base + ".effect", issues), "invalid");
         List<BigDecimal> costs = decimalList(yaml, file, base + ".money-costs", levels, false, issues);
-        List<Integer> skillPointCosts = skillPointCosts(yaml, file, base, levels, issues);
+        List<BigDecimal> values = category == AttributeCategory.VANILLA
+                ? decimalList(yaml, file, base + ".values", levels, true, issues)
+                : List.of();
+        SkillPointCostSpec skillPointCosts = skillPointCosts(yaml, file, base, levels, issues);
+        if (costs == null || values == null || skillPointCosts == null) {
+            return null;
+        }
         try {
             return switch (category) {
                 case VANILLA -> new AttributeDefinition(id, category, levels,
-                        new VanillaEffectReference(effect,
-                                decimalList(yaml, file, base + ".values", levels, true, issues)),
-                        costs, skillPointCosts);
+                        new VanillaEffectReference(effect, values), costs, skillPointCosts.forLevels(levels));
                 case CUSTOM -> new AttributeDefinition(id, category, levels,
-                        new CustomEffectReference(effect), costs, skillPointCosts);
+                        new CustomEffectReference(effect), costs, skillPointCosts.forLevels(levels));
             };
         } catch (IllegalArgumentException | NullPointerException exception) {
             issue(issues, file, base, conciseMessage(exception));
@@ -361,7 +378,7 @@ public final class ConfigurationLoader {
         }
     }
 
-    private List<Integer> skillPointCosts(
+    private SkillPointCostSpec skillPointCosts(
             YamlConfiguration yaml,
             Path file,
             String base,
@@ -370,10 +387,11 @@ public final class ConfigurationLoader {
     ) {
         Object list = yaml.get(base + ".skill-point-costs");
         if (list != null) {
-            return integerList(yaml, file, base + ".skill-point-costs", levels, 0, issues);
+            List<Integer> costs = integerList(yaml, file, base + ".skill-point-costs", levels, 0, issues);
+            return costs == null ? null : new SkillPointCostSpec(costs, null);
         }
-        int cost = valueOr(integer(yaml, file, base + ".skill-point-cost", 0, Integer.MAX_VALUE, issues), 1);
-        return Collections.nCopies(levels, cost);
+        Integer cost = integer(yaml, file, base + ".skill-point-cost", 0, Integer.MAX_VALUE, issues);
+        return cost == null ? null : new SkillPointCostSpec(null, cost);
     }
 
     private LanguageCatalog parseLanguage(YamlConfiguration yaml, List<ConfigurationIssue> issues) {
@@ -516,32 +534,34 @@ public final class ConfigurationLoader {
         Object raw = root.get(path);
         if (!(raw instanceof List<?> values)) {
             issue(issues, file, path, raw == null ? "required number list is missing" : "must be a number list");
-            return Collections.nCopies(expectedSize, BigDecimal.ZERO);
+            return null;
         }
+        boolean valid = true;
         if (values.size() != expectedSize) {
             issue(issues, file, path, "must contain exactly " + expectedSize + " values");
+            valid = false;
         }
-        var parsed = new ArrayList<BigDecimal>();
-        for (int index = 0; index < expectedSize; index++) {
-            Object value = index < values.size() ? values.get(index) : 0;
+        var parsed = new ArrayList<BigDecimal>(values.size());
+        for (int index = 0; index < values.size(); index++) {
+            Object value = values.get(index);
             if (!(value instanceof Number number)) {
                 issue(issues, file, path + "[" + index + "]", "must be a number");
-                parsed.add(BigDecimal.ZERO);
+                valid = false;
                 continue;
             }
             try {
                 BigDecimal decimal = new BigDecimal(number.toString());
                 if (!allowNegative && decimal.signum() < 0) {
                     issue(issues, file, path + "[" + index + "]", "must not be negative");
-                    decimal = BigDecimal.ZERO;
+                    valid = false;
                 }
                 parsed.add(decimal);
             } catch (NumberFormatException exception) {
                 issue(issues, file, path + "[" + index + "]", "must be a finite number");
-                parsed.add(BigDecimal.ZERO);
+                valid = false;
             }
         }
-        return parsed;
+        return valid ? parsed : null;
     }
 
     private static List<Integer> integerList(
@@ -555,24 +575,32 @@ public final class ConfigurationLoader {
         Object raw = root.get(path);
         if (!(raw instanceof List<?> values)) {
             issue(issues, file, path, raw == null ? "required integer list is missing" : "must be an integer list");
-            return Collections.nCopies(expectedSize, minimum);
+            return null;
         }
+        boolean valid = true;
         if (values.size() != expectedSize) {
             issue(issues, file, path, "must contain exactly " + expectedSize + " values");
+            valid = false;
         }
-        var parsed = new ArrayList<Integer>();
-        for (int index = 0; index < expectedSize; index++) {
-            Object value = index < values.size() ? values.get(index) : minimum;
+        var parsed = new ArrayList<Integer>(values.size());
+        for (int index = 0; index < values.size(); index++) {
+            Object value = values.get(index);
             if (!(value instanceof Number number)
                     || number.doubleValue() != number.intValue()
                     || number.intValue() < minimum) {
                 issue(issues, file, path + "[" + index + "]", "must be an integer of at least " + minimum);
-                parsed.add(minimum);
+                valid = false;
             } else {
                 parsed.add(number.intValue());
             }
         }
-        return parsed;
+        return valid ? parsed : null;
+    }
+
+    private record SkillPointCostSpec(List<Integer> perLevel, Integer uniform) {
+        private List<Integer> forLevels(int levels) {
+            return perLevel == null ? java.util.Collections.nCopies(levels, uniform) : perLevel;
+        }
     }
 
     private static PetTypeId petType(
@@ -596,6 +624,18 @@ public final class ConfigurationLoader {
         } catch (IllegalArgumentException exception) {
             issue(issues, file, path, exception.getMessage());
             return new VariantId("invalid_" + Integer.toUnsignedString(value.hashCode()));
+        }
+    }
+
+    private static boolean isInventoryItem(Material material) {
+        if (material == Material.AIR || material == Material.CAVE_AIR || material == Material.VOID_AIR) {
+            return false;
+        }
+        try {
+            ItemType.class.getField(material.name());
+            return true;
+        } catch (NoSuchFieldException exception) {
+            return false;
         }
     }
 

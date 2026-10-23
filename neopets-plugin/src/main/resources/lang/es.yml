@@ -11,9 +11,9 @@ errors:
 general:
   reloaded: "<green>Configuración de NeoPets recargada.</green>"
   usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
-  usage-give: "<gray>Uso: <white>/neopet give &lt;jugador&gt; &lt;id|ids|random&gt; [tipo]</white></gray>"
-  usage-sp: "<gray>Uso: <white>/neopet sp &lt;give|take|set&gt; &lt;jugador&gt; &lt;cantidad&gt;</white></gray>"
-  usage-revive: "<gray>Uso: <white>/neopets revive &lt;jugador&gt;</white></gray>"
+  usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
+  usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
+  usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
 
 pets:
   none-owned: "<yellow>Aún no tienes mascotas.</yellow>"
