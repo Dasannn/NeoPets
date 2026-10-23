@@ -70,7 +70,7 @@ class BuscatesorosAbilityTest {
         var cooldowns = new CooldownTracker();
         ability.onActivate(pet, owner, 1);
         // The scan is spread over ticks; advance until it has found targets and notified the owner.
-        for (int tick = 0; tick < 200 && particles[0] == 0; tick++) {
+        for (int tick = 0; tick < 200 && notifications[0] == 0; tick++) {
             ability.tick(new AbilityContext(
                     petId, pet, owner, 1, Instant.EPOCH.plusMillis(tick), cooldowns, 0, ability.id()));
         }
@@ -91,16 +91,21 @@ class BuscatesorosAbilityTest {
     }
 
     @Test
-    void particlesStartAfterTraversalExpireOnTimeAndCooldownDelaysTheNextScan() {
+    void discoveriesEmitImmediatelyExpireIndividuallyAndNotifyOnceAtCompletion() {
         var fixture = new ScanFixture();
-        int completedAt = fixture.finishScan(0);
+        fixture.tick(0);
+        assertEquals(1, fixture.particles, "first target is marked while traversal is pending");
+        assertEquals(0, fixture.notifications);
+        fixture.tick(1);
+        assertEquals(3, fixture.particles, "second target is marked as soon as it is found");
         assertEquals(1, fixture.notifications);
-        assertEquals(1, fixture.particles);
-        fixture.tick(completedAt + 4);
-        assertEquals(2, fixture.particles);
-        fixture.tick(completedAt + 5);
+        fixture.tick(4);
+        assertEquals(5, fixture.particles);
+        fixture.tick(5);
+        assertEquals(6, fixture.particles, "only the later discovery remains marked");
+        fixture.tick(6);
         fixture.tick(29);
-        assertEquals(2, fixture.particles, "no particles at or after the expiry instant");
+        assertEquals(6, fixture.particles, "each target expires five seconds after discovery");
         assertEquals(1, fixture.notifications);
         int snapshots = fixture.snapshots;
         fixture.tick(30);
@@ -115,9 +120,10 @@ class BuscatesorosAbilityTest {
         fixture.tick(0);
         assertEquals(0, fixture.notifications);
         fixture.ability.onDeactivate(fixture.pet, fixture.owner, 1);
+        int initialParticles = fixture.particles;
         fixture.tick(1);
         assertEquals(0, fixture.notifications);
-        assertEquals(0, fixture.particles);
+        assertEquals(initialParticles, fixture.particles);
         fixture.finishScan(30);
         int particles = fixture.particles;
         fixture.ability.onDeactivate(fixture.pet, fixture.owner, 1);
@@ -146,7 +152,8 @@ class BuscatesorosAbilityTest {
                     return proxy(ChunkSnapshot.class, (snapshot, snapshotMethod, coordinates) -> {
                         assertEquals("getBlockType", snapshotMethod.getName());
                         return chunkX == 0 && chunkZ == 0 && (int) coordinates[0] == 0
-                                && (int) coordinates[1] == 64 && (int) coordinates[2] == 0
+                                && (int) coordinates[1] == 64
+                                && ((int) coordinates[2] == 0 || (int) coordinates[2] == 2)
                                 ? Material.DIAMOND_ORE : Material.AIR;
                     });
                 });
@@ -168,7 +175,7 @@ class BuscatesorosAbilityTest {
                         Duration.ofSeconds(5), 32, 1300, Set.of(Material.DIAMOND_ORE)),
                 (player, count) -> {
                     assertSame(owner, player);
-                    assertEquals(1, count);
+                    assertEquals(2, count);
                     notifications++;
                 });
 
@@ -179,13 +186,11 @@ class BuscatesorosAbilityTest {
 
         private int finishScan(int start) {
             int previous = notifications;
-            int previousParticles = particles;
             for (int second = start; second < start + 20; second++) {
                 tick(second);
                 if (notifications > previous) {
                     return second;
                 }
-                assertEquals(previousParticles, particles, "no markers before the scan finishes");
             }
             throw new AssertionError("scan did not finish");
         }

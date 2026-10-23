@@ -22,7 +22,7 @@ import org.bukkit.entity.Player;
 public final class BuscatesorosAbility implements Ability {
     /** Skill-tree custom effect identifier shipped for dogs. */
     public static final String ID = "treasure_hunter";
-    private static final int BLOCKS_PER_TICK = 512;
+    private static final int BLOCKS_PER_TICK = 1024;
 
     private final Supplier<Settings> settings;
     private final BiConsumer<Player, Integer> foundNotifier;
@@ -68,8 +68,8 @@ public final class BuscatesorosAbility implements Ability {
             if (scan.expired(context.now())) {
                 scans.remove(entityId);
                 scan = null;
-            } else if (scan.complete()) {
-                scan.emitParticles(context.owner());
+            } else {
+                scan.emitParticles(context.owner(), context.now());
             }
         }
 
@@ -83,8 +83,8 @@ public final class BuscatesorosAbility implements Ability {
             started.advance(context.now());
             if (started.complete() && !started.targets().isEmpty()) {
                 foundNotifier.accept(context.owner(), started.targets().size());
-                started.emitParticles(context.owner());
             }
+            started.emitParticles(context.owner(), context.now());
         }
     }
 
@@ -138,7 +138,8 @@ public final class BuscatesorosAbility implements Ability {
         private final World world;
         private final Settings settings;
         private final TreasureScan scanner;
-        private Instant markedUntil;
+        private final Map<TreasureScan.Position, Instant> markers = new HashMap<>();
+        private int discovered;
 
         private ScanState(World world, Settings settings, TreasureScan scanner) {
             this.world = world;
@@ -154,13 +155,16 @@ public final class BuscatesorosAbility implements Ability {
 
         void advance(Instant now) {
             scanner.advance(BLOCKS_PER_TICK);
-            if (scanner.complete()) {
-                markedUntil = now.plus(settings.duration());
+            List<TreasureScan.Position> targets = scanner.targets();
+            for (int index = discovered; index < targets.size(); index++) {
+                markers.put(targets.get(index), now.plus(settings.duration()));
             }
+            discovered = targets.size();
         }
 
-        void emitParticles(Player owner) {
-            for (var target : scanner.targets()) {
+        void emitParticles(Player owner, Instant now) {
+            markers.values().removeIf(expiry -> !now.isBefore(expiry));
+            for (var target : markers.keySet()) {
                 owner.spawnParticle(Particle.END_ROD,
                         new Location(world, target.x() + 0.5, target.y() + 0.7, target.z() + 0.5),
                         3, 0.2, 0.35, 0.2, 0.01);
@@ -168,11 +172,11 @@ public final class BuscatesorosAbility implements Ability {
         }
 
         boolean complete() {
-            return markedUntil != null;
+            return scanner.complete();
         }
 
         boolean expired(Instant now) {
-            return markedUntil != null && !now.isBefore(markedUntil);
+            return complete() && markers.values().stream().noneMatch(now::isBefore);
         }
 
         List<TreasureScan.Position> targets() {
