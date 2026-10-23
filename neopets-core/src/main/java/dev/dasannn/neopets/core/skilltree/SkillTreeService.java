@@ -126,18 +126,43 @@ public final class SkillTreeService {
                 int nextLevel = levelProgress.unlockedLevel() + 1;
                 BigDecimal moneyCost = attributeDefinition.unlockMoneyCosts().get(nextLevel - 1);
                 double economyCost = finiteDouble(moneyCost);
-                if (!economy.has(playerId, economyCost)) {
-                    return CompletableFuture.completedFuture(new UnlockResult.InsufficientFunds(moneyCost));
-                }
-
-                EconomyResult withdrawal = economy.withdraw(playerId, economyCost);
-                if (withdrawal instanceof EconomyResult.Failure failure) {
-                    return CompletableFuture.completedFuture(new UnlockResult.Failed(
-                            new IllegalStateException("economy withdrawal failed: " + failure.reason())));
-                }
-
                 TreeProgress changed = progress.withUnlockedLevel(attributeDefinition.id(), nextLevel);
-                return saveUnlocked(playerId, attributeDefinition.id(), nextLevel, moneyCost, economyCost, changed);
+                if (moneyCost.signum() == 0) {
+                    return saveUnlocked(
+                            playerId,
+                            attributeDefinition.id(),
+                            nextLevel,
+                            moneyCost,
+                            economyCost,
+                            changed);
+                }
+                return economy.has(playerId, economyCost).thenCompose(balanceCheck -> {
+                    if (balanceCheck instanceof EconomyResult.Failure failure) {
+                        return CompletableFuture.completedFuture(new UnlockResult.Failed(
+                                new IllegalStateException(
+                                        "economy balance check failed: " + failure.reason())));
+                    }
+                    double balance = ((EconomyResult.Success) balanceCheck).balance();
+                    if (balance < economyCost) {
+                        return CompletableFuture.completedFuture(new UnlockResult.InsufficientFunds(moneyCost));
+                    }
+
+                    return economy.withdraw(playerId, economyCost).thenCompose(withdrawal -> {
+                        if (withdrawal instanceof EconomyResult.Failure failure) {
+                            return CompletableFuture.completedFuture(new UnlockResult.Failed(
+                                    new IllegalStateException(
+                                            "economy withdrawal failed: " + failure.reason())));
+                        }
+
+                        return saveUnlocked(
+                                playerId,
+                                attributeDefinition.id(),
+                                nextLevel,
+                                moneyCost,
+                                economyCost,
+                                changed);
+                    });
+                });
             });
         });
     }
@@ -150,25 +175,44 @@ public final class SkillTreeService {
             double economyCost,
             TreeProgress changed
     ) {
-        return saveProgress(changed).<CompletableFuture<UnlockResult>>handle((ignored, failure) -> {
-            if (failure == null) {
-                eventBus.publish(new NodeUnlocked(changed.petId(), attributeId, level));
-                return CompletableFuture.completedFuture(
-                        new UnlockResult.Unlocked(changed, attributeId, level, moneyCost));
-            }
+        return saveProgress(changed)
+                .<CompletableFuture<UnlockResult>>handle((ignored, failure) -> {
+                    if (failure != null) {
+                        if (economyCost == 0) {
+                            return CompletableFuture.completedFuture(
+                                    new UnlockResult.Failed(unwrap(failure)));
+                        }
+                        return refundAfterFailedSave(playerId, economyCost, failure);
+                    }
+                    eventBus.publish(new NodeUnlocked(changed.petId(), attributeId, level));
+                    return CompletableFuture.completedFuture(new UnlockResult.Unlocked(
+                            changed, attributeId, level, moneyCost));
+                })
+                .thenCompose(Function.identity());
+    }
 
-            Throwable cause = unwrap(failure);
-            try {
-                EconomyResult refund = economy.deposit(playerId, economyCost);
-                if (refund instanceof EconomyResult.Failure refundFailure) {
-                    cause.addSuppressed(new IllegalStateException(
-                            "economy refund failed: " + refundFailure.reason()));
-                }
-            } catch (Throwable refundFailure) {
-                cause.addSuppressed(unwrap(refundFailure));
-            }
+    private CompletableFuture<UnlockResult> refundAfterFailedSave(
+            PlayerId playerId, double economyCost, Throwable saveFailure
+    ) {
+        Throwable cause = unwrap(saveFailure);
+        CompletableFuture<EconomyResult> refund;
+        try {
+            refund = Objects.requireNonNull(
+                    economy.deposit(playerId, economyCost), "economy deposit future");
+        } catch (Throwable refundFailure) {
+            cause.addSuppressed(unwrap(refundFailure));
             return CompletableFuture.completedFuture(new UnlockResult.Failed(cause));
-        }).thenCompose(Function.identity());
+        }
+
+        return refund.handle((result, refundFailure) -> {
+            if (refundFailure != null) {
+                cause.addSuppressed(unwrap(refundFailure));
+            } else if (result instanceof EconomyResult.Failure businessFailure) {
+                cause.addSuppressed(new IllegalStateException(
+                        "economy refund failed: " + businessFailure.reason()));
+            }
+            return (UnlockResult) new UnlockResult.Failed(cause);
+        });
     }
 
     private CompletableFuture<ActivateResult> activateUnsequenced(

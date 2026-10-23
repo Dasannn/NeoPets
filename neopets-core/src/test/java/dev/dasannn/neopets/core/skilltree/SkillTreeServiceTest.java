@@ -175,6 +175,30 @@ class SkillTreeServiceTest {
     }
 
     @Test
+    void waitsForAsynchronousMoneyCompensationBeforeStartingTheNextOperation() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+        fixture.economy.balance = 50.0;
+        fixture.progressRepository.saveFailure = new IllegalStateException("write failed");
+        fixture.progressRepository.failSaveNumber = 1;
+        fixture.economy.delayNextDeposit();
+
+        var failedUnlock = fixture.service.unlock(PLAYER, PET_ID, "health");
+        var queuedUnlock = fixture.service.unlock(PLAYER, PET_ID, "health");
+
+        assertFalse(failedUnlock.isDone());
+        assertFalse(queuedUnlock.isDone());
+        assertEquals(40.0, fixture.economy.balance);
+        assertEquals(List.of(10.0), fixture.economy.withdrawals);
+        fixture.economy.completeDelayedDeposit();
+
+        assertInstanceOf(UnlockResult.Failed.class, failedUnlock.join());
+        assertInstanceOf(UnlockResult.Unlocked.class, queuedUnlock.join());
+        assertEquals(List.of(10.0, 10.0), fixture.economy.withdrawals);
+        assertEquals(List.of(10.0), fixture.economy.deposits);
+        assertEquals(40.0, fixture.economy.balance);
+    }
+
+    @Test
     void reportsEconomyFailureWithoutWritingProgress() {
         var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
         fixture.economy.balance = 50.0;
@@ -184,6 +208,19 @@ class SkillTreeServiceTest {
                 fixture.service.unlock(PLAYER, PET_ID, "health").join());
 
         assertEquals("economy withdrawal failed: provider offline", result.cause().getMessage());
+        assertEquals(0, fixture.progressRepository.saveCount);
+    }
+
+    @Test
+    void reportsBalanceCheckFailureWithoutAttemptingAWithdrawal() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+        fixture.economy.balanceFailure = "economy unavailable";
+
+        var result = assertInstanceOf(UnlockResult.Failed.class,
+                fixture.service.unlock(PLAYER, PET_ID, "health").join());
+
+        assertEquals("economy balance check failed: economy unavailable", result.cause().getMessage());
+        assertEquals(List.of(), fixture.economy.withdrawals);
         assertEquals(0, fixture.progressRepository.saveCount);
     }
 
@@ -478,6 +515,37 @@ class SkillTreeServiceTest {
     }
 
     @Test
+    void unlockReturnsWithoutWaitingForAnAsynchronousEconomyCheck() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+        fixture.economy.balance = 100.0;
+        fixture.economy.delayNextHas();
+
+        var unlock = fixture.service.unlock(PLAYER, PET_ID, "health");
+        var queuedUnlock = fixture.service.unlock(PLAYER, PET_ID, "health");
+
+        assertFalse(unlock.isDone());
+        assertFalse(queuedUnlock.isDone());
+        assertEquals(List.of(), fixture.economy.withdrawals);
+        fixture.economy.completeDelayedHas();
+
+        assertEquals(1, assertInstanceOf(UnlockResult.Unlocked.class, unlock.join()).level());
+        assertEquals(2, assertInstanceOf(UnlockResult.Unlocked.class, queuedUnlock.join()).level());
+        assertEquals(List.of(10.0, 20.0), fixture.economy.withdrawals);
+    }
+
+    @Test
+    void unlocksAFreeNodeWithoutCallingTheEconomy() {
+        var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
+
+        var result = assertInstanceOf(UnlockResult.Unlocked.class,
+                fixture.service.unlock(PLAYER, PET_ID, "free").join());
+
+        assertEquals(BigDecimal.ZERO, result.moneyCost());
+        assertEquals(List.of(), fixture.economy.withdrawals);
+        assertEquals(List.of(), fixture.economy.deposits);
+    }
+
+    @Test
     void infrastructureFailuresAreResultsAndInvalidArgumentsFailFast() {
         var fixture = new Fixture(alivePet(), 0, new RankLimits(1, 10, 10));
         fixture.progressRepository.loadFailure = new IllegalStateException("read failed");
@@ -666,34 +734,72 @@ class SkillTreeServiceTest {
 
     private static final class FakeEconomy implements Economy {
         private double balance;
+        private String balanceFailure;
         private String withdrawalFailure;
         private String depositFailure;
+        private boolean delayNextHas;
+        private CompletableFuture<EconomyResult> delayedHas;
+        private boolean delayNextDeposit;
+        private double delayedDepositAmount;
+        private CompletableFuture<EconomyResult> delayedDeposit;
         private final List<Double> withdrawals = new ArrayList<>();
         private final List<Double> deposits = new ArrayList<>();
 
         @Override
-        public boolean has(PlayerId playerId, double amount) {
-            return balance >= amount;
+        public CompletableFuture<EconomyResult> has(PlayerId playerId, double amount) {
+            if (balanceFailure != null) {
+                return CompletableFuture.completedFuture(new EconomyResult.Failure(balanceFailure));
+            }
+            if (delayNextHas) {
+                delayNextHas = false;
+                delayedHas = new CompletableFuture<>();
+                return delayedHas;
+            }
+            return CompletableFuture.completedFuture(new EconomyResult.Success(balance));
         }
 
         @Override
-        public EconomyResult withdraw(PlayerId playerId, double amount) {
+        public CompletableFuture<EconomyResult> withdraw(PlayerId playerId, double amount) {
             if (withdrawalFailure != null) {
-                return new EconomyResult.Failure(withdrawalFailure);
+                return CompletableFuture.completedFuture(new EconomyResult.Failure(withdrawalFailure));
             }
             balance -= amount;
             withdrawals.add(amount);
-            return new EconomyResult.Success(balance);
+            return CompletableFuture.completedFuture(new EconomyResult.Success(balance));
         }
 
         @Override
-        public EconomyResult deposit(PlayerId playerId, double amount) {
+        public CompletableFuture<EconomyResult> deposit(PlayerId playerId, double amount) {
             if (depositFailure != null) {
-                return new EconomyResult.Failure(depositFailure);
+                return CompletableFuture.completedFuture(new EconomyResult.Failure(depositFailure));
+            }
+            if (delayNextDeposit) {
+                delayNextDeposit = false;
+                delayedDepositAmount = amount;
+                delayedDeposit = new CompletableFuture<>();
+                return delayedDeposit;
             }
             balance += amount;
             deposits.add(amount);
-            return new EconomyResult.Success(balance);
+            return CompletableFuture.completedFuture(new EconomyResult.Success(balance));
+        }
+
+        private void delayNextHas() {
+            delayNextHas = true;
+        }
+
+        private void completeDelayedHas() {
+            delayedHas.complete(new EconomyResult.Success(balance));
+        }
+
+        private void delayNextDeposit() {
+            delayNextDeposit = true;
+        }
+
+        private void completeDelayedDeposit() {
+            balance += delayedDepositAmount;
+            deposits.add(delayedDepositAmount);
+            delayedDeposit.complete(new EconomyResult.Success(balance));
         }
     }
 }

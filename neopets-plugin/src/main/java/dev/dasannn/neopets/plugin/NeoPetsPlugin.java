@@ -1,9 +1,13 @@
 package dev.dasannn.neopets.plugin;
 
+import dev.dasannn.neopets.core.port.Economy;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoader;
 import dev.dasannn.neopets.plugin.config.ConfigurationManager;
+import dev.dasannn.neopets.plugin.integration.EconomyProvider;
 import java.io.IOException;
+import java.util.concurrent.Executor;
+import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -11,6 +15,7 @@ import org.bukkit.plugin.java.JavaPlugin;
  */
 public final class NeoPetsPlugin extends JavaPlugin {
     private ConfigurationManager configurationManager;
+    private Economy economy;
 
     @Override
     public void onEnable() {
@@ -21,11 +26,20 @@ public final class NeoPetsPlugin extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        Executor mainThreadExecutor = task -> {
+            if (Bukkit.isPrimaryThread()) {
+                task.run();
+            } else {
+                getServer().getScheduler().runTask(this, task);
+            }
+        };
+        economy = EconomyProvider.resolve(getServer(), mainThreadExecutor, getLogger());
         getLogger().info("NeoPets enabled (version " + getPluginMeta().getVersion() + ")");
     }
 
     @Override
     public void onDisable() {
+        economy = null;
         getLogger().info("NeoPets disabled");
     }
 
