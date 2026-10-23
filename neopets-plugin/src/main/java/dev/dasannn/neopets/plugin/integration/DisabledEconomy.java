@@ -4,6 +4,7 @@ import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.port.Economy;
 import dev.dasannn.neopets.core.port.EconomyResult;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 
 /** Economy fallback used when Vault or an economy provider is unavailable. */
 public final class DisabledEconomy implements Economy {
@@ -11,24 +12,24 @@ public final class DisabledEconomy implements Economy {
     public static final String UNAVAILABLE_REASON = "Economy unavailable";
 
     @Override
-    public boolean has(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> has(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         validateAmount(amount);
-        return false;
+        return CompletableFuture.completedFuture(unavailable());
     }
 
     @Override
-    public EconomyResult withdraw(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> withdraw(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         validateAmount(amount);
-        return unavailable();
+        return CompletableFuture.completedFuture(unavailable());
     }
 
     @Override
-    public EconomyResult deposit(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> deposit(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         validateAmount(amount);
-        return unavailable();
+        return CompletableFuture.completedFuture(unavailable());
     }
 
     private static EconomyResult unavailable() {

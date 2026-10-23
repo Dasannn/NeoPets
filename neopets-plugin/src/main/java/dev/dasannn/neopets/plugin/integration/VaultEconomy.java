@@ -5,7 +5,6 @@ import dev.dasannn.neopets.core.port.EconomyResult;
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -41,16 +40,16 @@ public final class VaultEconomy implements dev.dasannn.neopets.core.port.Economy
     }
 
     @Override
-    public boolean has(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> has(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         return onMainThread(() -> {
             validateAmount(amount);
-            return vault.has(resolvePlayer(playerId), amount);
+            return balance(vault.getBalance(resolvePlayer(playerId)));
         });
     }
 
     @Override
-    public EconomyResult withdraw(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> withdraw(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         return onMainThread(() -> {
             validateAmount(amount);
@@ -59,7 +58,7 @@ public final class VaultEconomy implements dev.dasannn.neopets.core.port.Economy
     }
 
     @Override
-    public EconomyResult deposit(PlayerId playerId, double amount) {
+    public CompletableFuture<EconomyResult> deposit(PlayerId playerId, double amount) {
         Objects.requireNonNull(playerId, "playerId");
         return onMainThread(() -> {
             validateAmount(amount);
@@ -104,26 +103,26 @@ public final class VaultEconomy implements dev.dasannn.neopets.core.port.Economy
         return new EconomyResult.Failure(reason);
     }
 
-    private <T> T onMainThread(Supplier<T> operation) {
-        var completion = new CompletableFuture<T>();
-        mainThreadExecutor.execute(() -> {
-            try {
-                completion.complete(operation.get());
-            } catch (Throwable failure) {
-                completion.completeExceptionally(failure);
-            }
-        });
-
-        try {
-            return completion.join();
-        } catch (CompletionException failure) {
-            if (failure.getCause() instanceof RuntimeException runtimeFailure) {
-                throw runtimeFailure;
-            }
-            if (failure.getCause() instanceof Error error) {
-                throw error;
-            }
-            throw failure;
+    private static EconomyResult balance(double balance) {
+        if (!Double.isFinite(balance)) {
+            return new EconomyResult.Failure(INVALID_BALANCE_FAILURE);
         }
+        return new EconomyResult.Success(balance);
+    }
+
+    private <T> CompletableFuture<T> onMainThread(Supplier<T> operation) {
+        var completion = new CompletableFuture<T>();
+        try {
+            mainThreadExecutor.execute(() -> {
+                try {
+                    completion.complete(operation.get());
+                } catch (Throwable failure) {
+                    completion.completeExceptionally(failure);
+                }
+            });
+        } catch (Throwable failure) {
+            completion.completeExceptionally(failure);
+        }
+        return completion;
     }
 }

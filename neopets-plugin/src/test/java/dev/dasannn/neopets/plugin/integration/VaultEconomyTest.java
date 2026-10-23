@@ -8,8 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import dev.dasannn.neopets.core.model.PlayerId;
 import dev.dasannn.neopets.core.port.EconomyResult;
 import java.lang.reflect.Proxy;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import net.milkbowl.vault.economy.AbstractEconomy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -24,17 +26,17 @@ class VaultEconomyTest {
     @Test
     void dispatchesChecksAndMapsSuccessfulTransactions() {
         var vault = new FakeVaultEconomy();
-        vault.hasResult = true;
+        vault.balance = 20.0;
         vault.withdrawResponse = response(2.50, 17.50, EconomyResponse.ResponseType.SUCCESS, null);
         vault.depositResponse = response(4.25, 21.75, EconomyResponse.ResponseType.SUCCESS, null);
         var executor = new DirectExecutor();
         var economy = new VaultEconomy(vault, executor, ignored -> OFFLINE_PLAYER);
 
-        boolean hasFunds = economy.has(PLAYER_ID, 2.50);
-        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 2.50);
-        EconomyResult deposit = economy.deposit(PLAYER_ID, 4.25);
+        EconomyResult balanceCheck = economy.has(PLAYER_ID, 2.50).join();
+        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 2.50).join();
+        EconomyResult deposit = economy.deposit(PLAYER_ID, 4.25).join();
 
-        assertEquals(true, hasFunds);
+        assertEquals(20.0, assertInstanceOf(EconomyResult.Success.class, balanceCheck).balance());
         assertEquals(3, executor.executions);
         assertEquals(OFFLINE_PLAYER, vault.lastPlayer);
         assertEquals(4.25, vault.lastAmount);
@@ -51,8 +53,8 @@ class VaultEconomyTest {
                 10.0, 3.0, EconomyResponse.ResponseType.NOT_IMPLEMENTED, "");
         var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
 
-        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 10.0);
-        EconomyResult deposit = economy.deposit(PLAYER_ID, 10.0);
+        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 10.0).join();
+        EconomyResult deposit = economy.deposit(PLAYER_ID, 10.0).join();
 
         assertEquals(
                 "Insufficient funds",
@@ -70,8 +72,8 @@ class VaultEconomyTest {
                 5.0, Double.NaN, EconomyResponse.ResponseType.SUCCESS, null);
         var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
 
-        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 5.0);
-        EconomyResult deposit = economy.deposit(PLAYER_ID, 5.0);
+        EconomyResult withdrawal = economy.withdraw(PLAYER_ID, 5.0).join();
+        EconomyResult deposit = economy.deposit(PLAYER_ID, 5.0).join();
 
         assertEquals(
                 "Economy provider returned no response",
@@ -87,11 +89,11 @@ class VaultEconomyTest {
         vault.fractionalDigits = 2;
         var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
 
-        assertThrows(IllegalArgumentException.class, () -> economy.has(PLAYER_ID, 0.0));
-        assertThrows(IllegalArgumentException.class, () -> economy.withdraw(PLAYER_ID, -1.0));
-        assertThrows(IllegalArgumentException.class, () -> economy.deposit(PLAYER_ID, Double.NaN));
-        assertThrows(IllegalArgumentException.class, () -> economy.deposit(PLAYER_ID, Double.POSITIVE_INFINITY));
-        assertThrows(IllegalArgumentException.class, () -> economy.withdraw(PLAYER_ID, 1.001));
+        assertFutureFailsWithIllegalArgument(() -> economy.has(PLAYER_ID, 0.0).join());
+        assertFutureFailsWithIllegalArgument(() -> economy.withdraw(PLAYER_ID, -1.0).join());
+        assertFutureFailsWithIllegalArgument(() -> economy.deposit(PLAYER_ID, Double.NaN).join());
+        assertFutureFailsWithIllegalArgument(() -> economy.deposit(PLAYER_ID, Double.POSITIVE_INFINITY).join());
+        assertFutureFailsWithIllegalArgument(() -> economy.withdraw(PLAYER_ID, 1.001).join());
         assertEquals(0, vault.transactionCalls);
     }
 
@@ -103,7 +105,7 @@ class VaultEconomyTest {
                 0.0001, 1.0001, EconomyResponse.ResponseType.SUCCESS, null);
         var economy = new VaultEconomy(vault, Runnable::run, ignored -> OFFLINE_PLAYER);
 
-        EconomyResult result = economy.deposit(PLAYER_ID, 0.0001);
+        EconomyResult result = economy.deposit(PLAYER_ID, 0.0001).join();
 
         assertEquals(1.0001, assertInstanceOf(EconomyResult.Success.class, result).balance());
     }
@@ -112,13 +114,38 @@ class VaultEconomyTest {
     void disabledEconomyReturnsUnavailableOutcomes() {
         var economy = new DisabledEconomy();
 
-        assertFalse(economy.has(PLAYER_ID, 1.0));
         assertEquals(
                 DisabledEconomy.UNAVAILABLE_REASON,
-                assertInstanceOf(EconomyResult.Failure.class, economy.withdraw(PLAYER_ID, 1.0)).reason());
+                assertInstanceOf(EconomyResult.Failure.class, economy.has(PLAYER_ID, 1.0).join()).reason());
         assertEquals(
                 DisabledEconomy.UNAVAILABLE_REASON,
-                assertInstanceOf(EconomyResult.Failure.class, economy.deposit(PLAYER_ID, 1.0)).reason());
+                assertInstanceOf(EconomyResult.Failure.class, economy.withdraw(PLAYER_ID, 1.0).join()).reason());
+        assertEquals(
+                DisabledEconomy.UNAVAILABLE_REASON,
+                assertInstanceOf(EconomyResult.Failure.class, economy.deposit(PLAYER_ID, 1.0).join()).reason());
+    }
+
+    @Test
+    void returnsPendingFuturesWithoutWaitingForTheMainThreadExecutor() {
+        var vault = new FakeVaultEconomy();
+        vault.withdrawResponse = response(
+                2.50, 17.50, EconomyResponse.ResponseType.SUCCESS, null);
+        var executor = new DeferredExecutor();
+        var economy = new VaultEconomy(vault, executor, ignored -> OFFLINE_PLAYER);
+
+        var withdrawal = economy.withdraw(PLAYER_ID, 2.50);
+
+        assertFalse(withdrawal.isDone());
+        assertEquals(0, vault.transactionCalls);
+        executor.runNext();
+        assertEquals(17.50,
+                assertInstanceOf(EconomyResult.Success.class, withdrawal.join()).balance());
+        assertEquals(1, vault.transactionCalls);
+    }
+
+    private static void assertFutureFailsWithIllegalArgument(Runnable operation) {
+        var failure = assertThrows(CompletionException.class, operation::run);
+        assertInstanceOf(IllegalArgumentException.class, failure.getCause());
     }
 
     private static EconomyResponse response(
@@ -154,10 +181,23 @@ class VaultEconomyTest {
         }
     }
 
+    private static final class DeferredExecutor implements Executor {
+        private final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.addLast(command);
+        }
+
+        private void runNext() {
+            tasks.removeFirst().run();
+        }
+    }
+
     @SuppressWarnings("deprecation")
     private static final class FakeVaultEconomy extends AbstractEconomy {
         private int fractionalDigits = 2;
-        private boolean hasResult;
+        private double balance;
         private EconomyResponse withdrawResponse;
         private EconomyResponse depositResponse;
         private OfflinePlayer lastPlayer;
@@ -305,9 +345,10 @@ class VaultEconomyTest {
         }
 
         @Override
-        public boolean has(OfflinePlayer player, double amount) {
-            recordCall(player, amount);
-            return hasResult;
+        public double getBalance(OfflinePlayer player) {
+            transactionCalls++;
+            lastPlayer = player;
+            return balance;
         }
 
         @Override
