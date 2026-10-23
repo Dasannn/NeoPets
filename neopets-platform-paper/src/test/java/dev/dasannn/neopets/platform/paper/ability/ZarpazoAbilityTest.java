@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
@@ -19,6 +20,35 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.junit.jupiter.api.Test;
 
 class ZarpazoAbilityTest {
+    @Test
+    void disablingOnReloadStopsDamageAndFeedbackWithoutResummoning() {
+        var world = world();
+        var damageCounts = new int[1];
+        var target = hostile(world, new Location(world, 3, 0, 0), damageCounts, new Entity[1], 0);
+        var pet = pet(world, List.of(target));
+        var owner = owner(UUID.randomUUID());
+        var enabled = new AtomicBoolean(true);
+        var feedback = new int[1];
+        var ability = new ZarpazoAbility(
+                () -> new ZarpazoAbility.Settings(enabled.get(), Duration.ofSeconds(10), 6, 4),
+                (ignoredPet, ignoredLocation) -> feedback[0]++);
+        var petId = new PetId(UUID.randomUUID());
+        var cooldowns = new CooldownTracker();
+        ability.onActivate(pet, owner, 1);
+        ability.tick(new AbilityContext(petId, pet, owner, 1, Instant.EPOCH, cooldowns, 0, ability.id()));
+
+        enabled.set(false);
+        ability.tick(new AbilityContext(
+                petId, pet, owner, 1, Instant.EPOCH.plusSeconds(10), cooldowns, 0, ability.id()));
+        assertEquals(1, damageCounts[0]);
+        assertEquals(1, feedback[0]);
+
+        enabled.set(true);
+        ability.tick(new AbilityContext(
+                petId, pet, owner, 1, Instant.EPOCH.plusSeconds(10), cooldowns, 0, ability.id()));
+        assertEquals(2, damageCounts[0]);
+    }
+
     @Test
     void damagesOnlyTargetsInsideSphericalRadiusAndAttributesDamageToPet() {
         var world = world();

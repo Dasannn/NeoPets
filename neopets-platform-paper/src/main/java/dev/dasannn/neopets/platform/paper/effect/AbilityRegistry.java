@@ -2,6 +2,7 @@ package dev.dasannn.neopets.platform.paper.effect;
 
 import dev.dasannn.neopets.core.model.PetId;
 import java.util.Map;
+import java.util.Set;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
@@ -25,6 +26,14 @@ public interface AbilityRegistry {
             int activeLevel,
             Map<String, String> parameters
     );
+
+    /** Deactivates existing abilities absent from the complete current active definition. */
+    default void retain(PetId petId, Set<String> activeIds) {
+    }
+
+    /** Performs shared maintenance even when no pets are live. */
+    default void maintain() {
+    }
 
     /** Ticks every active ability attached to this live pet from the shared pet ticker. */
     default void tick(PetId petId, LivingEntity entity, Player owner) {

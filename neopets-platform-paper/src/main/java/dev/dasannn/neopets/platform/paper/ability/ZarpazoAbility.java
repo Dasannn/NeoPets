@@ -45,7 +45,7 @@ public final class ZarpazoAbility implements Ability {
     @Override
     public void tick(AbilityContext context) {
         Settings configured = Objects.requireNonNull(settings.get(), "zarpazo settings");
-        if (!context.claimCooldown(configured.cooldown())) {
+        if (!configured.enabled() || !context.claimCooldown(configured.cooldown())) {
             return;
         }
         Location origin = context.pet().getLocation();
@@ -73,7 +73,12 @@ public final class ZarpazoAbility implements Ability {
     }
 
     /** Validated runtime settings for Zarpazo. */
-    public record Settings(Duration cooldown, double radius, double damage) {
+    public record Settings(boolean enabled, Duration cooldown, double radius, double damage) {
+        /** Creates enabled settings. */
+        public Settings(Duration cooldown, double radius, double damage) {
+            this(true, cooldown, radius, damage);
+        }
+
         public Settings {
             Objects.requireNonNull(cooldown, "cooldown");
             if (cooldown.isZero() || cooldown.isNegative()) {

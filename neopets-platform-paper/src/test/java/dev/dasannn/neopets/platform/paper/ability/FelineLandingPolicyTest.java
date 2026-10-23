@@ -4,9 +4,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class FelineLandingPolicyTest {
+    @Test
+    void reloadingToggleChangesProtectionWithoutResummoning() {
+        var enabled = new AtomicBoolean(true);
+        var policy = new FelineLandingPolicy(enabled::get);
+        UUID owner = UUID.randomUUID();
+        policy.activate(owner, UUID.randomUUID());
+        assertTrue(policy.preventsFallDamage(owner));
+        enabled.set(false);
+        assertFalse(policy.preventsFallDamage(owner));
+        enabled.set(true);
+        assertTrue(policy.preventsFallDamage(owner));
+    }
+
     @Test
     void inactiveOwnerIsNotProtected() {
         assertFalse(new FelineLandingPolicy().preventsFallDamage(UUID.randomUUID()));

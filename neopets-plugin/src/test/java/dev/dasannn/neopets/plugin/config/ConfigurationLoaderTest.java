@@ -22,6 +22,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,6 +54,58 @@ class ConfigurationLoaderTest {
         assertTrue(upgraded.language().find("gui.admin.features.vigia-radius.description").isPresent());
         assertTrue(upgraded.language().find("gui.admin.header-name").isPresent());
         assertTrue(upgraded.language().find("admin.edit-invalid").isPresent());
+    }
+
+    @Test
+    void versionElevenInstallBackfillsFlagsWithoutOverwritingFalse() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        var file = temporaryDirectory.resolve("config.yml");
+        var yaml = YamlConfiguration.loadConfiguration(file.toFile());
+        yaml.set("config-version", 11);
+        for (String ability : List.of("zarpazo", "buscatesoros", "aterrizaje-felino")) {
+            yaml.set("abilities." + ability + ".enabled", null);
+        }
+        yaml.set("abilities.vigia.enabled", false);
+        yaml.save(file.toFile());
+
+        var migrated = loader.load().settings();
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, migrated.configVersion());
+        assertTrue(migrated.abilities().zarpazo().enabled());
+        assertFalse(migrated.abilities().vigia().enabled());
+        assertTrue(migrated.abilities().buscatesoros().enabled());
+        assertTrue(migrated.abilities().felineLandingEnabled());
+    }
+
+    @Test
+    void allAbilityFlagsDefaultTrueAndReloadFalse() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        var defaults = loader.load().settings().abilities();
+        assertTrue(defaults.zarpazo().enabled());
+        assertTrue(defaults.vigia().enabled());
+        assertTrue(defaults.buscatesoros().enabled());
+        assertTrue(defaults.felineLandingEnabled());
+        for (String ability : List.of("zarpazo", "vigia", "buscatesoros", "aterrizaje-felino")) {
+            replace("config.yml", "  " + ability + ":\n    enabled: true", "  " + ability + ":\n    enabled: false");
+        }
+        var disabled = loader.load().settings().abilities();
+        assertFalse(disabled.zarpazo().enabled());
+        assertFalse(disabled.vigia().enabled());
+        assertFalse(disabled.buscatesoros().enabled());
+        assertFalse(disabled.felineLandingEnabled());
+    }
+
+    @Test
+    void abilityFlagsRejectNonBooleanValues() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        for (String ability : List.of("zarpazo", "vigia", "buscatesoros", "aterrizaje-felino")) {
+            replace("config.yml", "  " + ability + ":\n    enabled: true", "  " + ability + ":\n    enabled: invalid");
+        }
+        var failure = assertThrows(ConfigurationLoadException.class, loader::load);
+        for (String ability : List.of("zarpazo", "vigia", "buscatesoros", "aterrizaje-felino")) {
+            assertIssue(failure, "config.yml", "abilities." + ability + ".enabled");
+        }
     }
 
     @Test
