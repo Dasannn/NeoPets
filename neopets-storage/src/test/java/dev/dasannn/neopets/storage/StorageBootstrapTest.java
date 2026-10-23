@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -90,8 +91,12 @@ final class StorageBootstrapTest {
                 !((HikariDataSource) bootstrap.dataSource()).isClosed()));
 
         var closing = CompletableFuture.runAsync(bootstrap::close);
-        assertFalse(closing.isDone());
-        release.countDown();
+        try {
+            assertTrue(awaitShutdown(bootstrap.executor(), Duration.ofSeconds(5)));
+            assertFalse(closing.isDone());
+        } finally {
+            release.countDown();
+        }
 
         closing.get(5, TimeUnit.SECONDS);
         queued.get(5, TimeUnit.SECONDS);
@@ -106,6 +111,14 @@ final class StorageBootstrapTest {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static boolean awaitShutdown(ExecutorService executor, Duration timeout) throws InterruptedException {
+        var deadline = System.nanoTime() + timeout.toNanos();
+        while (!executor.isShutdown() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        return executor.isShutdown();
     }
 
     private StorageSettings sqliteSettings() {
