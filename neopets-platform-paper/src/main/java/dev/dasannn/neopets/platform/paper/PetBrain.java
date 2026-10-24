@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Set;
 import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Sittable;
@@ -70,7 +71,7 @@ public final class PetBrain {
         var distanceSquared = sameWorld
                 ? pet.getLocation().distanceSquared(owner.getLocation())
                 : 0.0;
-        switch (followPolicy.choose(sameWorld, distanceSquared)) {
+        switch (followPolicy.choose(sameWorld, distanceSquared, ownerGrounded(owner))) {
             case IDLE -> pet.getPathfinder().stopPathfinding();
             case PATHFIND -> pet.getPathfinder().moveTo(owner, pathfindingSpeed);
             case TELEPORT -> {
@@ -82,5 +83,17 @@ public final class PetBrain {
                 }
             }
         }
+    }
+
+    /** True when teleporting to the owner cannot leave the pet in mid-air. */
+    static boolean ownerGrounded(Player owner) {
+        if (owner.isGliding() || owner.isFlying()) {
+            return false;
+        }
+        Entity support = owner;
+        while (support.getVehicle() != null) {
+            support = support.getVehicle();
+        }
+        return support.isOnGround() || support.isInWater() || owner.isInWater() || owner.isClimbing();
     }
 }

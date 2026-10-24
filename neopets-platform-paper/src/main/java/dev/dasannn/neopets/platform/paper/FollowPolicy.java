@@ -21,16 +21,20 @@ public final class FollowPolicy {
         this.teleportDistanceSquared = teleportDistance * teleportDistance;
     }
 
-    /** Selects the movement action without accessing Bukkit state. */
-    public FollowAction choose(boolean sameWorld, double distanceSquared) {
+    /**
+     * Selects the movement action without accessing Bukkit state. While the owner is airborne
+     * (gliding, flying or falling) the pet never teleports, so it cannot inherit a lethal fall;
+     * it keeps walking toward the owner and teleports once the owner has landed.
+     */
+    public FollowAction choose(boolean sameWorld, double distanceSquared, boolean ownerGrounded) {
         if (!sameWorld) {
-            return FollowAction.TELEPORT;
+            return ownerGrounded ? FollowAction.TELEPORT : FollowAction.IDLE;
         }
         if (!Double.isFinite(distanceSquared) || distanceSquared < 0.0) {
             throw new IllegalArgumentException("distanceSquared must be finite and not negative");
         }
         if (distanceSquared > teleportDistanceSquared) {
-            return FollowAction.TELEPORT;
+            return ownerGrounded ? FollowAction.TELEPORT : FollowAction.PATHFIND;
         }
         if (distanceSquared > followDistanceSquared) {
             return FollowAction.PATHFIND;

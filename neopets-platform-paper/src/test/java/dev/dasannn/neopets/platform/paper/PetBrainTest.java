@@ -55,6 +55,36 @@ class PetBrainTest {
     }
 
     @Test
+    void glidingOrFallingOwnerIsFollowedOnFootAndReachedByTeleportAfterLanding() {
+        var world = world("home");
+        var state = new PetState(world, new Location(world, 0.0, 0.0, 0.0), true, false, mobGoals(List.of(), new ArrayList<>()));
+        var pet = state.pet(false);
+        var brain = new PetBrain(4.0, 16.0, 1.0);
+        var far = new Location(world, 40.0, 80.0, 0.0);
+
+        brain.tick(pet, owner(world, far, true, false));
+        brain.tick(pet, owner(world, far, false, false));
+        assertFalse(state.teleportAttempted);
+        assertTrue(state.pathfindingStarted);
+
+        brain.tick(pet, owner(world, far, false, true));
+        assertTrue(state.teleportAttempted);
+    }
+
+    @Test
+    void ownerAirborneInAnotherWorldIsNotFollowedUntilLanding() {
+        var world = world("home");
+        var other = world("other");
+        var state = new PetState(world, new Location(world, 0.0, 0.0, 0.0), true, false, mobGoals(List.of(), new ArrayList<>()));
+        var pet = state.pet(false);
+
+        new PetBrain(4.0, 16.0, 1.0).tick(pet, owner(other, new Location(other, 0.0, 90.0, 0.0), true, false));
+
+        assertFalse(state.teleportAttempted);
+        assertTrue(state.pathfindingStopped);
+    }
+
+    @Test
     void successfulCrossWorldTeleportReappliesGoalSuppressionToDestinationMob() {
         var sourceWorld = world("source");
         var destinationWorld = world("destination");
@@ -165,12 +195,20 @@ class PetBrainTest {
     }
 
     private static Player owner(World world, Location location) {
+        return owner(world, location, false, true);
+    }
+
+    private static Player owner(World world, Location location, boolean gliding, boolean onGround) {
         return (Player) Proxy.newProxyInstance(
                 PetBrainTest.class.getClassLoader(),
                 new Class<?>[] {Player.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getWorld" -> world;
                     case "getLocation" -> location;
+                    case "isGliding" -> gliding;
+                    case "isOnGround" -> onGround;
+                    case "isFlying", "isInWater", "isClimbing" -> false;
+                    case "getVehicle" -> null;
                     case "equals" -> proxy == arguments[0];
                     case "toString" -> "test owner";
                     default -> throw new AssertionError("Unexpected owner call: " + method);
