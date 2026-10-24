@@ -31,7 +31,14 @@ jobs:
               output.write('RELEASE_VERSION=' + tag[1:] + '\n')
           PY
       - name: Build release
-        run: ./gradlew build -Pversion="$RELEASE_VERSION"
+        run: |
+          python3 -m unittest discover -s .github/scripts
+          ./gradlew build -Pversion="$RELEASE_VERSION"
+      # Deliberately outside Gradle: no secret in its daemon, inputs or caches.
+      - name: Bundle optional updater token
+        env:
+          NEOPETS_UPDATER_TOKEN: ${{ secrets.NEOPETS_UPDATER_TOKEN }}
+        run: python3 .github/scripts/bundle-updater-token.py "neopets-plugin/build/libs/NeoPets-$RELEASE_VERSION.jar"
       - name: Sign release
         env:
           SIGNING_KEY: ${{ secrets.NEOPETS_UPDATE_SIGNING_KEY }}

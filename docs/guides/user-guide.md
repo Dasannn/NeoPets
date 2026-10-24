@@ -509,5 +509,8 @@ no presupone que las pruebas en vivo ya se hayan ejecutado.
 `/neopets update check` consulta la versión instalada y la última release.
 `/neopets update` prepara una actualización firmada para el próximo reinicio.
 Ambos requieren `neopets.admin.update` (o consola). Consultar
-[actualizaciones firmadas](updates.md) para configurar clave pública, token,
-`updater.enabled`, repositorio y prereleases, y publicar una release.
+[actualizaciones firmadas](updates.md) para configurar clave pública,
+`updater.enabled`, repositorio y prereleases, y publicar una release. Las releases
+oficiales con token de lectura incluido no requieren editar `config.yml` para
+autenticarse. Instalar la primera manualmente; los JAR de desarrollo/CI no llevan
+token. Las credenciales propias por entorno o config conservan prioridad.

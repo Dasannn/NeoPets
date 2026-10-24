@@ -132,6 +132,9 @@ final class PaperPluginDescriptorTest {
         try (var jar = new JarFile(jarPath.toFile())) {
             var entries = jar.stream().map(entry -> entry.getName()).collect(Collectors.toSet());
 
+            // Release injection runs after Gradle; every Gradle build must remain credential-free.
+            assertFalse(entries.contains("neopets-updater-token.txt"));
+
             assertAll(
                     () -> assertJarEntries(entries,
                             "paper-plugin.yml",
