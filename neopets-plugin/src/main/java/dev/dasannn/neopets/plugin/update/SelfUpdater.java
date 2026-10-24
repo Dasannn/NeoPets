@@ -72,6 +72,8 @@ public final class SelfUpdater {
             }
             var failure = UpdateVerifier.verify(assets[0], assets[1], assets[2], key);
             if (failure != null) return failure;
+            failure = UpdateVerifier.verifyVersion(assets[0], tag, current);
+            if (failure != null) return failure;
             stage(assets[0], updateDirectory, jarName);
             return new UpdateResult.Staged(tag);
         } catch (GitHubTransport.HttpFailure failure) {

@@ -59,6 +59,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           args=()
-          if [[ "$RELEASE_VERSION" == *-* ]]; then args+=(--prerelease); fi
+          if [[ "${RELEASE_VERSION%%+*}" == *-* ]]; then args+=(--prerelease); fi
           jar="neopets-plugin/build/libs/NeoPets-$RELEASE_VERSION.jar"
           gh release create "$RELEASE_TAG" "$jar" "$jar.sha256" "$jar.sig" --verify-tag --generate-notes "${args[@]}"

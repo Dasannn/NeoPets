@@ -3,6 +3,7 @@ package dev.dasannn.neopets.plugin.update;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.dasannn.neopets.plugin.config.UpdaterSettings;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +14,8 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -82,7 +85,7 @@ class SelfUpdaterTest {
     }
 
     @Test void verifiedDownloadStagesOnlyAfterBothChecks() throws Exception {
-        byte[] jar = "new plugin".getBytes(StandardCharsets.UTF_8);
+        byte[] jar = pluginJar("version: '2.0.0'\n");
         var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         var signer = Signature.getInstance("Ed25519");
         signer.initSign(keys.getPrivate()); signer.update(jar);
@@ -105,6 +108,50 @@ class SelfUpdaterTest {
         assertEquals(UpdateResult.Failure.MISSING_ASSET, missing.run(settings, null, "1.0.0", false,
                 () -> pem, directory, "current.jar"));
         assertArrayEquals(jar, Files.readAllBytes(directory.resolve("current.jar")));
+    }
+
+    @Test void signedJarMustDeclareTheReleaseVersionBeforeReplacingAnExistingUpdate() throws Exception {
+        byte[] previous = "previous staged update".getBytes(StandardCharsets.UTF_8);
+        Path staged = directory.resolve("current.jar");
+        Files.write(staged, previous);
+        var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        byte[] pem = ("-----BEGIN PUBLIC KEY-----\n" + Base64.getEncoder().encodeToString(keys.getPublic().getEncoded())
+                + "\n-----END PUBLIC KEY-----").getBytes(StandardCharsets.US_ASCII);
+        // All artifacts are correctly signed and advertised as v2.0.0, including an older and same-version JAR.
+        for (byte[] jar : java.util.List.of(pluginJar("version: '0.9.0'\n"), pluginJar("version: '1.0.0'\n"),
+                pluginJar("version: '1.5.0'\n"), pluginJar("version: '2.0.0-rc.1'\n"),
+                pluginJar("version: '2.0.0+other'\n"), pluginJar("name: NeoPets\n"),
+                pluginJar("version: []\n"), pluginJar("version: [\n"),
+                new byte[0], pluginJar(null))) {
+            var signer = Signature.getInstance("Ed25519");
+            signer.initSign(keys.getPrivate());
+            signer.update(jar);
+            byte[] signature = signer.sign();
+            var updater = new SelfUpdater((uri, token, accept) -> {
+                if (uri.getPath().endsWith("latest")) return release("v2.0.0",
+                        "[{\"name\":\"NeoPets-2.0.0.jar\",\"id\":1},{\"name\":\"NeoPets-2.0.0.jar.sha256\",\"id\":2},"
+                        + "{\"name\":\"NeoPets-2.0.0.jar.sig\",\"id\":3}]");
+                return switch (uri.getPath().charAt(uri.getPath().length()-1)) {
+                    case '1' -> jar; case '2' -> checksum(jar); default -> signature;
+                };
+            });
+            assertEquals(UpdateResult.Failure.VERSION_MISMATCH, updater.run(settings, null, "1.0.0", false,
+                    () -> pem, directory, "current.jar"));
+            assertArrayEquals(previous, Files.readAllBytes(staged));
+        }
+        try (var files = Files.list(directory)) {
+            assertEquals(java.util.List.of(staged), files.toList());
+        }
+    }
+
+    @Test void artifactVersionMustBeNewerEvenWhenItMatchesTheRelease() throws Exception {
+        byte[] jar = pluginJar("version: '2.0.0'\n");
+        for (String installed : java.util.List.of("2.0.0", "3.0.0")) {
+            assertEquals(UpdateResult.Failure.NO_NEWER_VERSION,
+                    UpdateVerifier.verifyVersion(jar, "v2.0.0", SemanticVersion.parse(installed)));
+        }
+        assertNull(UpdateVerifier.verifyVersion(pluginJar("version: '2.0.0-rc.1+build-1'\n"),
+                "v2.0.0-rc.1+build-1", SemanticVersion.parse("2.0.0-rc.0")));
     }
 
     @Test void guardCoversQueuedWorkAndReleasesAfterFailure() {
@@ -152,6 +199,18 @@ class SelfUpdaterTest {
                 () -> null, directory, "current.jar"));
         assertEquals("v2.0.0-rc.1", checked.latest());
         assertTrue(checked.newer());
+    }
+
+    private static byte[] pluginJar(String descriptor) throws Exception {
+        var bytes = new ByteArrayOutputStream();
+        try (var jar = new JarOutputStream(bytes)) {
+            if (descriptor != null) {
+                jar.putNextEntry(new JarEntry("paper-plugin.yml"));
+                jar.write(descriptor.getBytes(StandardCharsets.UTF_8));
+                jar.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 
     private static byte[] checksum(byte[] jar) throws Exception {
