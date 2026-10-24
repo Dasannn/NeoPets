@@ -52,7 +52,12 @@ jobs:
           umask 077
           key_file=$(mktemp "$RUNNER_TEMP/neopets-signing.XXXXXX")
           trap 'rm -f "$key_file"' EXIT
-          printf '%s\n' "$SIGNING_KEY" > "$key_file"
+          if [[ "$SIGNING_KEY" == *"-----BEGIN"* ]]; then
+            printf '%s\n' "$SIGNING_KEY" > "$key_file"
+          else
+            # Accept a bare base64 PKCS#8 body pasted without its PEM header lines.
+            printf -- '-----BEGIN PRIVATE KEY-----\n%s\n-----END PRIVATE KEY-----\n' "${SIGNING_KEY//[$' \t\r\n']/}" > "$key_file"
+          fi
           unset SIGNING_KEY
           cd neopets-plugin/build/libs
           jar="NeoPets-$RELEASE_VERSION.jar"
