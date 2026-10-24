@@ -9,7 +9,7 @@ public sealed interface UpdateResult {
     /** Expected errors never retain server bodies, exception messages or tokens. */
     enum Failure implements UpdateResult {
         DISABLED, NO_TOKEN, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, RATE_LIMITED,
-        NO_NEWER_VERSION, MISSING_ASSET, CHECKSUM_MISMATCH, BAD_SIGNATURE,
+        NO_NEWER_VERSION, MISSING_ASSET, CHECKSUM_MISMATCH, BAD_SIGNATURE, VERSION_MISMATCH,
         PLACEHOLDER_KEY, IO_ERROR, BUSY;
 
         public String key() { return name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'); }

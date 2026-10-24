@@ -29,6 +29,7 @@ class UpdaterConfigurationTest {
         assertTrue(upgraded.updater().enabled());
         assertEquals("Personalizado", upgraded.language().find("updater.busy").orElseThrow());
         assertTrue(upgraded.language().find("updater.bad-signature").isPresent());
+        assertTrue(upgraded.language().find("updater.version-mismatch").isPresent());
     }
 
     @Test void validationRejectsInvalidTypesAndPathsWithoutPrintingCredentials() throws Exception {

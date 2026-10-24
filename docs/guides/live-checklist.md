@@ -137,7 +137,7 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   oso Nadador polar/TURTLE_HELMET (respiración acuática); burro Pisada firme/
   SOUL_SAND (sin ralentización por arena de almas, miel o nieve en polvo).
   Cada nodo cuesta 1500 y 1 SP. Activar y desactivar para comprobar el efecto.
-- [ ] **[Consola + jugador]** Actualizar una instalación v16 con progreso activo
+- [ ] **[Consola + jugador]** Actualizar una instalación antigua (anterior a v17) a v18 con progreso activo
   y desbloqueado en `fire_resistance`: perro/gato/oso/burro conservan niveles y SP
   bajo el nuevo ID, incluso tras reiniciar. El loro conserva su ID. Repetir con
   un árbol personalizado que retenga el ID antiguo: no debe remapearse.
@@ -372,7 +372,7 @@ pila y su total entre inventarios y alforjas.
   archivo/ruta y configuración anterior todavía funcionando. Restaurar YAML
   válido y recargar: éxito. Probar también `config-version: 19`: se rechaza.
 - [ ] **[1 jugador + consola]** En copia de datos antigua de versión conocida
-  (1–16), conservar valores personalizados y arrancar/recargar: avanza a 17,
+  (1–17), conservar valores personalizados y arrancar/recargar: avanza a 18,
   añade claves/mensajes faltantes y preserva los personalizados. Desde v15 añade
   `give.all-owned-command: ""` y mensajes de reset; conserva un comando personalizado
   si ya existía. Un valor booleano/lista en esa clave se rechaza al recargar. Para origen
@@ -443,7 +443,7 @@ pila y su total entre inventarios y alforjas.
   Con nodo global: todos los hijos permitidos. `/pets` conserva `neopets.use` por defecto.
 - [ ] Consola local y RCON sin nodos: acceso admin; LDPotions puede ejecutar
   `neopets revive Ana` desde consola con alma válida en la mano principal.
-- [ ] Migrar v16 a v17: conserva ajustes, añade updater y mensajes. Rechazar
+- [ ] Migrar v17 a v18: conserva ajustes, añade updater y mensajes. Rechazar
   booleanos incorrectos, repositorio con URL/ruta inyectada y token no textual;
   ningún diagnóstico muestra el token. La variable de entorno tiene prioridad.
 - [ ] `/neopets update check`: muestra instalada/última, título y primera línea;
@@ -455,5 +455,8 @@ pila y su total entre inventarios y alforjas.
 - [ ] Assets ausentes, SHA incorrecto, firma inválida/JAR alterado, versión igual
   o inferior: no crean ni reemplazan el JAR preparado. Dos llamadas simultáneas:
   segunda rechazada. Descarga lenta no bloquea ticks; respuestas llegan en hilo principal.
+- [ ] JAR antiguo firmado con clave correcta y renombrado como una release nueva:
+  se rechaza por versión distinta en `paper-plugin.yml` y conserva el JAR preparado.
+  Repetir sin descriptor o con versión ausente/inválida.
 - [ ] Workflow sin secret: falla; con claves correctas y tag v*: tres assets,
   versión de JAR/metadatos correcta y ninguna clave privada en logs/repositorio.
