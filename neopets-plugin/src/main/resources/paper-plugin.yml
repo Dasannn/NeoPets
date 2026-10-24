@@ -16,11 +16,29 @@ dependencies:
       load: BEFORE
       required: false
 permissions:
+  neopets.use:
+    default: true
   neopets.admin:
-    description: Administración de NeoPets
-    default: op
+    default: false
     children:
+      neopets.admin.give: true
+      neopets.admin.sp: true
+      neopets.admin.revive: true
       neopets.admin.reset: true
+      neopets.admin.gui: true
+      neopets.admin.reload: true
+      neopets.admin.update: true
+  neopets.admin.give:
+    default: false
+  neopets.admin.sp:
+    default: false
+  neopets.admin.revive:
+    default: false
   neopets.admin.reset:
-    description: Reiniciar gratuitamente el árbol de una mascota
-    default: op
+    default: false
+  neopets.admin.gui:
+    default: false
+  neopets.admin.reload:
+    default: false
+  neopets.admin.update:
+    default: false

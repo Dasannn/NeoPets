@@ -8,6 +8,8 @@ import dev.dasannn.neopets.core.skilltree.SkillPointResult;
 import dev.dasannn.neopets.plugin.NeoPetsPlugin;
 import dev.dasannn.neopets.plugin.config.ConfigurationLoadException;
 import dev.dasannn.neopets.plugin.runtime.NeoPetsRuntime;
+import dev.dasannn.neopets.plugin.update.SelfUpdater;
+import dev.dasannn.neopets.plugin.update.UpdateResult;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
@@ -38,8 +40,10 @@ public final class NeoPetsCommands {
     private static final String SP = "neopets.admin.sp";
     private static final String ADMIN = "neopets.admin.gui";
     private static final String REVIVE = "neopets.admin.revive";
+    private static final String UPDATE = "neopets.admin.update";
     private static final String RELOAD = "neopets.admin.reload";
 
+    private final SelfUpdater updater = new SelfUpdater();
     private final NeoPetsPlugin plugin;
     private final Supplier<NeoPetsRuntime> runtime;
 
@@ -59,6 +63,10 @@ public final class NeoPetsCommands {
         public void execute(CommandSourceStack source, String[] args) {
             var rt = runtime.get();
             CommandSender sender = source.getSender();
+            if (args.length > 0 && args[0].equalsIgnoreCase("update")) {
+                update(rt, sender, args);
+                return;
+            }
             if (args.length > 0 && args[0].equalsIgnoreCase("revive")) {
                 revive(rt, sender, args);
                 return;
@@ -79,13 +87,16 @@ public final class NeoPetsCommands {
 
         @Override
         public Collection<String> suggest(CommandSourceStack source, String[] args) {
-            if (args.length == 1 && source.getSender().hasPermission(REVIVE)) {
-                return prefix(List.of("revive"), args[0]);
+            if (args.length == 1) {
+                var choices = new ArrayList<String>();
+                if (CommandPermissions.has(source.getSender(), REVIVE)) choices.add("revive");
+                if (CommandPermissions.has(source.getSender(), UPDATE)) choices.add("update");
+                return prefix(choices, args[0]);
             }
+            if (args.length == 2 && args[0].equalsIgnoreCase("update")
+                    && CommandPermissions.has(source.getSender(), UPDATE)) return prefix(List.of("check"), args[1]);
             if (args.length == 2 && args[0].equalsIgnoreCase("revive")
-                    && source.getSender().hasPermission(REVIVE)) {
-                return onlinePlayerNames(args[1]);
-            }
+                    && CommandPermissions.has(source.getSender(), REVIVE)) return onlinePlayerNames(args[1]);
             return List.of();
         }
     }
@@ -115,26 +126,26 @@ public final class NeoPetsCommands {
         public Collection<String> suggest(CommandSourceStack source, String[] args) {
             if (args.length == 1) {
                 var choices = new ArrayList<String>();
-                if (source.getSender().hasPermission(USE)) {
+                if (CommandPermissions.has(source.getSender(), USE)) {
                     choices.addAll(List.of("summon", "dismiss", "courier"));
                 }
-                if (source.getSender().hasPermission(GIVE)) {
+                if (CommandPermissions.has(source.getSender(), GIVE)) {
                     choices.add("give");
                 }
-                if (source.getSender().hasPermission(RESET)) choices.add("reset");
-                if (source.getSender().hasPermission(SP)) {
+                if (CommandPermissions.has(source.getSender(), RESET)) choices.add("reset");
+                if (CommandPermissions.has(source.getSender(), SP)) {
                     choices.add("sp");
                 }
-                if (source.getSender().hasPermission(ADMIN)) {
+                if (CommandPermissions.has(source.getSender(), ADMIN)) {
                     choices.add("admin");
                 }
-                if (source.getSender().hasPermission(RELOAD)) {
+                if (CommandPermissions.has(source.getSender(), RELOAD)) {
                     choices.add("reload");
                 }
                 return prefix(choices, args[0]);
             }
             if (args.length >= 2 && args[0].equalsIgnoreCase("reset")
-                    && source.getSender().hasPermission(RESET)) {
+                    && CommandPermissions.has(source.getSender(), RESET)) {
                 if (args.length == 2) return onlinePlayerNames(args[1]);
                 Player target = plugin.getServer().getPlayerExact(args[1]);
                 if (args.length >= 3 && target != null) {
@@ -143,7 +154,8 @@ public final class NeoPetsCommands {
                 }
                 return List.of();
             }
-            if (args.length >= 2 && args[0].equalsIgnoreCase("give")) {
+            if (args.length >= 2 && args[0].equalsIgnoreCase("give")
+                    && CommandPermissions.has(source.getSender(), GIVE)) {
                 if (args.length == 2) {
                     return onlinePlayerNames(args[1]);
                 }
@@ -163,7 +175,8 @@ public final class NeoPetsCommands {
                     || args[0].equalsIgnoreCase("dismiss")) && source.getSender() instanceof Player player) {
                 return ownedPetSuggestions(player, args[1]);
             }
-            if (args.length >= 2 && args[0].equalsIgnoreCase("sp")) {
+            if (args.length >= 2 && args[0].equalsIgnoreCase("sp")
+                    && CommandPermissions.has(source.getSender(), SP)) {
                 if (args.length == 2) {
                     return prefix(List.of("give", "take", "set"), args[1]);
                 }
@@ -359,6 +372,39 @@ public final class NeoPetsCommands {
                 .execute(sender, target, args[1]);
     }
 
+    private void update(NeoPetsRuntime rt, CommandSender sender, String[] args) {
+        if (!allowed(sender, UPDATE, rt)) return;
+        if (args.length > 2 || (args.length == 2 && !args[1].equalsIgnoreCase("check"))) {
+            rt.messages().send(sender, MessageSpec.of("updater.usage"));
+            return;
+        }
+        var settings = rt.configuration().current().updater();
+        String version = plugin.getPluginMeta().getVersion();
+        var directory = plugin.getServer().getUpdateFolderFile().toPath();
+        String jarName = plugin.currentJarName();
+        var result = updater.submit(rt::submitUpdate, () -> updater.run(settings,
+                System.getenv("NEOPETS_GITHUB_TOKEN"), version, args.length == 2, () -> {
+                    try (var input = plugin.getResource("neopets-update-public-key.pem")) {
+                        return input == null ? null : input.readAllBytes();
+                    } catch (java.io.IOException failure) {
+                        throw new java.io.UncheckedIOException(failure);
+                    }
+                }, directory, jarName));
+        complete(result, sender, outcome -> {
+            switch (outcome) {
+                case UpdateResult.Failure failure ->
+                        rt.messages().send(sender, MessageSpec.of("updater." + failure.key()));
+                case UpdateResult.Checked checked ->
+                        rt.messages().send(sender, new MessageSpec("updater.checked", Map.of(
+                                "installed", checked.installed(), "latest", checked.latest(),
+                                "name", checked.name(), "notes", checked.notes(),
+                                "status", rt.messages().plain(checked.newer() ? "updater.available" : "updater.current"))));
+                case UpdateResult.Staged staged ->
+                        rt.messages().send(sender, new MessageSpec("updater.staged", Map.of("version", staged.version())));
+            }
+        });
+    }
+
     private void reload(NeoPetsRuntime rt, CommandSender sender, String[] args) {
         if (!allowed(sender, RELOAD, rt)) {
             return;
@@ -396,7 +442,7 @@ public final class NeoPetsCommands {
     }
 
     private boolean allowed(CommandSender sender, String permission, NeoPetsRuntime rt) {
-        if (sender.hasPermission(permission)) {
+        if (CommandPermissions.has(sender, permission)) {
             return true;
         }
         rt.messages().send(sender, MessageSpec.of("errors.no-permission"));

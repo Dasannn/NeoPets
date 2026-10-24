@@ -51,7 +51,7 @@ class ConfigurationLoaderTest {
             lang.set("skills.reset-admin", "Mi reset: <points>");
             lang.save(langFile.toFile());
             var upgraded = loader.load();
-            assertEquals(16, upgraded.settings().configVersion());
+            assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
             assertEquals(command, upgraded.settings().giveAllOwnedCommand());
             assertTrue(upgraded.language().find("general.usage-reset").isPresent());
             assertTrue(upgraded.language().find("pets.unknown-pet").isPresent());

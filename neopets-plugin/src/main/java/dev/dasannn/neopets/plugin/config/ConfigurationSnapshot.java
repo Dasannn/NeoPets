@@ -14,9 +14,16 @@ public record ConfigurationSnapshot(
         VariantCatalog variants,
         Map<VariantId, String> variantIcons,
         Map<PetTypeId, SkillTreeDefinition> skillTrees,
-        LanguageCatalog language
+        LanguageCatalog language,
+        UpdaterSettings updater
 ) {
+    public ConfigurationSnapshot(PluginSettings settings, VariantCatalog variants,
+            Map<VariantId, String> icons, Map<PetTypeId, SkillTreeDefinition> trees, LanguageCatalog language) {
+        this(settings, variants, icons, trees, language, new UpdaterSettings(true, "Dasannn/NeoPets", "", false));
+    }
+
     public ConfigurationSnapshot {
+        Objects.requireNonNull(updater, "updater");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(variants, "variants");
         Objects.requireNonNull(variantIcons, "variantIcons");

@@ -96,7 +96,11 @@ public final class AdminConfigurationService implements AutoCloseable {
             throws InvalidConfigurationException {
         var yaml = new YamlConfiguration();
         yaml.options().parseComments(true);
-        yaml.loadFromString(contents);
+        try {
+            yaml.loadFromString(contents);
+        } catch (InvalidConfigurationException invalid) {
+            throw new InvalidConfigurationException("Invalid config.yml [credentials redacted]");
+        }
         return yaml;
     }
 

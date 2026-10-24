@@ -38,12 +38,29 @@ final class PaperPluginDescriptorTest {
                     () -> assertTrue(yaml.contains(
                             "loader: dev.dasannn.neopets.plugin.bootstrap.NeoPetsLoader")),
                     () -> assertTrue(yaml.contains("api-version: '26.3'")),
-                    () -> assertTrue(yaml.contains("    children:\n      neopets.admin.reset: true")),
+                    () -> assertTrue(yaml.contains("      neopets.admin.reset: true")),
                     () -> assertTrue(yaml.contains("  neopets.admin.reset:\n")),
                     () -> assertOptionalDependency(yaml, "Vault"),
                     () -> assertOptionalDependency(yaml, "LuckPerms"),
                     () -> assertOptionalDependency(yaml, "PlaceholderAPI"),
                     () -> assertFalse(yaml.contains("${"), "descriptor contains an unexpanded token"));
+        }
+    }
+
+    @Test
+    void adminPermissionsNeverDefaultToOp() throws Exception {
+        String source;
+        try (var input = requiredResource("/paper-plugin.yml")) {
+            source = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        // Permission names contain dots, so inspect the raw permissions map.
+        var permissions = (Map<?, ?>) new org.yaml.snakeyaml.Yaml().loadAs(
+                source, Map.class).get("permissions");
+        assertEquals(true, ((Map<?, ?>) permissions.get("neopets.use")).get("default"));
+        for (String node : java.util.List.of("neopets.admin", "neopets.admin.give", "neopets.admin.sp",
+                "neopets.admin.revive", "neopets.admin.reset", "neopets.admin.gui", "neopets.admin.reload",
+                "neopets.admin.update")) {
+            assertEquals(false, ((Map<?, ?>) permissions.get(node)).get("default"), node);
         }
     }
 

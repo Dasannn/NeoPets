@@ -56,6 +56,9 @@ public final class NeoPetsPlugin extends JavaPlugin {
         return runtime().configuration();
     }
 
+    /** Returns the loaded plugin filename used by Paper's restart updater. */
+    public String currentJarName() { return getFile().getName(); }
+
     private static String conciseMessage(Throwable failure) {
         String message = failure.getMessage();
         return message == null || message.isBlank() ? failure.getClass().getSimpleName()

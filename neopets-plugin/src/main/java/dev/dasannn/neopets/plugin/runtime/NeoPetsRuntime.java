@@ -92,14 +92,18 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 
 /** Owns the complete manually wired NeoPets runtime. */
 public final class NeoPetsRuntime implements AutoCloseable {
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(15);
 
+    private final ExecutorService updateExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final RuntimeLifecycle lifecycle;
     private final ConfigurationManager configuration;
     private final LocalizedMessages messages;
@@ -134,6 +138,7 @@ public final class NeoPetsRuntime implements AutoCloseable {
             CourierSaddlebags courierSaddlebags
     ) {
         this.lifecycle = lifecycle;
+        lifecycle.started((AutoCloseable) updateExecutor::shutdownNow);
         this.configuration = configuration;
         this.messages = messages;
         this.petService = petService;
@@ -399,9 +404,14 @@ public final class NeoPetsRuntime implements AutoCloseable {
 
     /** Starts work only while the runtime is accepting operations and tracks it through completion. */
     public <T> CompletableFuture<T> submit(
-            java.util.function.Supplier<? extends CompletableFuture<T>> operation
+            Supplier<? extends CompletableFuture<T>> operation
     ) {
         return work.submit(operation);
+    }
+
+    /** Runs blocking update IO on owned worker threads and tracks it through shutdown. */
+    public <T> CompletableFuture<T> submitUpdate(Supplier<T> operation) {
+        return work.submit(() -> CompletableFuture.supplyAsync(operation, updateExecutor));
     }
 
     /** Returns the cached pets for an online player without falling through to persistence. */
