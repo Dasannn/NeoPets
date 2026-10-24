@@ -435,7 +435,7 @@ integraciones, el cerebro de seguimiento ni el temporizador Bukkit de permisos;
 reinicia para cambiar esos elementos. Para comprobar nuevos aspectos o valores
 de árboles ya invocados, guarda y vuelve a invocar la mascota.
 
-La versión actual es 17. Las migraciones añaden claves y mensajes nuevos sin
+La versión actual es 18. Las migraciones añaden claves y mensajes nuevos sin
 sobrescribir los personalizados; las antiguas apariencias de gatos/loros y los
 valores de árboles predeterminados anteriores a v5 tienen migración específica.
 En v17 se reemplaza el antiguo nodo `fire_resistance` sin modificar en perro,
