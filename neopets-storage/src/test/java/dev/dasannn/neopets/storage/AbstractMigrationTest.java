@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 abstract class AbstractMigrationTest {
     private static final Map<String, Set<String>> EXPECTED_COLUMNS = Map.of(
+            "np_tree_attribute_remap", Set.of("pet_type", "old_attribute_id", "new_attribute_id"),
             "np_player", Set.of("uuid", "sp_balance"),
             "np_pet", Set.of("id", "owner", "variant_id", "name", "status", "active", "created_at"),
             "np_pet_attribute", Set.of("pet_id", "attribute_id", "unlocked_level", "active_level"),
@@ -50,6 +51,9 @@ abstract class AbstractMigrationTest {
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_saddlebag"));
             assertEquals(Set.of(), nullableColumns(metadata, "np_pet_death_work"));
 
+            assertEquals(Set.of("pet_type", "old_attribute_id"), primaryKey(metadata, "np_tree_attribute_remap"));
+            assertEquals(4, countWhere(connection, "np_tree_attribute_remap", "old_attribute_id = 'fire_resistance'"));
+            assertEquals(Set.of(), nullableColumns(metadata, "np_tree_attribute_remap"));
             assertEquals(Set.of("uuid"), primaryKey(metadata, "np_player"));
             assertEquals(Set.of("id"), primaryKey(metadata, "np_pet"));
             assertEquals(Set.of("pet_id", "attribute_id"), primaryKey(metadata, "np_pet_attribute"));
@@ -68,6 +72,7 @@ abstract class AbstractMigrationTest {
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '4' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '5' AND success = 1"));
         }
     }
 
@@ -147,6 +152,7 @@ abstract class AbstractMigrationTest {
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '2' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '3' AND success = 1"));
             assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '4' AND success = 1"));
+            assertEquals(1, countWhere(connection, "np_flyway_schema_history", "version = '5' AND success = 1"));
         }
     }
 

@@ -11,6 +11,58 @@ import org.junit.jupiter.api.Test;
 
 class ConfigurationMigratorTest {
     @Test
+    void replacesOnlyUntouchedLegacyCommonNodesAtVersionSeventeen() throws Exception {
+        var migrator = new ConfigurationMigrator();
+        var replacements = java.util.Map.of("dog", "tough_hide", "cat", "padded_paws",
+                "polar_bear", "polar_swimmer", "donkey", "sure_footing");
+        String original = """
+                attributes:
+                  health:
+                    effect: max_health
+                  fire_resistance:
+                    category: vanilla
+                    max-level: 1
+                    effect: fire_resistance
+                    values: [1.0]
+                    money-costs: [1500.0]
+                    skill-point-cost: 1
+                  speed:
+                    effect: movement_speed
+                """;
+        for (var entry : replacements.entrySet()) {
+            var yaml = new YamlConfiguration();
+            yaml.loadFromString(original);
+            assertTrue(migrator.migrateSkillTree(yaml, entry.getKey(), 16));
+            assertEquals(List.of("health", entry.getValue(), "speed"),
+                    List.copyOf(yaml.getConfigurationSection("attributes").getKeys(false)));
+            assertEquals(1500.0, yaml.getList("attributes." + entry.getValue() + ".money-costs").getFirst());
+            assertFalse(migrator.migrateSkillTree(yaml, entry.getKey(), 16));
+            for (String change : List.of("values: [0.5]", "money-costs: [2000]", "skill-point-cost: 2",
+                    "effect: water_breathing", "max-level: 2", "max-level: 1.5",
+                    "skill-point-cost: 1.5", "category: custom")) {
+                var custom = new YamlConfiguration();
+                custom.loadFromString(original);
+                String[] pair = change.split(": ", 2);
+                var changed = new YamlConfiguration();
+                changed.loadFromString(change);
+                custom.set("attributes.fire_resistance." + pair[0], changed.get(pair[0]));
+                String before = custom.saveToString();
+                assertFalse(migrator.migrateSkillTree(custom, entry.getKey(), 16));
+                assertEquals(before, custom.saveToString());
+            }
+            yaml.loadFromString(original);
+            yaml.set("attributes.speed", "invalid");
+            assertTrue(migrator.migrateSkillTree(yaml, entry.getKey(), 16));
+            assertEquals("invalid", yaml.get("attributes.speed"));
+            yaml.loadFromString(original);
+            assertFalse(migrator.migrateSkillTree(yaml, entry.getKey(), 17));
+            assertFalse(migrator.migrateSkillTree(yaml, "parrot", 16));
+            yaml.set("attributes." + entry.getValue(), java.util.Map.of("effect", "armor"));
+            assertFalse(migrator.migrateSkillTree(yaml, entry.getKey(), 16));
+        }
+    }
+
+    @Test
     void versionElevenAddsAbilityFlagsAndPreservesExplicitChoices() {
         var configuration = new YamlConfiguration();
         configuration.set("config-version", 11);

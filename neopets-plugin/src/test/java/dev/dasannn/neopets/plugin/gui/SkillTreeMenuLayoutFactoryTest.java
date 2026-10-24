@@ -43,6 +43,36 @@ class SkillTreeMenuLayoutFactoryTest {
     }
 
     @Test
+    void distinctThirdCommonNodesHaveTheirIconsAndRelativeEffectText() throws Exception {
+        var snapshot = new ConfigurationLoader(temporaryDirectory.resolve("configuration")).load();
+        var expected = java.util.Map.of(
+                "dog", List.of("tough_hide", "SHIELD", "+Resistencia I"),
+                "cat", List.of("padded_paws", "HAY_BLOCK", "Sin daño por caída"),
+                "parrot", List.of("fire_resistance", "MAGMA_CREAM", "Inmunidad al fuego"),
+                "polar_bear", List.of("polar_swimmer", "TURTLE_HELMET", "Respiración acuática"),
+                "donkey", List.of("sure_footing", "SOUL_SAND", "Sin ralentización del terreno"));
+        for (var entry : expected.entrySet()) {
+            var definition = snapshot.skillTree(new PetTypeId(entry.getKey())).orElseThrow();
+            assertEquals(22, definition.totalNodes());
+            var third = definition.attributes().get(2);
+            assertEquals(entry.getValue().get(0), third.id());
+            assertEquals(1, third.maxLevel());
+            assertEquals(List.of(BigDecimal.valueOf(1500)), third.unlockMoneyCosts());
+            assertEquals(List.of(1), third.skillPointCosts());
+            var progress = TreeProgress.empty(PET_ID, definition).withLevels(third.id(), 1, 1);
+            var data = new SkillTreeMenuData(PET_ID.toString(), entry.getKey(), entry.getKey(),
+                    "NETHER_STAR", false, 3, 1, 3, 1, 10, Optional.of(BigDecimal.TEN),
+                    definition, progress, false, BigDecimal.ZERO);
+            var layout = factory.build(data, 0, false).layout();
+            assertEquals(entry.getValue().get(1), layout.items().get(28).material());
+            assertTrue(layout.items().get(29).lore().stream()
+                    .map(SkillTreeMenuLayoutFactoryTest::plain).anyMatch(entry.getValue().get(2)::equals));
+            MenuLayoutJson.write(Path.of(System.getProperty("neopets.preview.dir"))
+                    .resolve("skill-tree-" + entry.getKey() + "-third-node.json"), layout, List.of(28, 29));
+        }
+    }
+
+    @Test
     void computesEveryNodeStateAndReason() {
         TreeProgress progress = TreeProgress.empty(PET_ID, polarBear)
                 .withLevels("health", 3, 1);
@@ -113,7 +143,7 @@ class SkillTreeMenuLayoutFactoryTest {
         assertEquals("LIME_DYE", first.layout().items().get(11).material());
         assertTrue(first.layout().items().get(11).glint());
         assertFalse(first.layout().items().containsKey(16));
-        assertEquals("MAGMA_CREAM", first.layout().items().get(28).material());
+        assertEquals("TURTLE_HELMET", first.layout().items().get(28).material());
         assertFalse(first.layout().items().containsKey(30));
         assertEquals("SUGAR", second.layout().items().get(10).material());
         assertEquals("NETHER_STAR", second.layout().items().get(19).material());
@@ -158,7 +188,7 @@ class SkillTreeMenuLayoutFactoryTest {
         var second = factory.build(reference, 1, false).layout();
         assertEquals("+8 de vida máxima", plain(first.items().get(14).lore().getFirst()));
         assertEquals("+1 de regeneración", plain(first.items().get(20).lore().getFirst()));
-        assertEquals("Inmunidad al fuego", plain(first.items().get(29).lore().getFirst()));
+        assertEquals("Respiración acuática", plain(first.items().get(29).lore().getFirst()));
         assertEquals("+10% de velocidad", plain(second.items().get(12).lore().getFirst()));
     }
 
@@ -204,7 +234,7 @@ class SkillTreeMenuLayoutFactoryTest {
         return TreeProgress.empty(PET_ID, polarBear)
                 .withLevels("health", 4, 4)
                 .withLevels("regeneration", 2, 2)
-                .withLevels("fire_resistance", 1, 1)
+                .withLevels("polar_swimmer", 1, 1)
                 .withLevels("strength", 3, 3)
                 .withLevels("speed", 1, 1)
                 .withLevels("claw_swipe", 1, 1);

@@ -14,10 +14,10 @@ attributes:
     values: [1, 2, 3, 4, 5]
     money-costs: [150, 300, 600, 1200, 2400]
     skill-point-cost: 1
-  fire_resistance:
+  sure_footing:
     category: vanilla
     max-level: 1
-    effect: fire_resistance
+    effect: movement_efficiency
     values: [1]
     money-costs: [1500]
     skill-point-cost: 1

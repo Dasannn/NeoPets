@@ -64,23 +64,25 @@ persistente, ID de variante o nombre personalizado (también con espacios).
 Si varios nombres coinciden, usa el UUID para seleccionar la mascota exacta. `revive` pertenece a la
 raíz plural `/neopets`, no a `/neopet`.
 
-`paper-plugin.yml` declara dependencias, versión de API y `neopets.admin`
-(predeterminado para operadores), con `neopets.admin.reset` como hijo.
+`paper-plugin.yml` declara todos los permisos estáticos usados por el plugin.
 Los comandos se registran en ejecución y comprueban estos nodos:
 
-| Permiso | Alcance |
-|---|---|
-| `neopets.use` | Menú de mascotas, invocar, guardar y responder mensajería; acceso a las alforjas |
-| `neopets.admin.give` | Entregar variantes |
-| `neopets.admin.reset` | Reset gratuito del árbol de una mascota de un jugador conectado |
-| `neopets.admin.sp` | Dar, quitar y fijar saldo de SP |
-| `neopets.admin.revive` | Ejecutar la integración de revivir para un jugador |
-| `neopets.admin.gui` | Abrir y editar la GUI administrativa |
-| `neopets.admin.reload` | Recargar YAML |
-| `neopets.rank.<id>` | Seleccionar un rango **definido** en `ranks` |
+| Permiso | Predeterminado | Alcance |
+|---|---|---|
+| `neopets.use` | Todos (`true`) | Menús, invocar, guardar, mensajería y alforjas |
+| `neopets.admin` | Operadores | Hereda los seis permisos administrativos siguientes |
+| `neopets.admin.give` | Operadores | Entregar variantes |
+| `neopets.admin.sp` | Operadores | Dar, quitar y fijar saldo de SP |
+| `neopets.admin.revive` | Operadores | Revivir con el alma válida |
+| `neopets.admin.reset` | Operadores | Reset gratuito del árbol |
+| `neopets.admin.gui` | Operadores | Abrir y editar la GUI administrativa |
+| `neopets.admin.reload` | Operadores | Recargar YAML |
+| `neopets.rank.<id>` | Sin declaración estática | Seleccionar un rango definido en `ranks` |
 
-`neopets.admin` hereda `neopets.admin.reset`; concede los demás nodos concretos
-para las otras acciones administrativas. Los comodines dependen del gestor de permisos. Por ejemplo, en consola con LuckPerms:
+Los permisos de rango son dinámicos: existe uno por cada ID configurado (por
+ejemplo `neopets.rank.vip`). No se declaran en el descriptor. Un jugador sin
+OP puede abrir `/neopets` sin concesiones adicionales. Para delegar acciones
+administrativas concretas, por ejemplo con LuckPerms:
 
 ```text
 lp group default permission set neopets.use true
@@ -284,7 +286,20 @@ Costes y valores de los YAML distribuidos:
 |---|---|---|
 | `health` → `max_health` (5) | +2, +4, +6, +8, +10 de vida | 100, 250, 500, 1000, 2000 |
 | `regeneration` (5) | Regeneración I, II, III, IV, V | 150, 300, 600, 1200, 2400 |
-| `fire_resistance` (1) | Inmunidad al fuego | 1500 |
+
+El tercer nodo base tiene un nivel, cuesta 1500 y asigna 1 SP en cada tipo.
+Sus efectos se aplican a la mascota mientras está invocada:
+
+| Tipo | Nodo | Mejora | Icono |
+|---|---|---|---|
+| Perro | `tough_hide` — Piel dura | +Resistencia I | SHIELD |
+| Gato | `padded_paws` — Patas acolchadas | Sin daño por caída | HAY_BLOCK |
+| Loro | `fire_resistance` — Plumaje ignífugo | Inmunidad al fuego | MAGMA_CREAM |
+| Oso polar | `polar_swimmer` — Nadador polar | Respiración acuática | TURTLE_HELMET |
+| Burro | `sure_footing` — Pisada firme | Sin ralentización por arena de almas, miel o nieve en polvo | SOUL_SAND |
+
+Patas acolchadas protege al gato; Aterrizaje felino sigue siendo su habilidad
+única y protege al dueño.
 
 Los valores son el bonus total del **nivel activo**, no la suma de todos los
 niveles anteriores. La regeneración usa el amplificador del nivel de poción;
@@ -417,9 +432,14 @@ integraciones, el cerebro de seguimiento ni el temporizador Bukkit de permisos;
 reinicia para cambiar esos elementos. Para comprobar nuevos aspectos o valores
 de árboles ya invocados, guarda y vuelve a invocar la mascota.
 
-La versión actual es 16. Las migraciones añaden claves y mensajes nuevos sin
+La versión actual es 17. Las migraciones añaden claves y mensajes nuevos sin
 sobrescribir los personalizados; las antiguas apariencias de gatos/loros y los
 valores de árboles predeterminados anteriores a v5 tienen migración específica.
+En v17 se reemplaza el antiguo nodo `fire_resistance` sin modificar en perro,
+gato, oso y burro. Si el nodo está personalizado se conserva. El progreso SQL
+se renombra al cargar cada mascota según su tipo y árbol actual, conservando
+niveles desbloqueados, activos y SP; si el árbol conserva el ID antiguo no se
+remapea. El proceso es idempotente y no modifica el saldo del jugador.
 No se guarda una migración inválida. No hay copia de seguridad automática.
 En `lang/es.yml`, conserva las claves y variables (`<player>`, `<pet>`, etc.);
 se valida MiniMessage en modo estricto y no se admiten mensajes vacíos.
@@ -465,7 +485,7 @@ externo; cada ejecución válida de `sp give` suma puntos.
 | `Vault has no registered economy provider; economy-backed NeoPets features are disabled` | Vault solo no aporta dinero: instala un proveedor y reinicia. |
 | «Economía no disponible» / nodo rojo | Comprueba Vault/proveedor, dinero, SP, nivel anterior y los dos límites por mascota. |
 | `LuckPerms is unavailable; rank limits strategy: Bukkit permissions …` | Se usa el fallback; concede `neopets.rank.<id>` y espera el refresco o reconecta. Los valores vienen de `ranks`. |
-| «No tienes permiso» | Concede el nodo concreto de la tabla; `neopets.admin` no agrupa permisos por sí solo. |
+| «No tienes permiso» | Concede el nodo concreto de la tabla; `neopets.admin` concede los seis permisos administrativos. |
 | «No se encontró al jugador» / «debe estar conectado» | Revisa nombre; `give`/`sp` requieren historial si está offline, `revive` requiere conexión. |
 | «No quedan variantes disponibles» | Toda la selección ya está poseída; prueba otro tipo/lista. |
 | «Debes sostener el alma válida…» / «Esta alma no es válida o ya fue utilizada» | Mano principal, PDC original, dueño correcto y token no consumido; no sirve un objeto renombrado. |

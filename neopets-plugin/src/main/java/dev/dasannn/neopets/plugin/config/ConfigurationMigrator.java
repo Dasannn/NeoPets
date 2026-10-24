@@ -12,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 16;
+    public static final int CURRENT_VERSION = 17;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -277,6 +277,17 @@ public final class ConfigurationMigrator {
             public void apply(YamlConfiguration configuration) {
                 setIfMissing(configuration, "give.all-owned-command", "");
             }
+        }, new ConfigMigration() {
+            @Override
+            public int fromVersion() { return 16; }
+
+            @Override
+            public int toVersion() { return 17; }
+
+            @Override
+            public void apply(YamlConfiguration configuration) {
+                // Version 17 replaces the third common node; migrateSkillTree handles each document.
+            }
         }));
     }
 
@@ -333,21 +344,57 @@ public final class ConfigurationMigrator {
     }
 
     /**
-     * Rewrites only unchanged bundled skill-tree values whose meaning changed in version 5.
+     * Rewrites unchanged bundled values and third common nodes at their schema boundaries.
      * User-customized value arrays are deliberately preserved.
      */
     public boolean migrateSkillTree(YamlConfiguration configuration, String type, int sourceVersion) {
         Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(type, "type");
-        if (currentVersion < 5 || sourceVersion < 1 || sourceVersion >= 5) {
-            return false;
-        }
         boolean changed = false;
-        for (ValueMigration migration : SKILL_TREE_VALUE_MIGRATIONS.getOrDefault(type, List.of())) {
-            if (sameNumbers(configuration.getList(migration.path()), migration.oldValues())) {
-                configuration.set(migration.path(), migration.newValues());
-                changed = true;
+        if (currentVersion >= 5 && sourceVersion >= 1 && sourceVersion < 5) {
+            for (ValueMigration migration : SKILL_TREE_VALUE_MIGRATIONS.getOrDefault(type, List.of())) {
+                if (sameNumbers(configuration.getList(migration.path()), migration.oldValues())) {
+                    configuration.set(migration.path(), migration.newValues());
+                    changed = true;
+                }
             }
+        }
+        String replacement = switch (type) {
+            case "dog" -> "tough_hide";
+            case "cat" -> "padded_paws";
+            case "polar_bear" -> "polar_swimmer";
+            case "donkey" -> "sure_footing";
+            default -> null;
+        };
+        ConfigurationSection old = configuration.getConfigurationSection("attributes.fire_resistance");
+        if (currentVersion >= 17 && sourceVersion >= 1 && sourceVersion < 17 && replacement != null
+                && old != null && !configuration.isSet("attributes." + replacement)
+                && old.getKeys(false).equals(java.util.Set.of(
+                        "category", "max-level", "effect", "values", "money-costs", "skill-point-cost"))
+                && "vanilla".equals(old.getString("category"))
+                && old.get("max-level") instanceof Number maxLevel && sameNumber(maxLevel, 1)
+                && "fire_resistance".equals(old.getString("effect"))
+                && sameNumbers(old.getList("values"), List.of(1))
+                && sameNumbers(old.getList("money-costs"), List.of(1500))
+                && old.get("skill-point-cost") instanceof Number spCost && sameNumber(spCost, 1)) {
+            // Preserve ordering: the third common node must remain the third row in the GUI.
+            var attributes = configuration.getConfigurationSection("attributes");
+            var ordered = new java.util.LinkedHashMap<String, Object>();
+            for (String id : attributes.getKeys(false)) {
+                Object value = attributes.get(id);
+                ordered.put(id.equals("fire_resistance") ? replacement : id,
+                        value instanceof ConfigurationSection section ? section.getValues(false) : value);
+            }
+            configuration.set("attributes", null);
+            configuration.createSection("attributes", ordered);
+            configuration.set("attributes." + replacement + ".effect", switch (type) {
+                case "dog" -> "damage_resistance";
+                case "cat" -> "fall_damage_reduction";
+                case "polar_bear" -> "water_breathing";
+                case "donkey" -> "movement_efficiency";
+                default -> throw new IllegalStateException(type);
+            });
+            changed = true;
         }
         return changed;
     }

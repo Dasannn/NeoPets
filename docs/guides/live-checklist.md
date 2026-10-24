@@ -54,6 +54,11 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
 
 ## Comandos, entrega y permisos
 
+- [ ] **[1 jugador sin OP]** Sin permisos concedidos manualmente, ejecutar
+  `/neopets` y `/pets`: se abre el menú. Los comandos administrativos siguen
+  denegados. Conceder `neopets.admin` y comprobar los seis subpermisos.
+
+
 - [ ] **[1 jugador]** Sin `neopets.use`, ejecutar `/pets` y
   `/neopet summon dog_pale`: «No tienes permiso». Restaurarlo y abrir
   `/neopets` y `/pets`: ambos muestran «Mis mascotas». En consola, `neopets`
@@ -126,6 +131,18 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
 
 ## Rangos y árbol de habilidades
 
+- [ ] **[1 jugador]** Verificar nombre, descripción, efecto e icono del tercer
+  nodo: perro Piel dura/SHIELD (+Resistencia I); gato Patas acolchadas/HAY_BLOCK
+  (sin daño por caída de la mascota); loro Plumaje ignífugo/MAGMA_CREAM;
+  oso Nadador polar/TURTLE_HELMET (respiración acuática); burro Pisada firme/
+  SOUL_SAND (sin ralentización por arena de almas, miel o nieve en polvo).
+  Cada nodo cuesta 1500 y 1 SP. Activar y desactivar para comprobar el efecto.
+- [ ] **[Consola + jugador]** Actualizar una instalación v16 con progreso activo
+  y desbloqueado en `fire_resistance`: perro/gato/oso/burro conservan niveles y SP
+  bajo el nuevo ID, incluso tras reiniciar. El loro conserva su ID. Repetir con
+  un árbol personalizado que retenga el ID antiguo: no debe remapearse.
+
+
 - [ ] **[1 jugador]** Definir temporalmente en config `ranks.vip` con límites
   2/6/16, ejecutar `/neopet reload` y desde consola
   `lp user Ana permission set neopets.rank.vip true`: puede invocar dos mascotas
@@ -150,7 +167,7 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   activo verde, desbloqueado amarillo, próximo comprable dorado, futuros oscuros.
   Cada fila es una rama, con navegación a las demás filas.
 - [ ] **[1 jugador]** Para cada tipo, comprar/activar sucesivamente Vida,
-  Regeneración, Anti-fuego y sus dos ramas propias. Usar un rango de pruebas
+  Regeneración, el tercer nodo propio de su tipo y sus dos ramas propias. Usar un rango de pruebas
   1/22/22 si hace falta y `neopet sp set Ana 100`. Medir atributos antes/después
   con `/attribute <UUID-entidad> minecraft:max_health get`,
   `/attribute <UUID-entidad> minecraft:movement_speed get` u otro atributo

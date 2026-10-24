@@ -248,9 +248,25 @@ gui:
         description: "<gray>Recupera vida de forma gradual.</gray>"
         effect: "<gray>+<white><value></white> de regeneración</gray>"
       fire_resistance:
-        name: "<gold>Resistencia al fuego</gold>"
+        name: "<gold>Plumaje ignífugo</gold>"
         description: "<gray>Protege a la mascota del fuego.</gray>"
         effect: "<gray>Inmunidad al fuego</gray>"
+      tough_hide:
+        name: "<gold>Piel dura</gold>"
+        description: "<gray>Reduce el daño recibido por la mascota.</gray>"
+        effect: "<gray>+Resistencia I</gray>"
+      padded_paws:
+        name: "<gold>Patas acolchadas</gold>"
+        description: "<gray>Protege a la mascota de las caídas.</gray>"
+        effect: "<gray>Sin daño por caída</gray>"
+      polar_swimmer:
+        name: "<gold>Nadador polar</gold>"
+        description: "<gray>Permite respirar bajo el agua.</gray>"
+        effect: "<gray>Respiración acuática</gray>"
+      sure_footing:
+        name: "<gold>Pisada firme</gold>"
+        description: "<gray>Evita la ralentización por bloques del terreno.</gray>"
+        effect: "<gray>Sin ralentización del terreno</gray>"
       strength:
         name: "<red>Fuerza</red>"
         description: "<gray>Aumenta el daño de sus ataques.</gray>"

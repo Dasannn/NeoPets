@@ -8,6 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.dasannn.neopets.core.pet.VariantCatalog;
+import dev.dasannn.neopets.core.skilltree.AttributeCategory;
+import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
+import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
+import dev.dasannn.neopets.core.skilltree.TreeProgress;
+import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import dev.dasannn.neopets.core.model.PetVariant;
 import dev.dasannn.neopets.core.model.PetTypeId;
 import dev.dasannn.neopets.core.port.PetEntityGateway;
@@ -80,6 +88,60 @@ abstract class AbstractJdbcRepositoryTest {
         if (bootstrap != null) {
             bootstrap.close();
         }
+    }
+
+    @Test
+    final void remapsLegacyThirdNodesByTypeAndPreservesCustomTreesAndSp() throws Exception {
+        var replacements = Map.of("dog", "tough_hide", "cat", "padded_paws",
+                "polar_bear", "polar_swimmer", "donkey", "sure_footing", "parrot", "fire_resistance");
+        await(players.save(new PlayerProfile(OWNER, 7, List.of())));
+        for (var entry : replacements.entrySet()) {
+            for (int active : List.of(0, 1)) {
+                var petId = new PetId(UUID.randomUUID());
+                // Arbitrary variant ID proves that remapping uses the tree's type.
+                await(pets.save(pet(petId, OWNER, "custom_" + UUID.randomUUID().toString().replace("-", ""))));
+                var legacy = remapDefinition(entry.getKey(), "fire_resistance");
+                var current = remapDefinition(entry.getKey(), entry.getValue());
+                var resolver = new AtomicReference<>(legacy);
+                var trees = new JdbcTreeProgressRepository(bootstrap,
+                        ignored -> CompletableFuture.completedFuture(resolver.get()));
+                var original = TreeProgress.empty(petId, legacy)
+                        .withLevels("fire_resistance", 1, active);
+                await(trees.save(original));
+                // Customized definitions retaining the old ID must not be remapped.
+                assertEquals(original, await(trees.load(petId)).orElseThrow());
+                resolver.set(current);
+                var expected = TreeProgress.empty(petId, current)
+                        .withLevels(entry.getValue(), 1, active);
+                assertEquals(expected, await(trees.load(petId)).orElseThrow());
+                assertEquals(expected, await(trees.load(petId)).orElseThrow());
+                assertEquals(active, expected.assignedSkillPoints(current));
+                // A new repository still sees the persisted replacement, not an in-memory alias.
+                var restarted = new JdbcTreeProgressRepository(bootstrap,
+                        ignored -> CompletableFuture.completedFuture(current));
+                assertEquals(expected, await(restarted.load(petId)).orElseThrow());
+                try (var connection = bootstrap.dataSource().getConnection();
+                        var query = connection.prepareStatement(
+                                "SELECT attribute_id FROM np_pet_attribute WHERE pet_id = ?")) {
+                    query.setString(1, petId.toString());
+                    try (var result = query.executeQuery()) {
+                        assertTrue(result.next());
+                        assertEquals(entry.getValue(), result.getString(1));
+                        assertFalse(result.next());
+                    }
+                }
+            }
+        }
+        assertEquals(7, await(players.findById(OWNER)).orElseThrow().skillPointBalance());
+    }
+
+    private static SkillTreeDefinition remapDefinition(String type, String id) {
+        return new SkillTreeDefinition(new PetTypeId(type), List.of(
+                new AttributeDefinition(id,
+                        AttributeCategory.VANILLA, 1,
+                        new VanillaEffectReference(
+                                "fire_resistance", List.of(BigDecimal.ONE)),
+                        List.of(BigDecimal.valueOf(1500)))));
     }
 
     @Test

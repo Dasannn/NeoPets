@@ -6,6 +6,9 @@ import dev.dasannn.neopets.core.port.TreeProgressRepository;
 import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.TreeProgress;
 import java.sql.SQLException;
+import java.sql.Connection;
+import dev.dasannn.neopets.core.skilltree.AttributeDefinition;
+import java.util.stream.Collectors;
 import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.Optional;
@@ -129,12 +132,15 @@ public final class JdbcTreeProgressRepository extends JdbcRepository implements 
 
     private Optional<TreeProgress> load(PetId petId, SkillTreeDefinition definition) throws SQLException {
         var levels = new LinkedHashMap<String, int[]>();
-        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(LOAD)) {
-            statement.setString(1, petId.toString());
-            try (var result = statement.executeQuery()) {
-                while (result.next()) {
-                    levels.put(result.getString("attribute_id"), new int[] {
-                            result.getInt("unlocked_level"), result.getInt("active_level")});
+        try (var connection = dataSource.getConnection()) {
+            remapLegacyAttributes(connection, petId, definition);
+            try (var statement = connection.prepareStatement(LOAD)) {
+                statement.setString(1, petId.toString());
+                try (var result = statement.executeQuery()) {
+                    while (result.next()) {
+                        levels.put(result.getString("attribute_id"), new int[] {
+                                result.getInt("unlocked_level"), result.getInt("active_level")});
+                    }
                 }
             }
         }
@@ -150,6 +156,41 @@ public final class JdbcTreeProgressRepository extends JdbcRepository implements 
             progress = progress.withLevels(entry.getKey(), entry.getValue()[0], entry.getValue()[1]);
         }
         return Optional.of(progress);
+    }
+
+    /** Uses the resolved pet type, never variant-name prefixes, to rename persisted progress. */
+    private static void remapLegacyAttributes(
+            Connection connection, PetId petId, SkillTreeDefinition definition
+    ) throws SQLException {
+        var configured = definition.attributes().stream()
+                .map(AttributeDefinition::id)
+                .collect(Collectors.toSet());
+        var remaps = new LinkedHashMap<String, String>();
+        try (var select = connection.prepareStatement("""
+                SELECT old_attribute_id, new_attribute_id FROM np_tree_attribute_remap WHERE pet_type = ?
+                """)) {
+            select.setString(1, definition.petTypeId().value());
+            try (var result = select.executeQuery()) {
+                while (result.next()) {
+                    remaps.put(result.getString(1), result.getString(2));
+                }
+            }
+        }
+        for (var remap : remaps.entrySet()) {
+            if (configured.contains(remap.getKey()) || !configured.contains(remap.getValue())) {
+                continue;
+            }
+            // A single atomic UPDATE preserves both levels and leaves balances untouched.
+            // Once renamed there is no matching old row, making retries idempotent.
+            try (var update = connection.prepareStatement("""
+                    UPDATE np_pet_attribute SET attribute_id = ? WHERE pet_id = ? AND attribute_id = ?
+                    """)) {
+                update.setString(1, remap.getValue());
+                update.setString(2, petId.toString());
+                update.setString(3, remap.getKey());
+                update.executeUpdate();
+            }
+        }
     }
 
     private void saveAll(TreeProgress progress) throws SQLException {

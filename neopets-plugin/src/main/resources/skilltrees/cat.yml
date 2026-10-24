@@ -14,10 +14,10 @@ attributes:
     values: [1, 2, 3, 4, 5]
     money-costs: [150, 300, 600, 1200, 2400]
     skill-point-cost: 1
-  fire_resistance:
+  padded_paws:
     category: vanilla
     max-level: 1
-    effect: fire_resistance
+    effect: fall_damage_reduction
     values: [1]
     money-costs: [1500]
     skill-point-cost: 1

@@ -72,6 +72,7 @@ def item_texture(textures, material):
     name = material.lower()
     entity_crops = {
         "player_head": ("entity/player/wide/steve.png", (8, 8, 16, 16)),
+        "shield": ("entity/shield_base_nopattern.png", (2, 2, 14, 24)),
     }
     if name in entity_crops:
         rel, crop = entity_crops[name]
@@ -99,6 +100,7 @@ def item_texture(textures, material):
         "compass": "item/compass_00.png",
         "recovery_compass": "item/recovery_compass_00.png",
         "target": "block/target_top.png",
+        "hay_block": "block/hay_block_side.png",
     }
     candidates = ([aliases[name]] if name in aliases else []) + [f"item/{name}.png", f"block/{name}.png"]
     if name.endswith("_stained_glass_pane") or name == "glass_pane":

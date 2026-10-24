@@ -120,6 +120,19 @@ public final class ConfigurationLoader {
     private static final Set<String> VERSION_9_MESSAGES = Set.of(
             "pets.soul-delivered", "pets.soul-dropped", "gui.skill-tree.reason-previous-activation");
     private static final Set<String> VERSION_10_MESSAGES = Set.of("abilities.buscatesoros.found");
+    private static final Set<String> VERSION_17_MESSAGES = Set.of(
+            "gui.skill-tree.attributes.tough_hide.name",
+            "gui.skill-tree.attributes.tough_hide.description",
+            "gui.skill-tree.attributes.tough_hide.effect",
+            "gui.skill-tree.attributes.padded_paws.name",
+            "gui.skill-tree.attributes.padded_paws.description",
+            "gui.skill-tree.attributes.padded_paws.effect",
+            "gui.skill-tree.attributes.polar_swimmer.name",
+            "gui.skill-tree.attributes.polar_swimmer.description",
+            "gui.skill-tree.attributes.polar_swimmer.effect",
+            "gui.skill-tree.attributes.sure_footing.name",
+            "gui.skill-tree.attributes.sure_footing.description",
+            "gui.skill-tree.attributes.sure_footing.effect");
     private static final Set<String> VERSION_16_MESSAGES = Set.of(
             "general.usage-reset", "skills.reset-admin", "pets.unknown-pet");
     private static final Set<String> VERSION_15_MESSAGES = adminMessages();
@@ -206,6 +219,7 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_10_MESSAGES);
         required.addAll(VERSION_15_MESSAGES);
         required.addAll(VERSION_16_MESSAGES);
+        required.addAll(VERSION_17_MESSAGES);
         required.addAll(VERSION_13_MESSAGES);
         required.addAll(VERSION_14_MESSAGES);
         return Set.copyOf(required);
@@ -375,7 +389,14 @@ public final class ConfigurationLoader {
             return false;
         }
 
-        boolean changed = sourceVersion < 16 && mergeMissing(language, defaults, VERSION_16_MESSAGES);
+        boolean changed = sourceVersion < 17 && mergeMissing(language, defaults, VERSION_17_MESSAGES);
+        changed |= sourceVersion < 16 && mergeMissing(language, defaults, VERSION_16_MESSAGES);
+        if (sourceVersion < 17 && "<gold>Resistencia al fuego</gold>".equals(
+                language.getString("gui.skill-tree.attributes.fire_resistance.name"))) {
+            language.set("gui.skill-tree.attributes.fire_resistance.name",
+                    defaults.getString("gui.skill-tree.attributes.fire_resistance.name"));
+            changed = true;
+        }
         if (sourceVersion < 2) {
             changed |= mergeMissing(language, defaults, VERSION_2_MESSAGES);
         }

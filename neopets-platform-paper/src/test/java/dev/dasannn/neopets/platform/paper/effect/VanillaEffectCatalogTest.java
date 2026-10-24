@@ -15,6 +15,19 @@ class VanillaEffectCatalogTest {
     private final VanillaEffectCatalog catalog = new VanillaEffectCatalog();
 
     @Test
+    void movementEfficiencyAddsAClampedUnitBonus() {
+        var effect = (VanillaEffectCatalog.AttributeEffect) catalog.find("movement_efficiency").orElseThrow();
+        assertEquals("minecraft:movement_efficiency", effect.attributeKey().toString());
+        assertEquals(AttributeModifier.Operation.ADD_NUMBER, effect.operation());
+        assertEquals(1.0, effect.valueFromBase(0, BigDecimal.ONE));
+        assertEquals(0.0, effect.modifierAmount(BigDecimal.valueOf(-1)));
+        assertEquals(1.0, effect.modifierAmount(BigDecimal.TEN));
+        var reference = new VanillaEffectReference("movement_efficiency", List.of(BigDecimal.ONE));
+        assertTrue(catalog.valueAtLevel(reference, 0).isEmpty());
+        assertEquals(BigDecimal.ONE, catalog.valueAtLevel(reference, 1).orElseThrow());
+    }
+
+    @Test
     void selectsConfiguredValuesByOneBasedLevelAndTreatsZeroAsInactive() {
         var reference = new VanillaEffectReference(
                 "movement_speed", List.of(decimal("0.32"), decimal("0.36"), decimal("0.4")));

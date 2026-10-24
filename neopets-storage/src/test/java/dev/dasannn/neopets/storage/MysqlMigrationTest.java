@@ -19,6 +19,7 @@ final class MysqlMigrationTest extends AbstractMigrationTest {
     void clearDatabase() throws Exception {
         try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
             execute(connection, "SET FOREIGN_KEY_CHECKS = 0");
+            execute(connection, "DROP TABLE IF EXISTS np_tree_attribute_remap");
             execute(connection, "DROP TABLE IF EXISTS np_pet_attribute");
             execute(connection, "DROP TABLE IF EXISTS np_pet_saddlebag");
             execute(connection, "DROP TABLE IF EXISTS np_pet_storage");

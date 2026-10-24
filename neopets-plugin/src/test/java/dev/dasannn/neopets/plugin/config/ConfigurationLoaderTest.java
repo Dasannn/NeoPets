@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -33,6 +34,40 @@ class ConfigurationLoaderTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void versionSixteenMigratesTreesAndLanguageAndKeepsCustomizedNodes() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        var replacements = Map.of("dog", "tough_hide", "cat", "padded_paws",
+                "polar_bear", "polar_swimmer", "donkey", "sure_footing");
+        for (var entry : replacements.entrySet()) {
+            Path file = temporaryDirectory.resolve("skilltrees/" + entry.getKey() + ".yml");
+            String tree = Files.readString(file).replace(entry.getValue() + ":", "fire_resistance:");
+            tree = tree.replaceAll("effect: (damage_resistance|fall_damage_reduction|water_breathing|movement_efficiency)",
+                    "effect: fire_resistance");
+            if (entry.getKey().equals("cat")) tree = tree.replace("money-costs: [1500]", "money-costs: [1777]");
+            Files.writeString(file, tree);
+        }
+        replace("config.yml", "config-version: " + ConfigurationMigrator.CURRENT_VERSION, "config-version: 16");
+        Path langFile = temporaryDirectory.resolve("lang/es.yml");
+        var language = YamlConfiguration.loadConfiguration(langFile.toFile());
+        for (String id : replacements.values()) language.set("gui.skill-tree.attributes." + id, null);
+        language.set("gui.skill-tree.attributes.fire_resistance.name", "<gold>Resistencia al fuego</gold>");
+        language.save(langFile.toFile());
+        var upgraded = loader.load();
+        assertEquals(17, upgraded.settings().configVersion());
+        for (var entry : replacements.entrySet()) {
+            var tree = YamlConfiguration.loadConfiguration(
+                    temporaryDirectory.resolve("skilltrees/" + entry.getKey() + ".yml").toFile());
+            assertEquals(entry.getKey().equals("cat"), tree.isSet("attributes.fire_resistance"));
+            assertEquals(!entry.getKey().equals("cat"), tree.isSet("attributes." + entry.getValue()));
+            assertTrue(upgraded.language().find("gui.skill-tree.attributes." + entry.getValue() + ".effect").isPresent());
+        }
+        assertEquals("<gold>Plumaje ignífugo</gold>",
+                upgraded.language().find("gui.skill-tree.attributes.fire_resistance.name").orElseThrow());
+        loader.load();
+    }
 
     @Test
     void versionFifteenAddsCompensationAndResetMessagesWithoutOverwritingCustomValues() throws Exception {
@@ -51,7 +86,7 @@ class ConfigurationLoaderTest {
             lang.set("skills.reset-admin", "Mi reset: <points>");
             lang.save(langFile.toFile());
             var upgraded = loader.load();
-            assertEquals(16, upgraded.settings().configVersion());
+            assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
             assertEquals(command, upgraded.settings().giveAllOwnedCommand());
             assertTrue(upgraded.language().find("general.usage-reset").isPresent());
             assertTrue(upgraded.language().find("pets.unknown-pet").isPresent());

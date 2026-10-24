@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -21,6 +22,46 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 final class PaperPluginDescriptorTest {
+
+    @Test
+    void declaresAllStaticPermissionStringsUsedInProductionSources() throws Exception {
+        Map<String, Object> yaml;
+        try (var descriptor = requiredResource("/paper-plugin.yml")) {
+            yaml = new org.yaml.snakeyaml.Yaml().load(descriptor);
+        }
+        var permissions = (Map<?, ?>) yaml.get("permissions");
+        assertNotNull(permissions);
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) permissions.get("neopets.use")).get("default"));
+        var pattern = Pattern.compile("\"(neopets\\.[a-zA-Z0-9_.]+)\"");
+        Path root = Path.of("").toAbsolutePath();
+        if (!java.nio.file.Files.isDirectory(root.resolve("neopets-plugin"))) root = root.getParent();
+        int checked = 0;
+        try (var files = java.nio.file.Files.walk(root)) {
+            for (Path file : files.filter(path -> path.toString().contains("/src/main/java/"))
+                    .filter(path -> path.toString().endsWith(".java")).toList()) {
+                var matcher = pattern.matcher(java.nio.file.Files.readString(file));
+                while (matcher.find()) {
+                    String permission = matcher.group(1);
+                    // The only non-permission literal sharing this prefix is the SQLite filename.
+                    if (permission.equals("neopets.db") || permission.startsWith("neopets.rank.")) continue;
+                    assertTrue(permissions.containsKey(permission), file + ": " + permission);
+                    checked++;
+                }
+            }
+        }
+        assertTrue(checked >= 8, "must scan actual production permission constants");
+        var admin = (Map<?, ?>) permissions.get("neopets.admin");
+        assertEquals("op", admin.get("default"));
+        var children = (Map<?, ?>) admin.get("children");
+        for (String child : List.of("give", "sp", "revive", "reset", "gui", "reload")) {
+            var declaration = (Map<?, ?>) permissions.get("neopets.admin." + child);
+            assertNotNull(declaration);
+            assertEquals("op", declaration.get("default"));
+            assertEquals(Boolean.TRUE, children.get("neopets.admin." + child));
+            assertFalse(((String) declaration.get("description")).isBlank());
+        }
+        assertFalse(permissions.keySet().stream().anyMatch(key -> key.toString().startsWith("neopets.rank.")));
+    }
 
     @Test
     void builtDescriptorDeclaresPaperMetadata() throws IOException {

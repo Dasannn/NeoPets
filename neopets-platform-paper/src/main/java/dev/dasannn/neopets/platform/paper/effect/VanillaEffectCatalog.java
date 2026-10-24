@@ -51,6 +51,7 @@ public final class VanillaEffectCatalog {
                 additive("knockback_resistance", ValueTransform.CLAMP_UNIT));
         effects.put("explosion_knockback_resistance",
                 additive("explosion_knockback_resistance", ValueTransform.CLAMP_UNIT));
+        effects.put("movement_efficiency", additive("movement_efficiency", ValueTransform.CLAMP_UNIT));
         effects.put("detection_radius", additive("follow_range", ValueTransform.IDENTITY));
         effects.put("safe_fall_distance",
                 additive("safe_fall_distance", ValueTransform.NON_NEGATIVE));
