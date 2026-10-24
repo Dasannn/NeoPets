@@ -445,7 +445,11 @@ pila y su total entre inventarios y alforjas.
   `neopets revive Ana` desde consola con alma válida en la mano principal.
 - [ ] Migrar v17 a v18: conserva ajustes, añade updater y mensajes. Rechazar
   booleanos incorrectos, repositorio con URL/ruta inyectada y token no textual;
-  ningún diagnóstico muestra el token. La variable de entorno tiene prioridad.
+  ningún diagnóstico muestra el token. Verificar precedencia entorno > config >
+  incluido > ninguno; entorno explícitamente vacío produce NO_TOKEN.
+- [ ] JAR local/CI sin recurso de token: config vacía y entorno ausente producen
+  NO_TOKEN. Release con token incluido y config vacía: check funciona sin editar
+  config; ni errores ni título/notas que repitan la credencial la muestran.
 - [ ] `/neopets update check`: muestra instalada/última, título y primera línea;
   probar estable, prerelease habilitada/deshabilitada y SNAPSHOT.
 - [ ] Con clave PLACEHOLDER o ausente se rechaza instalar. Sin token, token sin
@@ -458,5 +462,10 @@ pila y su total entre inventarios y alforjas.
 - [ ] JAR antiguo firmado con clave correcta y renombrado como una release nueva:
   se rechaza por versión distinta en `paper-plugin.yml` y conserva el JAR preparado.
   Repetir sin descriptor o con versión ausente/inválida.
-- [ ] Workflow sin secret: falla; con claves correctas y tag v*: tres assets,
-  versión de JAR/metadatos correcta y ninguna clave privada en logs/repositorio.
+- [ ] Workflow sin secret de firma: falla. Sin `NEOPETS_UPDATER_TOKEN`: publica
+  tres assets y aviso, sin token incluido. Con ambos secrets y tag v*: tres assets,
+  versión correcta, firma/checksum válidos tras inyección y ningún token/clave en
+  logs, fuentes ni cachés Gradle. Instalar manualmente una primera release oficial.
+- [ ] Revocar token en GitHub, actualizar secret y publicar release: token antiguo
+  falla sin exponerlo; instalar nueva release manualmente o mediante credenciales
+  propias y comprobar autenticación con el token nuevo.

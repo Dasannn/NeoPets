@@ -18,11 +18,17 @@ import java.util.function.Supplier;
 public final class SelfUpdater {
     private final AtomicBoolean busy = new AtomicBoolean();
     private final Fetcher transport;
+    private final Supplier<String> bundledToken;
 
     /** Creates the production GitHub transport. */
     public SelfUpdater() { this(new GitHubTransport()::get); }
 
-    SelfUpdater(Fetcher transport) { this.transport = transport; }
+    SelfUpdater(Fetcher transport) { this(transport, BundledUpdaterToken::load); }
+
+    SelfUpdater(Fetcher transport, Supplier<String> bundledToken) {
+        this.transport = transport;
+        this.bundledToken = bundledToken;
+    }
 
     @FunctionalInterface
     interface Fetcher {
@@ -48,16 +54,18 @@ public final class SelfUpdater {
     public UpdateResult run(UpdaterSettings settings, String environmentToken, String installed, boolean check,
             Supplier<byte[]> publicKey, Path updateDirectory, String jarName) {
         if (!settings.enabled()) return UpdateResult.Failure.DISABLED;
-        String token = settings.token(environmentToken);
-        if (token.isBlank()) return UpdateResult.Failure.NO_TOKEN;
         try {
+            String token = settings.token(environmentToken,
+                    environmentToken == null && settings.githubToken().isBlank() ? bundledToken.get() : "");
+            if (token.isBlank()) return UpdateResult.Failure.NO_TOKEN;
             var current = SemanticVersion.parse(installed);
             JsonObject release = latest(settings, token);
             if (release == null) return UpdateResult.Failure.NOT_FOUND;
             String tag = release.get("tag_name").getAsString();
             var version = SemanticVersion.parse(tag);
-            if (check) return new UpdateResult.Checked(installed, tag, text(release, "name"),
-                    text(release, "body").lines().findFirst().orElse(""), version.compareTo(current) > 0);
+            if (check) return new UpdateResult.Checked(redact(installed, token), redact(tag, token),
+                    redact(text(release, "name"), token),
+                    redact(text(release, "body").lines().findFirst().orElse(""), token), version.compareTo(current) > 0);
             if (version.compareTo(current) <= 0) return UpdateResult.Failure.NO_NEWER_VERSION;
             var key = UpdateVerifier.publicKey(publicKey.get());
             if (key == null) return UpdateResult.Failure.PLACEHOLDER_KEY;
@@ -75,7 +83,7 @@ public final class SelfUpdater {
             failure = UpdateVerifier.verifyVersion(assets[0], tag, current);
             if (failure != null) return failure;
             stage(assets[0], updateDirectory, jarName);
-            return new UpdateResult.Staged(tag);
+            return new UpdateResult.Staged(redact(tag, token));
         } catch (GitHubTransport.HttpFailure failure) {
             return failure.failure();
         } catch (InterruptedException interrupted) {
@@ -85,6 +93,10 @@ public final class SelfUpdater {
             // Never publish exception text: URLs, responses and header validation may contain credentials.
             return UpdateResult.Failure.IO_ERROR;
         }
+    }
+
+    private static String redact(String value, String token) {
+        return value.replace(token, "[REDACTED]");
     }
 
     private JsonObject latest(UpdaterSettings settings, String token) throws Exception {

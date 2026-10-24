@@ -17,7 +17,13 @@ public record UpdaterSettings(boolean enabled, String repository, String githubT
 
     /** Environment credentials take precedence, including an explicitly empty value. */
     public String token(String environmentToken) {
-        return environmentToken == null ? githubToken : environmentToken;
+        return token(environmentToken, "");
+    }
+
+    /** The bundled credential is only a fallback for an empty configured token. */
+    public String token(String environmentToken, String bundledToken) {
+        if (environmentToken != null) return environmentToken;
+        return githubToken.isBlank() ? bundledToken : githubToken;
     }
 
     @Override public String toString() {
