@@ -64,7 +64,7 @@ class PetsMenuLayoutFactoryTest {
         assertEquals("PARROT_SPAWN_EGG", summoned.material());
         assertTrue(summoned.glint());
         assertEquals("Loro azul", plain(summoned.name()));
-        assertEquals(List.of("Loro · Adulto", "", "Estado: ● Invocada", "Nodos: 4/10   SP: 2/3", "",
+        assertEquals(List.of("Loro · Adulto", "", "Estado: ● Invocada", "Mejoras: 4/10   Activas: 2/3", "",
                 "Clic izq. » Guardar", "Clic der. » Habilidades", "Shift+clic » Renombrar"),
                 summoned.lore().stream().map(PetsMenuLayoutFactoryTest::plain).toList());
 

@@ -15,7 +15,7 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   en el servidor detenido; respaldar carpeta `plugins/NeoPets` y BD. Usar un
   área aislada y objetos de prueba contados para los ensayos destructivos.
 - [ ] **[Consola]** Arrancar con Paper 26.3 y Java 25: ver
-  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 18),
+  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 19),
   `lang/es.yml`, cinco YAML de mascotas, cinco árboles y `neopets.db` si SQLite.
   No debe aparecer `NeoPets could not start` ni errores de migración SQL.
 - [ ] **[1 jugador + consola, con LuckPerms]** Ejecutar
@@ -370,7 +370,7 @@ pila y su total entre inventarios y alforjas.
   tipo booleano incorrecto, aspecto inválido o cerrar mal una etiqueta de
   MiniMessage; tras cada caso ejecutar `/neopet reload`: error claro con
   archivo/ruta y configuración anterior todavía funcionando. Restaurar YAML
-  válido y recargar: éxito. Probar también `config-version: 19`: se rechaza.
+  válido y recargar: éxito. Probar también `config-version: 20`: se rechaza.
 - [ ] **[1 jugador + consola]** En copia de datos antigua de versión conocida
   (1–17), conservar valores personalizados y arrancar/recargar: avanza a 18,
   añade claves/mensajes faltantes y preserva los personalizados. Desde v15 añade
@@ -381,7 +381,7 @@ pila y su total entre inventarios y alforjas.
   No bajar la versión de archivos actuales como sustituto de una copia antigua.
 - [ ] **[1 jugador + consola]** Una migración con otro YAML inválido no debe
   guardar parcialmente los documentos migrados. Reparar y repetir; entonces
-  se guarda la versión 18. Comprobar respaldo manual: el plugin no crea uno.
+  se guarda la versión 19. Comprobar respaldo manual: el plugin no crea uno.
 - [ ] **[1 jugador]** Cambiar `follow.teleport-distance` y refresco Bukkit:
   `/neopet reload` valida pero los objetos/timers existentes mantienen el valor
   de arranque. Reiniciar y comprobar nuevo comportamiento. Cambios de motor

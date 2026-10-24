@@ -70,6 +70,29 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void versionNineteenRelabelsUntouchedSkillProgressMessagesOnly() throws Exception {
+        var loader = new ConfigurationLoader(temporaryDirectory);
+        loader.load();
+        replace("config.yml", "config-version: " + ConfigurationMigrator.CURRENT_VERSION, "config-version: 18");
+        Path langFile = temporaryDirectory.resolve("lang/es.yml");
+        var language = YamlConfiguration.loadConfiguration(langFile.toFile());
+        language.set("gui.skill-tree.header-nodes",
+                "<gray>Nodos: <white><nodes></white><dark_gray>/<maximum></dark_gray></gray>");
+        language.set("gui.skill-tree.header-assigned-sp",
+                "<gray>SP asignados: <white><assigned></white><dark_gray>/<maximum></dark_gray></gray>");
+        language.set("gui.pets.progress", "Mi progreso <nodes>/<node_max> <points>/<point_max>");
+        language.save(langFile.toFile());
+        var upgraded = loader.load();
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
+        assertTrue(upgraded.language().find("gui.skill-tree.header-nodes").orElseThrow()
+                .contains("Mejoras desbloqueadas"));
+        assertTrue(upgraded.language().find("gui.skill-tree.header-assigned-sp").orElseThrow()
+                .contains("Mejoras activas"));
+        assertEquals("Mi progreso <nodes>/<node_max> <points>/<point_max>",
+                upgraded.language().find("gui.pets.progress").orElseThrow());
+    }
+
+    @Test
     void versionFifteenAddsCompensationAndResetMessagesWithoutOverwritingCustomValues() throws Exception {
         var loader = new ConfigurationLoader(temporaryDirectory);
         loader.load();
