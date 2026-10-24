@@ -127,7 +127,7 @@ finitos. `I64` significa `9223372036854775807` y `Dmax`, aproximadamente
 
 | Clave | Tipo | Predeterminado | Rango / efecto |
 |---|---|---|---|
-| `config-version` | Entero | 18 | Versiones 1–17 migran a 18; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
+| `config-version` | Entero | 19 | Versiones 1–18 migran a 19; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
 | `storage.type` | Texto | `sqlite` | `sqlite` o `mysql`; selección del motor al arrancar. SQLite es la opción aislada para pruebas; MySQL, para redes de producción. |
 | `storage.sqlite.file` | Texto | `neopets.db` | No vacío; ruta del archivo SQLite, relativa a la carpeta del plugin si no es absoluta. |
 | `storage.mysql.host` | Texto | `127.0.0.1` | No vacío; host MySQL/MariaDB. |
@@ -435,7 +435,7 @@ integraciones, el cerebro de seguimiento ni el temporizador Bukkit de permisos;
 reinicia para cambiar esos elementos. Para comprobar nuevos aspectos o valores
 de árboles ya invocados, guarda y vuelve a invocar la mascota.
 
-La versión actual es 18. Las migraciones añaden claves y mensajes nuevos sin
+La versión actual es 19. Las migraciones añaden claves y mensajes nuevos sin
 sobrescribir los personalizados; las antiguas apariencias de gatos/loros y los
 valores de árboles predeterminados anteriores a v5 tienen migración específica.
 En v17 se reemplaza el antiguo nodo `fire_resistance` sin modificar en perro,

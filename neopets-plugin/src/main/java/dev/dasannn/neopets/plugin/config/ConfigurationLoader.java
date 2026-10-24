@@ -220,6 +220,14 @@ public final class ConfigurationLoader {
             Stream.of("updater.checked", "updater.staged", "updater.usage",
                     "updater.available", "updater.current"))
             .collect(Collectors.toUnmodifiableSet());
+    /** Version 19 relabels skill progress; only values still equal to the old default are replaced. */
+    private static final Map<String, String> VERSION_19_RELABELED = Map.of(
+            "gui.pets.progress",
+            "<gray>Nodos: <white><nodes></white>/<node_max>   SP: <white><points></white>/<point_max></gray>",
+            "gui.skill-tree.header-assigned-sp",
+            "<gray>SP asignados: <white><assigned></white><dark_gray>/<maximum></dark_gray></gray>",
+            "gui.skill-tree.header-nodes",
+            "<gray>Nodos: <white><nodes></white><dark_gray>/<maximum></dark_gray></gray>");
     private static final Set<String> REQUIRED_MESSAGES = requiredMessages();
 
     private static Set<String> requiredMessages() {
@@ -417,6 +425,9 @@ public final class ConfigurationLoader {
         boolean changed = sourceVersion < 18 && mergeMissing(language, defaults, VERSION_18_MESSAGES);
         changed |= sourceVersion < 17 && mergeMissing(language, defaults, VERSION_17_MESSAGES);
         changed |= sourceVersion < 16 && mergeMissing(language, defaults, VERSION_16_MESSAGES);
+        if (sourceVersion < 19) {
+            changed |= replaceUntouchedDefaults(language, defaults, VERSION_19_RELABELED);
+        }
         if (sourceVersion < 17 && "<gold>Resistencia al fuego</gold>".equals(
                 language.getString("gui.skill-tree.attributes.fire_resistance.name"))) {
             language.set("gui.skill-tree.attributes.fire_resistance.name",
@@ -446,6 +457,19 @@ public final class ConfigurationLoader {
         }
         if (sourceVersion < 13) {
             changed |= mergeMissing(language, defaults, VERSION_13_MESSAGES);
+        }
+        return changed;
+    }
+
+    private static boolean replaceUntouchedDefaults(
+            YamlConfiguration language, YamlConfiguration defaults, Map<String, String> previousDefaults
+    ) {
+        boolean changed = false;
+        for (var entry : previousDefaults.entrySet()) {
+            if (entry.getValue().equals(language.getString(entry.getKey()))) {
+                language.set(entry.getKey(), defaults.getString(entry.getKey()));
+                changed = true;
+            }
         }
         return changed;
     }
