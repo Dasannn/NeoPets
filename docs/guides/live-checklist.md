@@ -382,6 +382,9 @@ pila y su total entre inventarios y alforjas.
 - [ ] **[1 jugador + consola]** Una migración con otro YAML inválido no debe
   guardar parcialmente los documentos migrados. Reparar y repetir; entonces
   se guarda la versión 19. Comprobar respaldo manual: el plugin no crea uno.
+- [ ] **[1 jugador]** Planear con élitros o saltar desde gran altura más allá de
+  `follow.teleport-distance`: la mascota no se teletransporta en el aire ni recibe
+  daño de caída; al aterrizar el dueño, aparece a su lado.
 - [ ] **[1 jugador]** Cambiar `follow.teleport-distance` y refresco Bukkit:
   `/neopet reload` valida pero los objetos/timers existentes mantienen el valor
   de arranque. Reiniciar y comprobar nuevo comportamiento. Cambios de motor

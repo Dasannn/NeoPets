@@ -156,7 +156,7 @@ proveedores de integración o el intervalo del refresco Bukkit requiere reinicio
 | `reset.player-enabled` | Booleano | `false` | Habilita botón de reset del árbol para jugadores. |
 | `give.all-owned-command` | Texto | `""` | Comando de consola si ya posee todos los candidatos, además del mensaje `pets.all-owned` (o `pets.already-owned` para ID específico). Vacío desactiva; sustituye `<player>` y `<uuid>`. Sin `/` inicial; no aparece en GUI admin. |
 | `reset.cost` | Decimal | 5000 | 0–Dmax; coste del reset, cero permite reset gratuito. |
-| `follow.teleport-distance` | Decimal | 20 | Mayor que 0 y finito; distancia de teleport al dueño. Se fija al arrancar: reinicia para aplicarla. |
+| `follow.teleport-distance` | Decimal | 20 | Mayor que 0 y finito; distancia de teleport al dueño. Mientras el dueño planea con élitros, vuela o cae, la mascota no se teletransporta (sigue caminando) y lo hace al aterrizar el dueño. Se fija al arrancar: reinicia para aplicarla. |
 
 ### Habilidades
 
