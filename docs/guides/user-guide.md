@@ -53,6 +53,8 @@ Las sugerencias de nombres solo muestran conectados.
 | `/neopet reset <jugador> <petId\|petName>` | `neopets.admin.reset` | Sí | `/neopet reset Ana dog_pale` |
 | `/neopet admin` | `neopets.admin.gui` | No | `/neopet admin` |
 | `/neopet reload` | `neopets.admin.reload` | Sí | `/neopet reload` |
+| `/neopets update check` | `neopets.admin.update` | Sí | `/neopets update check` |
+| `/neopets update` | `neopets.admin.update` | Sí | `/neopets update` |
 
 Los UUID de mensajería los incluyen los botones del chat; solo el destinatario
 puede responder. `give`/`take` requieren entero positivo; `set` admite cero.
@@ -64,25 +66,26 @@ persistente, ID de variante o nombre personalizado (también con espacios).
 Si varios nombres coinciden, usa el UUID para seleccionar la mascota exacta. `revive` pertenece a la
 raíz plural `/neopets`, no a `/neopet`.
 
-`paper-plugin.yml` declara todos los permisos estáticos usados por el plugin.
+`paper-plugin.yml` declara dependencias, versión de API y permisos.
+`neopets.use` tiene `default: true`; `neopets.admin` y todos sus hijos tienen
+`default: false`. Ser OP no concede acceso administrativo. La consola local
+y remota conserva acceso a todas las acciones administrativas.
 Los comandos se registran en ejecución y comprueban estos nodos:
 
-| Permiso | Predeterminado | Alcance |
-|---|---|---|
-| `neopets.use` | Todos (`true`) | Menús, invocar, guardar, mensajería y alforjas |
-| `neopets.admin` | Operadores | Hereda los seis permisos administrativos siguientes |
-| `neopets.admin.give` | Operadores | Entregar variantes |
-| `neopets.admin.sp` | Operadores | Dar, quitar y fijar saldo de SP |
-| `neopets.admin.revive` | Operadores | Revivir con el alma válida |
-| `neopets.admin.reset` | Operadores | Reset gratuito del árbol |
-| `neopets.admin.gui` | Operadores | Abrir y editar la GUI administrativa |
-| `neopets.admin.reload` | Operadores | Recargar YAML |
-| `neopets.rank.<id>` | Sin declaración estática | Seleccionar un rango definido en `ranks` |
+| Permiso | Alcance |
+|---|---|
+| `neopets.use` | Menú de mascotas, invocar, guardar y responder mensajería; acceso a las alforjas |
+| `neopets.admin.give` | Entregar variantes |
+| `neopets.admin.reset` | Reset gratuito del árbol de una mascota de un jugador conectado |
+| `neopets.admin.sp` | Dar, quitar y fijar saldo de SP |
+| `neopets.admin.revive` | Ejecutar la integración de revivir para un jugador |
+| `neopets.admin.gui` | Abrir y editar la GUI administrativa |
+| `neopets.admin.reload` | Recargar YAML |
+| `neopets.admin.update` | Consultar y preparar actualizaciones firmadas |
+| `neopets.rank.<id>` | Seleccionar un rango **definido** en `ranks` |
 
-Los permisos de rango son dinámicos: existe uno por cada ID configurado (por
-ejemplo `neopets.rank.vip`). No se declaran en el descriptor. Un jugador sin
-OP puede abrir `/neopets` sin concesiones adicionales. Para delegar acciones
-administrativas concretas, por ejemplo con LuckPerms:
+`neopets.admin` concede todos sus hijos administrativos: `give`, `sp`, `revive`,
+`reset`, `gui`, `reload` y `update`. También se puede conceder solo el hijo requerido. Los comodines dependen del gestor de permisos. Por ejemplo, en consola con LuckPerms:
 
 ```text
 lp group default permission set neopets.use true
@@ -124,7 +127,7 @@ finitos. `I64` significa `9223372036854775807` y `Dmax`, aproximadamente
 
 | Clave | Tipo | Predeterminado | Rango / efecto |
 |---|---|---|---|
-| `config-version` | Entero | 16 | Versiones 1–15 migran a 16; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
+| `config-version` | Entero | 18 | Versiones 1–17 migran a 18; una futura se rechaza. Solo cambia al evolucionar el esquema; no la subas manualmente. |
 | `storage.type` | Texto | `sqlite` | `sqlite` o `mysql`; selección del motor al arrancar. SQLite es la opción aislada para pruebas; MySQL, para redes de producción. |
 | `storage.sqlite.file` | Texto | `neopets.db` | No vacío; ruta del archivo SQLite, relativa a la carpeta del plugin si no es absoluta. |
 | `storage.mysql.host` | Texto | `127.0.0.1` | No vacío; host MySQL/MariaDB. |
@@ -500,3 +503,11 @@ externo; cada ejecución válida de `sp give` suma puntos.
 
 Para validar cambios y detectar regresiones usa el [checklist](live-checklist.md);
 no presupone que las pruebas en vivo ya se hayan ejecutado.
+
+## Actualizaciones firmadas
+
+`/neopets update check` consulta la versión instalada y la última release.
+`/neopets update` prepara una actualización firmada para el próximo reinicio.
+Ambos requieren `neopets.admin.update` (o consola). Consultar
+[actualizaciones firmadas](updates.md) para configurar clave pública, token,
+`updater.enabled`, repositorio y prereleases, y publicar una release.

@@ -421,3 +421,23 @@ admin:
   feature-disabled: "<yellow><feature> desactivada.</yellow>"
   value-updated: "<green><setting> ahora vale <value>.</green>"
   edit-invalid: "<red>El cambio no es válido y no se guardó.</red>"
+
+updater:
+  usage: '<yellow>Uso: /neopets update [check]</yellow>'
+  checked: '<gray>Instalada: <installed>; última: <latest>. <status>. <name> — <notes></gray>'
+  staged: '<green>Actualización <version> verificada y preparada. Reinicia el servidor.</green>'
+  disabled: '<red>El actualizador está desactivado.</red>'
+  no-token: '<red>Configura updater.github-token o NEOPETS_GITHUB_TOKEN.</red>'
+  unauthorized: '<red>GitHub rechazó el token (401).</red>'
+  forbidden: '<red>El token no tiene acceso al repositorio (403).</red>'
+  not-found: '<red>No se encontró el repositorio o una release accesible (404).</red>'
+  rate-limited: '<red>Límite de GitHub alcanzado; inténtalo más tarde.</red>'
+  no-newer-version: '<yellow>No hay una versión más reciente; no se permiten versiones iguales ni anteriores.</yellow>'
+  missing-asset: '<red>La release no contiene todos los archivos requeridos.</red>'
+  checksum-mismatch: '<red>SHA-256 incorrecto; actualización rechazada.</red>'
+  bad-signature: '<red>Firma Ed25519 inválida; actualización rechazada.</red>'
+  placeholder-key: '<red>Falta la clave pública real incluida en el plugin (PLACEHOLDER). Actualización rechazada.</red>'
+  io-error: '<red>No se pudo consultar, verificar o guardar la actualización.</red>'
+  busy: '<yellow>Ya hay una operación de actualización en curso.</yellow>'
+  available: "Hay una actualización disponible"
+  current: "No hay una versión más reciente"

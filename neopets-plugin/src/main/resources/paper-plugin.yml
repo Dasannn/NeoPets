@@ -20,30 +20,33 @@ permissions:
     description: Usar los comandos y menús de mascotas
     default: true
   neopets.admin:
-    description: Administración de NeoPets
-    default: op
+    default: false
     children:
-      neopets.admin.reset: true
       neopets.admin.give: true
       neopets.admin.sp: true
       neopets.admin.revive: true
+      neopets.admin.reset: true
       neopets.admin.gui: true
       neopets.admin.reload: true
+      neopets.admin.update: true
   neopets.admin.give:
     description: Entregar mascotas a jugadores
-    default: op
+    default: false
   neopets.admin.sp:
     description: Gestionar los puntos de habilidad
-    default: op
+    default: false
   neopets.admin.revive:
     description: Revivir mascotas con su alma
-    default: op
+    default: false
   neopets.admin.reset:
     description: Reiniciar gratuitamente el árbol de una mascota
-    default: op
+    default: false
   neopets.admin.gui:
     description: Abrir y editar la configuración administrativa
-    default: op
+    default: false
   neopets.admin.reload:
     description: Recargar la configuración de NeoPets
-    default: op
+    default: false
+  neopets.admin.update:
+    description: Consultar e instalar actualizaciones firmadas
+    default: false

@@ -15,7 +15,7 @@ actual. No marcar una casilla sin ejecutar y observar su resultado. Consulta la
   en el servidor detenido; respaldar carpeta `plugins/NeoPets` y BD. Usar un
   área aislada y objetos de prueba contados para los ensayos destructivos.
 - [ ] **[Consola]** Arrancar con Paper 26.3 y Java 25: ver
-  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 16),
+  `NeoPets enabled (version …)`. Comprobar que aparecen `config.yml` (versión 18),
   `lang/es.yml`, cinco YAML de mascotas, cinco árboles y `neopets.db` si SQLite.
   No debe aparecer `NeoPets could not start` ni errores de migración SQL.
 - [ ] **[1 jugador + consola, con LuckPerms]** Ejecutar
@@ -370,9 +370,9 @@ pila y su total entre inventarios y alforjas.
   tipo booleano incorrecto, aspecto inválido o cerrar mal una etiqueta de
   MiniMessage; tras cada caso ejecutar `/neopet reload`: error claro con
   archivo/ruta y configuración anterior todavía funcionando. Restaurar YAML
-  válido y recargar: éxito. Probar también `config-version: 17`: se rechaza.
+  válido y recargar: éxito. Probar también `config-version: 19`: se rechaza.
 - [ ] **[1 jugador + consola]** En copia de datos antigua de versión conocida
-  (1–15), conservar valores personalizados y arrancar/recargar: avanza a 16,
+  (1–16), conservar valores personalizados y arrancar/recargar: avanza a 17,
   añade claves/mensajes faltantes y preserva los personalizados. Desde v15 añade
   `give.all-owned-command: ""` y mensajes de reset; conserva un comando personalizado
   si ya existía. Un valor booleano/lista en esa clave se rechaza al recargar. Para origen
@@ -381,7 +381,7 @@ pila y su total entre inventarios y alforjas.
   No bajar la versión de archivos actuales como sustituto de una copia antigua.
 - [ ] **[1 jugador + consola]** Una migración con otro YAML inválido no debe
   guardar parcialmente los documentos migrados. Reparar y repetir; entonces
-  se guarda la versión 16. Comprobar respaldo manual: el plugin no crea uno.
+  se guarda la versión 18. Comprobar respaldo manual: el plugin no crea uno.
 - [ ] **[1 jugador]** Cambiar `follow.teleport-distance` y refresco Bukkit:
   `/neopet reload` valida pero los objetos/timers existentes mantienen el valor
   de arranque. Reiniciar y comprobar nuevo comportamiento. Cambios de motor
@@ -435,3 +435,25 @@ pila y su total entre inventarios y alforjas.
   materiales de prueba; eliminar entidades/objetos de ensayo del área.
   Recargar o reiniciar según corresponda. Anotar pruebas pendientes, fallos
   reproducibles y evidencia; estas casillas no sustituyen aprobación del dueño.
+
+## Permisos sin OP y actualizaciones firmadas
+
+- [ ] OP sin nodos NeoPets: give/sp/revive/reset/admin/reload/update denegados y
+  sin sugerencias administrativas. Jugador no OP con hijo explícito: acción permitida.
+  Con nodo global: todos los hijos permitidos. `/pets` conserva `neopets.use` por defecto.
+- [ ] Consola local y RCON sin nodos: acceso admin; LDPotions puede ejecutar
+  `neopets revive Ana` desde consola con alma válida en la mano principal.
+- [ ] Migrar v16 a v17: conserva ajustes, añade updater y mensajes. Rechazar
+  booleanos incorrectos, repositorio con URL/ruta inyectada y token no textual;
+  ningún diagnóstico muestra el token. La variable de entorno tiene prioridad.
+- [ ] `/neopets update check`: muestra instalada/última, título y primera línea;
+  probar estable, prerelease habilitada/deshabilitada y SNAPSHOT.
+- [ ] Con clave PLACEHOLDER o ausente se rechaza instalar. Sin token, token sin
+  acceso o caducado: mensaje específico sin credenciales. Probar límite de API.
+- [ ] Release firmada con clave correcta: update prepara exactamente el nombre
+  del JAR actual en la carpeta update; reiniciar y comprobar versión nueva.
+- [ ] Assets ausentes, SHA incorrecto, firma inválida/JAR alterado, versión igual
+  o inferior: no crean ni reemplazan el JAR preparado. Dos llamadas simultáneas:
+  segunda rechazada. Descarga lenta no bloquea ticks; respuestas llegan en hilo principal.
+- [ ] Workflow sin secret: falla; con claves correctas y tag v*: tres assets,
+  versión de JAR/metadatos correcta y ninguna clave privada en logs/repositorio.

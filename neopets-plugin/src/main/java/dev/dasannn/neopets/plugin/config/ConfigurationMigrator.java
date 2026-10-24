@@ -12,7 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 /** Applies a contiguous migration chain to the current configuration version. */
 public final class ConfigurationMigrator {
     /** Current bundled configuration schema. */
-    public static final int CURRENT_VERSION = 17;
+    public static final int CURRENT_VERSION = 18;
     private static final Map<String, List<ValueMigration>> SKILL_TREE_VALUE_MIGRATIONS = skillTreeValueMigrations();
 
     private final int currentVersion;
@@ -287,6 +287,15 @@ public final class ConfigurationMigrator {
             @Override
             public void apply(YamlConfiguration configuration) {
                 // Version 17 replaces the third common node; migrateSkillTree handles each document.
+            }
+        }, new ConfigMigration() {
+            @Override public int fromVersion() { return 17; }
+            @Override public int toVersion() { return 18; }
+            @Override public void apply(YamlConfiguration configuration) {
+                setIfMissing(configuration, "updater.enabled", true);
+                setIfMissing(configuration, "updater.repository", "Dasannn/NeoPets");
+                setIfMissing(configuration, "updater.github-token", "");
+                setIfMissing(configuration, "updater.include-prereleases", false);
             }
         }));
     }

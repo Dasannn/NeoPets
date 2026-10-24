@@ -13,6 +13,7 @@ import dev.dasannn.neopets.core.skilltree.SkillTreeDefinition;
 import dev.dasannn.neopets.core.skilltree.VanillaEffectReference;
 import dev.dasannn.neopets.platform.paper.ability.BuscatesorosAbility;
 import dev.dasannn.neopets.platform.paper.effect.VanillaEffectCatalog;
+import dev.dasannn.neopets.plugin.update.UpdateResult;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -22,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +31,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
 import org.bukkit.block.BlockType;
@@ -210,6 +214,12 @@ public final class ConfigurationLoader {
             "gui.pets.close", "gui.pets.help-name", "gui.pets.help-lore", "gui.pets.help-message",
             "gui.pets.coming-soon", "gui.pets.rename-prompt", "gui.pets.rename-cancel-word",
             "gui.pets.rename-cancelled", "gui.pets.rename-invalid");
+    private static final Set<String> VERSION_18_MESSAGES = Stream.concat(
+            Arrays.stream(UpdateResult.Failure.values())
+                    .map(failure -> "updater." + failure.key()),
+            Stream.of("updater.checked", "updater.staged", "updater.usage",
+                    "updater.available", "updater.current"))
+            .collect(Collectors.toUnmodifiableSet());
     private static final Set<String> REQUIRED_MESSAGES = requiredMessages();
 
     private static Set<String> requiredMessages() {
@@ -222,6 +232,7 @@ public final class ConfigurationLoader {
         required.addAll(VERSION_17_MESSAGES);
         required.addAll(VERSION_13_MESSAGES);
         required.addAll(VERSION_14_MESSAGES);
+        required.addAll(VERSION_18_MESSAGES);
         return Set.copyOf(required);
     }
 
@@ -313,6 +324,19 @@ public final class ConfigurationLoader {
             parseSkillTree(type, treeYaml, trees, issues);
         }
         LanguageCatalog language = parseLanguage(languageYaml, issues);
+        Path configFile = dataDirectory.resolve("config.yml");
+        String repository = valueOr(string(root, configFile, "updater.repository", issues), "Dasannn/NeoPets");
+        if (!UpdaterSettings.validRepository(repository)) {
+            issue(issues, configFile, "updater.repository", "must be owner/repository using GitHub name characters");
+            repository = "Dasannn/NeoPets";
+        }
+        String token = valueOr(string(root, configFile, "updater.github-token", true, issues), "");
+        if (token.chars().anyMatch(Character::isISOControl)) {
+            issue(issues, configFile, "updater.github-token", "must not contain control characters");
+            token = "";
+        }
+        var updater = new UpdaterSettings(valueOr(bool(root, configFile, "updater.enabled", issues), true),
+                repository, token, valueOr(bool(root, configFile, "updater.include-prereleases", issues), false));
 
         if (!issues.isEmpty()) {
             throw new ConfigurationLoadException(issues);
@@ -326,7 +350,7 @@ public final class ConfigurationLoader {
         if (migration.changed()) {
             root.save(dataDirectory.resolve("config.yml").toFile());
         }
-        return new ConfigurationSnapshot(settings, new InMemoryVariantCatalog(variants.values()), icons, trees, language);
+        return new ConfigurationSnapshot(settings, new InMemoryVariantCatalog(variants.values()), icons, trees, language, updater);
     }
 
     private void copyMissingDefaults() throws IOException {
@@ -351,7 +375,8 @@ public final class ConfigurationLoader {
                 Files.newInputStream(dataDirectory.resolve(relativePath)), StandardCharsets.UTF_8)) {
             yaml.load(reader);
         } catch (IOException | InvalidConfigurationException | RuntimeException exception) {
-            issue(issues, relativePath, "<root>", "cannot parse YAML: " + conciseMessage(exception));
+            issue(issues, relativePath, "<root>", "cannot parse YAML: " + (relativePath.equals(Path.of("config.yml"))
+                    ? "invalid document [credentials redacted]" : conciseMessage(exception)));
             return new YamlConfiguration();
         }
         return yaml;
@@ -389,7 +414,8 @@ public final class ConfigurationLoader {
             return false;
         }
 
-        boolean changed = sourceVersion < 17 && mergeMissing(language, defaults, VERSION_17_MESSAGES);
+        boolean changed = sourceVersion < 18 && mergeMissing(language, defaults, VERSION_18_MESSAGES);
+        changed |= sourceVersion < 17 && mergeMissing(language, defaults, VERSION_17_MESSAGES);
         changed |= sourceVersion < 16 && mergeMissing(language, defaults, VERSION_16_MESSAGES);
         if (sourceVersion < 17 && "<gold>Resistencia al fuego</gold>".equals(
                 language.getString("gui.skill-tree.attributes.fire_resistance.name"))) {

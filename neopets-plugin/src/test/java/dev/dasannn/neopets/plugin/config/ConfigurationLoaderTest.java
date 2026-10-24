@@ -56,7 +56,7 @@ class ConfigurationLoaderTest {
         language.set("gui.skill-tree.attributes.fire_resistance.name", "<gold>Resistencia al fuego</gold>");
         language.save(langFile.toFile());
         var upgraded = loader.load();
-        assertEquals(17, upgraded.settings().configVersion());
+        assertEquals(ConfigurationMigrator.CURRENT_VERSION, upgraded.settings().configVersion());
         for (var entry : replacements.entrySet()) {
             var tree = YamlConfiguration.loadConfiguration(
                     temporaryDirectory.resolve("skilltrees/" + entry.getKey() + ".yml").toFile());
