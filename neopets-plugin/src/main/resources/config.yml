@@ -1,0 +1,119 @@
+# Incremented only when NeoPets changes the configuration schema.
+config-version: 18
+
+storage:
+  # sqlite is isolated and safe for development/test servers; use mysql in production networks.
+  type: sqlite
+  sqlite:
+    file: neopets.db
+  mysql:
+    host: 127.0.0.1
+    port: 3306
+    database: neopets
+    username: neopets
+    password: "change-me"
+
+player-data:
+  # Maximum database wait during asynchronous pre-login profile loading.
+  load-timeout-seconds: 10
+
+death:
+  enabled: true
+  pvp: false
+  keep-skills: true
+  soul-item:
+    material: ECHO_SHARD
+    name: "<light_purple>Alma de <pet></light_purple>"
+    lore:
+      - "<gray>Tipo: <type></gray>"
+      - "<gray>Úsala con una poción de revivir</gray>"
+
+shop:
+  # Reserved for a future pet shop; there is no purchase flow yet, so this flag has no effect.
+  enabled: false
+
+rename:
+  enabled: true
+
+reset:
+  player-enabled: false
+  cost: 5000
+
+follow:
+  teleport-distance: 20
+
+rank-resolution:
+  # Without LuckPerms, online permission snapshots are refreshed on the server thread at this interval.
+  bukkit-refresh-interval-seconds: 30
+
+abilities:
+  aterrizaje-felino:
+    enabled: true
+  zarpazo:
+    enabled: true
+    cooldown-seconds: 10
+    radius: 6.0
+    damage: 4.0
+  vigia:
+    enabled: true
+    cooldown-seconds: 5
+    radius: 16.0
+    # Paper 26.3 has no supported per-player glow API; this vanilla glow is visible to everyone nearby.
+    duration-seconds: 5
+  buscatesoros:
+    enabled: true
+    cooldown-seconds: 30
+    base-radius: 16.0
+    duration-seconds: 5
+    max-targets: 32
+    # Chunk queries and positions inspected nearest-first per activation; the budget cuts farthest positions.
+    max-scan-blocks: 8192
+    ore-materials:
+      - ANCIENT_DEBRIS
+      - COAL_ORE
+      - COPPER_ORE
+      - DEEPSLATE_COAL_ORE
+      - DEEPSLATE_COPPER_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - DEEPSLATE_IRON_ORE
+      - DEEPSLATE_LAPIS_ORE
+      - DEEPSLATE_REDSTONE_ORE
+      - DIAMOND_ORE
+      - EMERALD_ORE
+      - GOLD_ORE
+      - IRON_ORE
+      - LAPIS_ORE
+      - NETHER_GOLD_ORE
+      - NETHER_QUARTZ_ORE
+      - REDSTONE_ORE
+
+ranks:
+  default:
+    max-active-pets: 1
+    max-skill-points: 3
+    max-nodes-per-pet: 10
+  # Drafts for future VIP ranks; uncomment when those ranks exist on the server.
+  # vip:
+  #   max-active-pets: 2
+  #   max-skill-points: 6
+  #   max-nodes-per-pet: 16
+  # vipplus:
+  #   max-active-pets: 4
+  #   max-skill-points: 9
+  #   max-nodes-per-pet: 22
+
+courier:
+  request-timeout-seconds: 300
+  cooldown-seconds: 900
+
+give:
+  # Console command when every candidate is owned; empty disables it. Placeholders: <player>, <uuid>.
+  all-owned-command: ""
+
+updater:
+  enabled: true
+  repository: "Dasannn/NeoPets"
+  github-token: ""
+  include-prereleases: false

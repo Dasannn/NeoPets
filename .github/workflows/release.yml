@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Validate release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          tag = os.environ['RELEASE_TAG']
+          pattern = r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+          if not re.fullmatch(pattern, tag):
+              raise SystemExit('Invalid semantic version tag')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('RELEASE_VERSION=' + tag[1:] + '\n')
+          PY
+      - name: Build release
+        run: |
+          python3 -m unittest discover -s .github/scripts
+          ./gradlew build -Pversion="$RELEASE_VERSION"
+      # Deliberately outside Gradle: no secret in its daemon, inputs or caches.
+      - name: Bundle optional updater token
+        env:
+          NEOPETS_UPDATER_TOKEN: ${{ secrets.NEOPETS_UPDATER_TOKEN }}
+        run: python3 .github/scripts/bundle-updater-token.py "neopets-plugin/build/libs/NeoPets-$RELEASE_VERSION.jar"
+      - name: Sign release
+        env:
+          SIGNING_KEY: ${{ secrets.NEOPETS_UPDATE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SIGNING_KEY" ]; then
+            echo 'NEOPETS_UPDATE_SIGNING_KEY is required' >&2
+            exit 1
+          fi
+          umask 077
+          key_file=$(mktemp "$RUNNER_TEMP/neopets-signing.XXXXXX")
+          trap 'rm -f "$key_file"' EXIT
+          if [[ "$SIGNING_KEY" == *"-----BEGIN"* ]]; then
+            printf '%s\n' "$SIGNING_KEY" > "$key_file"
+          else
+            # Accept a bare base64 PKCS#8 body pasted without its PEM header lines.
+            printf -- '-----BEGIN PRIVATE KEY-----\n%s\n-----END PRIVATE KEY-----\n' "${SIGNING_KEY//[$' \t\r\n']/}" > "$key_file"
+          fi
+          unset SIGNING_KEY
+          cd neopets-plugin/build/libs
+          jar="NeoPets-$RELEASE_VERSION.jar"
+          sha256sum "$jar" > "$jar.sha256"
+          openssl pkeyutl -sign -rawin -inkey "$key_file" -in "$jar" -out "$jar.sig"
+          test "$(wc -c < "$jar.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin -inkey ../../src/main/resources/neopets-update-public-key.pem -in "$jar" -sigfile "$jar.sig"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          args=()
+          if [[ "${RELEASE_VERSION%%+*}" == *-* ]]; then args+=(--prerelease); fi
+          jar="neopets-plugin/build/libs/NeoPets-$RELEASE_VERSION.jar"
+          gh release create "$RELEASE_TAG" "$jar" "$jar.sha256" "$jar.sig" --verify-tag --generate-notes "${args[@]}"

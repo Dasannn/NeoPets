@@ -1,0 +1,52 @@
+name: NeoPets
+version: '${version}'
+main: dev.dasannn.neopets.plugin.NeoPetsPlugin
+bootstrapper: dev.dasannn.neopets.plugin.bootstrap.NeoPetsBootstrap
+loader: dev.dasannn.neopets.plugin.bootstrap.NeoPetsLoader
+api-version: '26.3'
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+    LuckPerms:
+      load: BEFORE
+      required: false
+    PlaceholderAPI:
+      load: BEFORE
+      required: false
+permissions:
+  neopets.use:
+    description: Usar los comandos y menús de mascotas
+    default: true
+  neopets.admin:
+    default: false
+    children:
+      neopets.admin.give: true
+      neopets.admin.sp: true
+      neopets.admin.revive: true
+      neopets.admin.reset: true
+      neopets.admin.gui: true
+      neopets.admin.reload: true
+      neopets.admin.update: true
+  neopets.admin.give:
+    description: Entregar mascotas a jugadores
+    default: false
+  neopets.admin.sp:
+    description: Gestionar los puntos de habilidad
+    default: false
+  neopets.admin.revive:
+    description: Revivir mascotas con su alma
+    default: false
+  neopets.admin.reset:
+    description: Reiniciar gratuitamente el árbol de una mascota
+    default: false
+  neopets.admin.gui:
+    description: Abrir y editar la configuración administrativa
+    default: false
+  neopets.admin.reload:
+    description: Recargar la configuración de NeoPets
+    default: false
+  neopets.admin.update:
+    description: Consultar e instalar actualizaciones firmadas
+    default: false

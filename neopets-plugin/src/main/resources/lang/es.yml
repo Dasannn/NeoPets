@@ -1,0 +1,444 @@
+prefix: "<gradient:#57d6ff:#b56cff><bold>NeoPets</bold></gradient> <dark_gray>»</dark_gray>"
+
+placeholders:
+  active-pet-empty: "-"
+
+errors:
+  no-permission: "<red>No tienes permiso para hacer eso.</red>"
+  player-only: "<red>Este comando solo puede usarlo un jugador.</red>"
+  player-not-found: "<red>No se encontró al jugador <yellow><player></yellow>.</red>"
+  player-offline: "<red>El jugador <yellow><player></yellow> debe estar conectado.</red>"
+  invalid-amount: "<red>La cantidad debe ser un número entero positivo.</red>"
+  config-invalid: "<red>No se pudo recargar la configuración. Revisa la consola.</red>"
+  internal: "<red>Ha ocurrido un error inesperado.</red>"
+  profile-load: "<red>No se pudieron cargar tus datos de NeoPets. Inténtalo de nuevo.</red>"
+
+general:
+  reloaded: "<green>Configuración de NeoPets recargada.</green>"
+  usage-neopets: "<gray>Usa <white>/neopets</white> para abrir tus mascotas.</gray>"
+  usage-neopet: "<gray>Usa <white>/neopet give|summon|dismiss|sp|reset|courier|admin|reload</white>.</gray>"
+  usage-pet-action: '<gray>Uso: <white>/neopet summon|dismiss \<variante|id></white></gray>'
+  usage-give: '<gray>Uso: <white>/neopet give \<jugador> \<id|ids|random> [tipo]</white></gray>'
+  usage-reset: '<gray>Uso: <white>/neopet reset \<jugador> \<petId|petName></white></gray>'
+  usage-sp: '<gray>Uso: <white>/neopet sp \<give|take|set> \<jugador> \<cantidad></white></gray>'
+  usage-revive: '<gray>Uso: <white>/neopets revive \<jugador></white></gray>'
+  usage-courier: '<gray>Usa los botones de la solicitud de mensajería.</gray>'
+
+pets:
+  unknown-pet: "<red>No se encontró la mascota <pet>.</red>"
+  none-owned: "<yellow>Aún no tienes mascotas.</yellow>"
+  given: "<green>Has recibido <pet>.</green>"
+  given-admin: "<green>Entregaste <pet> a <player>.</green>"
+  already-owned: "<yellow><player> ya posee esa variante.</yellow>"
+  all-owned: "<yellow>No quedan variantes disponibles de esa selección.</yellow>"
+  unknown-variant: "<red>No existe la variante <yellow><variant></yellow>.</red>"
+  unknown-type: "<red>No existe el tipo de mascota <yellow><type></yellow>.</red>"
+  summoned: "<green>Has invocado a <pet>.</green>"
+  dismissed: "<gray>Has desinvocado a <pet>.</gray>"
+  active-limit: "<red>Ya alcanzaste tu límite de <limit> mascotas activas.</red>"
+  already-active: "<yellow><pet> ya está invocada.</yellow>"
+  already-inactive: "<yellow><pet> ya está desinvocada.</yellow>"
+  not-owned: "<red>No posees esa mascota.</red>"
+  in-transit: "<yellow><pet> está realizando una entrega.</yellow>"
+  dead-unavailable: "<red><pet> está muerta y no puede hacer eso.</red>"
+  list-header: "<aqua>Tus mascotas:</aqua>"
+  list-entry: "<gray>• <pet> <dark_gray>(<variant>)</dark_gray> — <action></gray>"
+  action-summon: "invocar"
+  action-dismiss: "desinvocar"
+  renamed: "<green>Tu mascota ahora se llama <name>.</green>"
+  rename-disabled: "<yellow>El renombrado de mascotas está desactivado.</yellow>"
+  dead: "<red><pet> ha muerto. Su alma ha sido entregada a tu inventario.</red>"
+  revived: "<green><pet> ha vuelto a la vida.</green>"
+  revived-admin: "<green>Reviviste a <pet> de <player>.</green>"
+  soul-required: "<red>Debes sostener el alma válida de la mascota en la mano principal.</red>"
+  soul-invalid: "<red>Esta alma no es válida o ya fue utilizada.</red>"
+  soul-wrong-owner: "<red>Esta alma pertenece a la mascota de otro jugador.</red>"
+  revive-not-dead: "<yellow>La mascota de esta alma no está muerta.</yellow>"
+  soul-item-name: "<light_purple>Alma de <pet></light_purple>"
+  soul-item-lore: "<gray>Úsala con una poción de revivir.</gray>"
+  soul-delivered: "<red><pet> ha muerto.</red> <light_purple>Su alma está en tu inventario.</light_purple>"
+  soul-dropped: "<red><pet> ha muerto.</red> <light_purple>Su alma cayó a tus pies porque tu inventario está lleno.</light_purple>"
+  shop-disabled: "<yellow>La compra de mascotas está desactivada.</yellow>"
+
+skills:
+  reset-admin: "<green>Árbol de <pet> de <player> reiniciado; <points> SP devueltos.</green>"
+  points: "<aqua>SP disponibles: <white><points></white></aqua>"
+  points-changed: "<green>El saldo de SP de <player> ahora es <points>.</green>"
+  points-insufficient: "<red><player> solo tiene <points> SP; no se pueden quitar <amount>.</red>"
+  points-overflow: "<red>El saldo de SP de <player> excedería el máximo permitido.</red>"
+  node-unlocked: "<green>Has desbloqueado <attribute> nivel <level>.</green>"
+  node-activated: "<green>Has activado <attribute> nivel <level>.</green>"
+  previous-level-required: "<yellow>Debes desbloquear primero el nivel anterior.</yellow>"
+  not-enough-money: "<red>Necesitas <cost> para desbloquear este nodo.</red>"
+  not-enough-points: "<red>No tienes suficientes SP disponibles.</red>"
+  node-limit: "<red>Alcanzaste el límite de <limit> nodos desbloqueados para esta mascota.</red>"
+  point-limit: "<red>Alcanzaste el límite de <limit> SP asignados a esta mascota.</red>"
+  reset: "<green>El árbol de <pet> fue reiniciado y recuperaste <points> SP.</green>"
+  reset-disabled: "<yellow>El reinicio de árbol para jugadores está desactivado.</yellow>"
+  reset-cost: "<gray>Reiniciar cuesta <gold><cost></gold>.</gray>"
+  already-unlocked: "<yellow>Ese nodo ya está desbloqueado.</yellow>"
+  already-active: "<yellow>Ese nodo ya está activo.</yellow>"
+
+abilities:
+  buscatesoros:
+    found: "<gold>Buscatesoros encontró <count> tesoros cercanos.</gold>"
+
+courier:
+  request-sent: "<green>Solicitud de mensajería enviada a <player>.</green>"
+  request-received: "<yellow><owner> quiere enviarte su burro.</yellow>"
+  accept-button: "<green><bold>[Aceptar]</bold></green>"
+  reject-button: "<red><bold>[Rechazar]</bold></red>"
+  accepted-recipient: "<green>Entrega aceptada. Las alforjas están abiertas.</green>"
+  accepted: "<green><player> aceptó la entrega.</green>"
+  rejected: "<yellow>La solicitud de mensajería fue rechazada.</yellow>"
+  returned: "<green>El burro ha vuelto con su dueño.</green>"
+  timed-out: "<yellow>La solicitud o entrega expiró y el burro regresó.</yellow>"
+  cooldown: "<red>Debes esperar <time> antes de volver a enviar al burro.</red>"
+  recipient-offline: "<red>El destinatario debe estar conectado.</red>"
+  unavailable: "<red>El burro no está disponible para ser enviado.</red>"
+  inventory-in-use: "<yellow>Otra persona está usando las alforjas.</yellow>"
+  send: "<green>Enviar burro</green>"
+  return: "<yellow>Devolver al dueño</yellow>"
+  picker-help-message: "<gray>Elige un jugador conectado para enviarle el burro.</gray>"
+  storage-help-message: "<gray>Clic en una pila para guardarla o retirarla; clic derecho para la mitad. Mantén el cursor vacío. Arrastrar, teclas numéricas, mano secundaria y doble clic están bloqueados.</gray>"
+
+gui:
+  pets-title: "Mis mascotas"
+  skill-tree-title: "<dark_aqua>Árbol de <pet></dark_aqua>"
+  admin-title: "Administración de NeoPets"
+  courier-title: "<gold>Alforjas mensajeras</gold>"
+  previous-page: "<yellow>Página anterior</yellow>"
+  next-page: "<yellow>Página siguiente</yellow>"
+  close: "<red>Cerrar</red>"
+  back: "<gray>Volver</gray>"
+  summoned: "<green>Invocada</green>"
+  dismissed: "<gray>Desinvocada</gray>"
+  dead: "<red>Muerta</red>"
+  locked-node: "<gray>Bloqueado · coste: <cost></gray>"
+  unlocked-node: "<yellow>Desbloqueado · clic para asignar 1 SP</yellow>"
+  active-node: "<green>Activo</green>"
+  unavailable-node: "<red>No disponible</red>"
+  rank-limits: "<gray>SP <assigned>/<sp_limit> · nodos <nodes>/<node_limit></gray>"
+  pets:
+    blank: "<white> </white>"
+    header-name: "<gold><bold>Mis mascotas</bold></gold>"
+    header-owned: "<gray>Mascotas: <white><owned></white> <dark_gray>poseídas</dark_gray></gray>"
+    header-active: "<gray>Activas: <green><active></green><dark_gray>/<maximum></dark_gray></gray>"
+    header-sp: "<gray>Skill points: <aqua><points></aqua></gray>"
+    header-hint: "<dark_gray>Consigue más en dungeons</dark_gray>"
+    empty-name: "<yellow>Aún no tienes mascotas</yellow>"
+    empty-lore: "<gray>Consíguelas completando dungeons</gray>"
+    no-filter-matches-name: "<yellow>Ninguna mascota de este tipo</yellow>"
+    no-filter-matches-lore: "<gray>Cambia el filtro para ver otras</gray>"
+    pet-name: "<white><name></white>"
+    pet-name-active: "<green><name></green>"
+    pet-name-dead: "<red><name> <dark_gray>(muerto)</dark_gray></red>"
+    pet-subtitle: "<dark_gray><type> · <age></dark_gray>"
+    age-adult: "Adulto"
+    age-baby: "Cría"
+    state-active: "<gray>Estado: <green>● Invocada</green></gray>"
+    state-stored: "<gray>Estado: <yellow>○ Guardada</yellow></gray>"
+    state-dead: "<gray>Estado: <red>✖ Muerta</red></gray>"
+    progress: "<gray>Nodos: <white><nodes></white>/<node_max>   SP: <white><points></white>/<point_max></gray>"
+    revive-line-one: "<gray>Bébete una poción de revivir</gray>"
+    revive-line-two: "<gray>con su alma en la mano.</gray>"
+    action-summon: "<yellow>Clic izq. <dark_gray>» <gray>Invocar</gray></dark_gray></yellow>"
+    action-dismiss: "<yellow>Clic izq. <dark_gray>» <gray>Guardar</gray></dark_gray></yellow>"
+    action-skills: "<yellow>Clic der. <dark_gray>» <gray>Habilidades</gray></dark_gray></yellow>"
+    action-rename: "<yellow>Shift+clic <dark_gray>» <gray>Renombrar</gray></dark_gray></yellow>"
+    action-courier: "<yellow>Shift+clic der. <dark_gray>» <gray>Abrir alforjas</gray></dark_gray></yellow>"
+    filter-name: "<aqua>Filtrar por tipo</aqua>"
+    filter-current: "<gray>Actual: <white><filter></white></gray>"
+    filter-action: "<yellow>Clic <dark_gray>» <gray>Cambiar</gray></dark_gray></yellow>"
+    filter-all: "Todos"
+    type-dog: "Perro"
+    type-cat: "Gato"
+    type-parrot: "Loro"
+    type-polar-bear: "Oso polar"
+    type-donkey: "Burro"
+    previous-page: "<white>Página anterior</white>"
+    next-page: "<white>Página siguiente</white>"
+    page-number: "<gray>Página <white><page></white>/<pages></gray>"
+    close: "<red>Cerrar</red>"
+    help-name: "<aqua>Ayuda</aqua>"
+    help-lore: |-
+      <gray>Gana mascotas en dungeons</gray>
+      <gray>y mejóralas con skill points.</gray>
+    help-message: "<gray>Gana mascotas en dungeons y mejóralas con skill points.</gray>"
+    coming-soon: "<yellow>Próximamente</yellow>"
+    rename-prompt: "<yellow>Escribe el nuevo nombre en el chat o <white>cancelar</white>.</yellow>"
+    rename-cancel-word: "cancelar"
+    rename-cancelled: "<gray>Renombrado cancelado.</gray>"
+    rename-invalid: "<red>El nombre debe tener entre 1 y 32 caracteres visibles y no contener saltos de línea.</red>"
+  courier:
+    blank: "<white> </white>"
+    title: "<gold>Alforjas mensajeras</gold>"
+    header: "<gold><bold>Alforjas de <pet></bold></gold>"
+    owner-subtitle: "<dark_gray>Almacenamiento del dueño · 27 espacios</dark_gray>"
+    recipient-subtitle: "<dark_gray>Entrega recibida · 27 espacios</dark_gray>"
+    send-name: "<green>Enviar burro</green>"
+    return-name: "<yellow>Devolver al dueño</yellow>"
+    send-action: "<yellow>Clic <dark_gray>» <gray>Elegir destinatario</gray></dark_gray></yellow>"
+    return-action: "<yellow>Clic <dark_gray>» <gray>Guardar y devolver</gray></dark_gray></yellow>"
+    back: "<white>Volver</white>"
+    close: "<red>Cerrar</red>"
+    storage-help: "<aqua>Cómo funcionan</aqua>"
+    storage-help-lore: "<gray>Clic: mover pila · clic derecho: mitad</gray>"
+    picker-title: "<gold>Enviar alforjas</gold>"
+    picker-header: "<gold><bold>Destinatario</bold></gold>"
+    picker-count: "<gray>Jugadores disponibles: <white><count></white></gray>"
+    player-name: "<white><player></white>"
+    player-action: "<yellow>Clic <dark_gray>» <gray>Enviar solicitud</gray></dark_gray></yellow>"
+    no-players: "<yellow>No hay otros jugadores conectados</yellow>"
+    previous: "<white>Página anterior</white>"
+    next: "<white>Página siguiente</white>"
+    page: "<gray>Página <white><page></white>/<pages></gray>"
+    picker-help: "<aqua>Envío seguro</aqua>"
+    picker-help-lore: "<gray>El destinatario debe aceptar la solicitud.</gray>"
+  skill-tree:
+    title: "<dark_aqua>Árbol de <pet></dark_aqua>"
+    header-name: "<gold><bold><pet></bold></gold>"
+    header-subtitle: "<dark_gray><type> · <age></dark_gray>"
+    header-available-sp: "<gray>SP disponibles: <aqua><points></aqua></gray>"
+    header-assigned-sp: "<gray>SP asignados: <white><assigned></white><dark_gray>/<maximum></dark_gray></gray>"
+    header-nodes: "<gray>Nodos: <white><nodes></white><dark_gray>/<maximum></dark_gray></gray>"
+    page-number: "<gray>Página <white><page></white>/<pages></gray>"
+    next-hint: "<dark_gray>Siguiente: <attribute> Nv. <level> · <cost></dark_gray>"
+    next-limit: "<red>Límite de nodos alcanzado</red>"
+    next-complete: "<green>Árbol completamente desbloqueado</green>"
+    category-vanilla: "<dark_gray>Vanilla</dark_gray>"
+    category-custom: "<dark_gray>Habilidad única</dark_gray>"
+    node-active-name: "<green>Nivel <level> ✔</green>"
+    node-unlocked-name: "<yellow>Nivel <level></yellow>"
+    node-next-name: "<gold>Nivel <level></gold>"
+    node-locked-name: "<dark_gray>Nivel <level></dark_gray>"
+    node-unavailable-name: "<red>Nivel <level></red>"
+    node-sp-cost: "<gray>Coste: <aqua><cost> SP</aqua></gray>"
+    node-money-cost: "<gray>Coste: <gold><cost></gold></gray>"
+    action-activate: "<yellow>Clic <dark_gray>» <gray>Activar</gray></dark_gray></yellow>"
+    action-unlock: "<yellow>Clic <dark_gray>» <gray>Desbloquear</gray></dark_gray></yellow>"
+    reason-previous: "<dark_gray>Desbloquea el nivel anterior</dark_gray>"
+    reason-previous-activation: "<dark_gray>Activa primero el nivel anterior</dark_gray>"
+    reason-node-limit: "<red>Límite de rango: <limit> nodos</red>"
+    reason-sp-limit: "<red>Límite de rango: <limit> SP</red>"
+    reason-no-sp: "<red>No tienes SP disponibles</red>"
+    reason-no-money: "<red>No tienes suficiente dinero</red>"
+    reason-no-economy: "<red>Economía no disponible</red>"
+    previous-page: "<white>Página anterior</white>"
+    next-page: "<white>Página siguiente</white>"
+    back: "<white>Volver</white>"
+    help-name: "<aqua>Cómo mejorar</aqua>"
+    help-lore: |-
+      <gray>Desbloquea nodos con dinero.</gray>
+      <gray>Actívalos después usando SP.</gray>
+    help-message: "<gray>Primero desbloquea nodos con dinero y después actívalos usando SP.</gray>"
+    reset-name: "<yellow>Reiniciar árbol</yellow>"
+    reset-cost: "<gray>Coste: <gold><cost></gold></gray>"
+    reset-refund: "<gray>Recuperarás todos los SP asignados.</gray>"
+    reset-action: "<yellow>Clic <dark_gray>» <gray>Pedir confirmación</gray></dark_gray></yellow>"
+    reset-confirm-name: "<red><bold>¿Confirmar reinicio?</bold></red>"
+    reset-confirm-action: "<red>Clic otra vez para confirmar</red>"
+    attributes:
+      health:
+        name: "<red>Vida</red>"
+        description: "<gray>Aumenta la vida máxima de la mascota.</gray>"
+        effect: "<gray>+<white><value></white> de vida máxima</gray>"
+      regeneration:
+        name: "<gold>Regeneración</gold>"
+        description: "<gray>Recupera vida de forma gradual.</gray>"
+        effect: "<gray>+<white><value></white> de regeneración</gray>"
+      fire_resistance:
+        name: "<gold>Plumaje ignífugo</gold>"
+        description: "<gray>Protege a la mascota del fuego.</gray>"
+        effect: "<gray>Inmunidad al fuego</gray>"
+      tough_hide:
+        name: "<gold>Piel dura</gold>"
+        description: "<gray>Reduce el daño recibido por la mascota.</gray>"
+        effect: "<gray>+Resistencia I</gray>"
+      padded_paws:
+        name: "<gold>Patas acolchadas</gold>"
+        description: "<gray>Protege a la mascota de las caídas.</gray>"
+        effect: "<gray>Sin daño por caída</gray>"
+      polar_swimmer:
+        name: "<gold>Nadador polar</gold>"
+        description: "<gray>Permite respirar bajo el agua.</gray>"
+        effect: "<gray>Respiración acuática</gray>"
+      sure_footing:
+        name: "<gold>Pisada firme</gold>"
+        description: "<gray>Evita la ralentización por bloques del terreno.</gray>"
+        effect: "<gray>Sin ralentización del terreno</gray>"
+      strength:
+        name: "<red>Fuerza</red>"
+        description: "<gray>Aumenta el daño de sus ataques.</gray>"
+        effect: "<gray>+<white><value></white> de daño de ataque</gray>"
+      speed:
+        name: "<aqua>Velocidad</aqua>"
+        description: "<gray>Aumenta su velocidad de movimiento.</gray>"
+        effect: "<gray>+<white><value></white>% de velocidad</gray>"
+      scent:
+        name: "<aqua>Olfato</aqua>"
+        description: "<gray>Amplía su radio de detección.</gray>"
+        effect: "<gray>+<white><value></white> bloques de alcance</gray>"
+      agility:
+        name: "<aqua>Agilidad</aqua>"
+        description: "<gray>Mejora sus movimientos ágiles.</gray>"
+        effect: "<gray>+<white><value></white>% de velocidad</gray>"
+      armor:
+        name: "<gray>Armadura</gray>"
+        description: "<gray>Reduce el daño que recibe.</gray>"
+        effect: "<gray>+<white><value></white> de armadura</gray>"
+      flight_speed:
+        name: "<aqua>Velocidad de vuelo</aqua>"
+        description: "<gray>Aumenta su velocidad en el aire.</gray>"
+        effect: "<gray>+<white><value></white>% de velocidad de vuelo</gray>"
+      alert_range:
+        name: "<yellow>Alcance de alerta</yellow>"
+        description: "<gray>Detecta amenazas desde más lejos.</gray>"
+        effect: "<gray>+<white><value></white> bloques de alcance</gray>"
+      knockback_resistance:
+        name: "<gray>Resistencia al empuje</gray>"
+        description: "<gray>Evita que los golpes la desplacen.</gray>"
+        effect: "<gray>+<white><value></white>% de resistencia al empuje</gray>"
+      claw_swipe:
+        name: "<light_purple>Zarpazo</light_purple>"
+        description: "<gray>Daña a enemigos cercanos en área.</gray>"
+        effect: "<gray>Desbloquea Zarpazo</gray>"
+      treasure_hunter:
+        name: "<light_purple>Buscatesoros</light_purple>"
+        description: "<gray>Señala tesoros y menas cercanas.</gray>"
+        effect: "<gray>Desbloquea Buscatesoros</gray>"
+      feline_landing:
+        name: "<light_purple>Aterrizaje felino</light_purple>"
+        description: "<gray>Protege al dueño del daño por caída.</gray>"
+        effect: "<gray>Desbloquea Aterrizaje felino</gray>"
+      lookout:
+        name: "<light_purple>Vigía</light_purple>"
+        description: "<gray>Avisa y marca enemigos cercanos.</gray>"
+        effect: "<gray>Desbloquea Vigía</gray>"
+      courier_saddlebags:
+        name: "<light_purple>Alforjas mensajeras</light_purple>"
+        description: "<gray>Envía objetos a otro jugador.</gray>"
+        effect: "<gray>Desbloquea Alforjas mensajeras</gray>"
+  admin:
+    header-name: "<gold><bold>NeoPets · Administración</bold></gold>"
+    header-count: "<gray>Ajustes disponibles: <white><count></white></gray>"
+    page-number: "<gray>Página <white><page></white>/<pages></gray>"
+    current-enabled: "<gray>Valor: <green>● Activado</green></gray>"
+    current-disabled: "<gray>Valor: <red>○ Desactivado</red></gray>"
+    current-number: "<gray>Valor: <white><value></white></gray>"
+    range: "<gray>Rango: <white><minimum></white> – <white><maximum></white></gray>"
+    unbounded: "sin límite"
+    duration-seconds: "<value> s"
+    duration-minutes: "<value> min"
+    duration-hours: "<value> h"
+    duration-days: "<value> d"
+    toggle-action: "<yellow>Clic <dark_gray>» <gray>Alternar</gray></dark_gray></yellow>"
+    number-action: "<yellow>Clic izq. <dark_gray>» <gray>+<step>  ·  Clic der. » -<step>  ·  Shift » ×10</gray></dark_gray></yellow>"
+    previous-page: "<white>Página anterior</white>"
+    next-page: "<white>Página siguiente</white>"
+    close: "<red>Cerrar</red>"
+    help-name: "<aqua>Ayuda</aqua>"
+    help-lore: |-
+      <gray>Activa funciones y ajusta sus valores.</gray>
+      <gray>Los cambios se validan y recargan al instante.</gray>
+    help-message: "<gray>Los cambios válidos se guardan y recargan sin reiniciar el servidor.</gray>"
+    features:
+      death-enabled:
+        name: "<white>Muerte de mascotas</white>"
+        description: "<dark_gray>Permite que las mascotas mueran.</dark_gray>"
+      death-pvp:
+        name: "<white>Daño PvP</white>"
+        description: "<dark_gray>Permite que otros jugadores dañen mascotas.</dark_gray>"
+      death-keep-skills:
+        name: "<white>Conservar habilidades</white>"
+        description: "<dark_gray>Mantiene el progreso al revivir.</dark_gray>"
+      shop-enabled:
+        name: "<white>Tienda de mascotas</white>"
+        description: "<dark_gray>Permite comprar mascotas con dinero.</dark_gray>"
+      rename-enabled:
+        name: "<white>Renombrar mascotas</white>"
+        description: "<dark_gray>Permite que los jugadores cambien sus nombres.</dark_gray>"
+      reset-player-enabled:
+        name: "<white>Reinicio por jugadores</white>"
+        description: "<dark_gray>Permite reiniciar árboles de habilidades.</dark_gray>"
+      reset-cost:
+        name: "<white>Coste de reinicio</white>"
+        description: "<dark_gray>Precio de un reinicio de árbol.</dark_gray>"
+      courier-request-timeout:
+        name: "<white>Espera de mensajería</white>"
+        description: "<dark_gray>Segundos antes de expirar una solicitud.</dark_gray>"
+      courier-cooldown:
+        name: "<white>Recarga de mensajería</white>"
+        description: "<dark_gray>Segundos entre envíos del burro.</dark_gray>"
+      zarpazo-cooldown:
+        name: "<white>Recarga de Zarpazo</white>"
+        description: "<dark_gray>Segundos entre usos de Zarpazo.</dark_gray>"
+      zarpazo-radius:
+        name: "<white>Radio de Zarpazo</white>"
+        description: "<dark_gray>Alcance del daño en área en bloques.</dark_gray>"
+      zarpazo-damage:
+        name: "<white>Daño de Zarpazo</white>"
+        description: "<dark_gray>Daño infligido a cada objetivo cercano.</dark_gray>"
+      vigia-cooldown:
+        name: "<white>Recarga de Vigía</white>"
+        description: "<dark_gray>Segundos entre usos de Vigía.</dark_gray>"
+      vigia-radius:
+        name: "<white>Radio de Vigía</white>"
+        description: "<dark_gray>Alcance de detección en bloques.</dark_gray>"
+      vigia-duration:
+        name: "<white>Duración de Vigía</white>"
+        description: "<dark_gray>Segundos que permanecen marcados los enemigos.</dark_gray>"
+      zarpazo-enabled:
+        name: "<white>Zarpazo</white>"
+        description: "<dark_gray>Activa el ataque en área del oso polar.</dark_gray>"
+      vigia-enabled:
+        name: "<white>Vigía</white>"
+        description: "<dark_gray>Activa las alertas del loro.</dark_gray>"
+      buscatesoros-enabled:
+        name: "<white>Buscatesoros</white>"
+        description: "<dark_gray>Activa la búsqueda de tesoros del perro.</dark_gray>"
+      buscatesoros-cooldown:
+        name: "<white>Recarga de Buscatesoros</white>"
+        description: "<dark_gray>Segundos entre búsquedas de tesoros.</dark_gray>"
+      buscatesoros-radius:
+        name: "<white>Radio de Buscatesoros</white>"
+        description: "<dark_gray>Radio base de búsqueda en bloques.</dark_gray>"
+      buscatesoros-duration:
+        name: "<white>Duración de Buscatesoros</white>"
+        description: "<dark_gray>Segundos que permanecen marcados los tesoros.</dark_gray>"
+      buscatesoros-max-targets:
+        name: "<white>Objetivos de Buscatesoros</white>"
+        description: "<dark_gray>Máximo de objetivos marcados por búsqueda.</dark_gray>"
+      buscatesoros-max-scan-blocks:
+        name: "<white>Bloques de Buscatesoros</white>"
+        description: "<dark_gray>Máximo de bloques examinados por búsqueda.</dark_gray>"
+      aterrizaje-felino-enabled:
+        name: "<white>Aterrizaje felino</white>"
+        description: "<dark_gray>Protege al dueño del daño por caída.</dark_gray>"
+
+admin:
+  feature-enabled: "<green><feature> activada.</green>"
+  feature-disabled: "<yellow><feature> desactivada.</yellow>"
+  value-updated: "<green><setting> ahora vale <value>.</green>"
+  edit-invalid: "<red>El cambio no es válido y no se guardó.</red>"
+
+updater:
+  usage: '<yellow>Uso: /neopets update [check]</yellow>'
+  checked: '<gray>Instalada: <installed>; última: <latest>. <status>. <name> — <notes></gray>'
+  staged: '<green>Actualización <version> verificada y preparada. Reinicia el servidor.</green>'
+  disabled: '<red>El actualizador está desactivado.</red>'
+  no-token: '<red>Configura updater.github-token o NEOPETS_GITHUB_TOKEN.</red>'
+  unauthorized: '<red>GitHub rechazó el token (401).</red>'
+  forbidden: '<red>El token no tiene acceso al repositorio (403).</red>'
+  not-found: '<red>No se encontró el repositorio o una release accesible (404).</red>'
+  rate-limited: '<red>Límite de GitHub alcanzado; inténtalo más tarde.</red>'
+  no-newer-version: '<yellow>No hay una versión más reciente; no se permiten versiones iguales ni anteriores.</yellow>'
+  missing-asset: '<red>La release no contiene todos los archivos requeridos.</red>'
+  checksum-mismatch: '<red>SHA-256 incorrecto; actualización rechazada.</red>'
+  bad-signature: '<red>Firma Ed25519 inválida; actualización rechazada.</red>'
+  version-mismatch: '<red>La versión del JAR falta, no es válida o no coincide con la publicación; actualización rechazada.</red>'
+  placeholder-key: '<red>Falta la clave pública real incluida en el plugin (PLACEHOLDER). Actualización rechazada.</red>'
+  io-error: '<red>No se pudo consultar, verificar o guardar la actualización.</red>'
+  busy: '<yellow>Ya hay una operación de actualización en curso.</yellow>'
+  available: "Hay una actualización disponible"
+  current: "No hay una versión más reciente"

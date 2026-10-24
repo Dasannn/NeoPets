@@ -1,0 +1,43 @@
+type: donkey
+attributes:
+  health:
+    category: vanilla
+    max-level: 5
+    effect: max_health
+    values: [2, 4, 6, 8, 10]
+    money-costs: [100, 250, 500, 1000, 2000]
+    skill-point-cost: 1
+  regeneration:
+    category: vanilla
+    max-level: 5
+    effect: regeneration
+    values: [1, 2, 3, 4, 5]
+    money-costs: [150, 300, 600, 1200, 2400]
+    skill-point-cost: 1
+  sure_footing:
+    category: vanilla
+    max-level: 1
+    effect: movement_efficiency
+    values: [1]
+    money-costs: [1500]
+    skill-point-cost: 1
+  armor:
+    category: vanilla
+    max-level: 5
+    effect: armor
+    values: [1, 2, 3, 4, 5]
+    money-costs: [100, 250, 500, 1000, 2000]
+    skill-point-cost: 1
+  knockback_resistance:
+    category: vanilla
+    max-level: 5
+    effect: knockback_resistance
+    values: [0.1, 0.2, 0.3, 0.4, 0.5]
+    money-costs: [150, 300, 600, 1200, 2400]
+    skill-point-cost: 1
+  courier_saddlebags:
+    category: custom
+    max-level: 1
+    effect: courier_saddlebags
+    money-costs: [5000]
+    skill-point-cost: 1

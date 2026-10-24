@@ -1,0 +1,43 @@
+type: parrot
+attributes:
+  health:
+    category: vanilla
+    max-level: 5
+    effect: max_health
+    values: [2, 4, 6, 8, 10]
+    money-costs: [100, 250, 500, 1000, 2000]
+    skill-point-cost: 1
+  regeneration:
+    category: vanilla
+    max-level: 5
+    effect: regeneration
+    values: [1, 2, 3, 4, 5]
+    money-costs: [150, 300, 600, 1200, 2400]
+    skill-point-cost: 1
+  fire_resistance:
+    category: vanilla
+    max-level: 1
+    effect: fire_resistance
+    values: [1]
+    money-costs: [1500]
+    skill-point-cost: 1
+  flight_speed:
+    category: vanilla
+    max-level: 5
+    effect: flying_speed
+    values: [0.05, 0.1, 0.15, 0.2, 0.25]
+    money-costs: [100, 250, 500, 1000, 2000]
+    skill-point-cost: 1
+  alert_range:
+    category: vanilla
+    max-level: 5
+    effect: detection_radius
+    values: [4, 8, 12, 16, 20]
+    money-costs: [150, 300, 600, 1200, 2400]
+    skill-point-cost: 1
+  lookout:
+    category: custom
+    max-level: 1
+    effect: lookout
+    money-costs: [5000]
+    skill-point-cost: 1
